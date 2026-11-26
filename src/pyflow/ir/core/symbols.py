@@ -21,7 +21,7 @@ class SymbolKind(str, Enum):
     PATTERN = "pattern"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Symbol:
     id: SymbolId
     name: str
@@ -36,7 +36,7 @@ class Symbol:
         return self.name
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Value:
     id: ValueId
     definition: NodeId | None = None
@@ -159,6 +159,7 @@ class ValueTable:
         self._next_version[symbol] = version + 1
         value = Value(ValueId(symbol, version), definition, undefined)
         self._values[value.id] = value
+        self._by_code.setdefault(symbol.scope.code, {})[value.id] = value
         return value
 
     def __getitem__(self, value_id: ValueId) -> Value:

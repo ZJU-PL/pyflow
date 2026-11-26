@@ -71,6 +71,9 @@ def _compute_required_passes(args) -> list[str]:
 
 def _source_query_index(input_path: Path) -> SourceIndex:
     """Build the lightweight AST index used by source-only queries."""
+    from pyflow.frontend.source import read_python_source
+    from pyflow.ir.mir.lowering import _default_root
+
     if input_path.is_file():
         root = input_path.parent
         python_files = [input_path]
@@ -79,13 +82,18 @@ def _source_query_index(input_path: Path) -> SourceIndex:
         python_files = sorted(
             path
             for path in root.rglob("*.py")
-            if not any(part.startswith(".") for part in path.relative_to(root).parts)
-            and not set(path.parts).intersection(_IGNORED_DIRECTORY_NAMES)
+            if not any(
+                part.startswith(".") or part in _IGNORED_DIRECTORY_NAMES
+                for part in path.relative_to(root).parts
+            )
         )
-    from pyflow.ir.mir.lowering import _default_root
-
     root = _default_root(root / "__init__.py")
-    source_files = {str(path.absolute()): path.read_text(encoding="utf-8") for path in python_files}
+    source_files: dict[str, str] = {}
+    for path in python_files:
+        try:
+            source_files[str(path.absolute())] = read_python_source(path)
+        except (OSError, SyntaxError, UnicodeError):
+            continue
     return SourceIndex(source_files, (root.absolute(),))
 
 

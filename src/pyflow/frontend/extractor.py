@@ -549,6 +549,9 @@ class Extractor:
 
         imported_names = self._module_imports.get(module_name, {})
 
+        existing_before = self.class_hierarchy.get_class_info(qualified_name)
+        prior_resolved_bases = list(existing_before.resolved_bases) if existing_before else []
+
         # Enhanced base class resolution with better error reporting
         resolved_bases = []
         unresolved_bases = []
@@ -556,7 +559,14 @@ class Extractor:
             resolved = self.class_hierarchy.resolve_base_class(
                 base_name, module_name, imported_names
             )
-            if resolved:
+            if resolved == qualified_name:
+                # Re-definition inheriting from its prior binding in the same module
+                # (e.g. `class C(Base): ...; class C(C): ...`) inherits the prior
+                # class's bases rather than forming a self-cycle.
+                for prior_base in prior_resolved_bases:
+                    if prior_base != qualified_name and prior_base not in resolved_bases:
+                        resolved_bases.append(prior_base)
+            elif resolved:
                 resolved_bases.append(resolved)
             else:
                 unresolved_bases.append(base_name)

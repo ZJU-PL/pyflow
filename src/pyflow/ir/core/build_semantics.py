@@ -30,22 +30,66 @@ _ALLOCATION_TYPES = (
     ast.MakeFunction,
 )
 _CALL_TYPES = (ast.Call, ast.MethodCall, ast.DirectCall)
+_LEAF_AST_TYPES = (ast.Existing, ast.Local, ast.Cell, ast.DoNotCare)
+_ATTR_SUBSCRIPT_TYPES = (
+    ast.GetAttr,
+    ast.SetAttr,
+    ast.DeleteAttr,
+    ast.GetSubscript,
+    ast.SetSubscript,
+    ast.DeleteSubscript,
+    ast.Load,
+    ast.Store,
+    ast.Check,
+)
+_CONTROL_NORMAL = ControlEffects()
+_CONTROL_RETURN = ControlEffects(normal=False, returns=True)
+_CONTROL_RAISE = ControlEffects(normal=False, raises=True)
+_CONTROL_BREAK = ControlEffects(normal=False, breaks=True)
+_CONTROL_CONTINUE = ControlEffects(normal=False, continues=True)
+_CONTROL_YIELD = ControlEffects(yields=True)
+_CONTROL_ASSERT = ControlEffects(raises=True)
+_CONTROL_CALL = ControlEffects(raises=True, errors=True)
+_CONTROL_ATTR_SUBSCRIPT = ControlEffects(errors=True)
+_CALL_READ_STORAGE = UnknownStorage("call-read")
+_CALL_WRITE_STORAGE = UnknownStorage("call-write")
+_CELL_UNKNOWN_STORAGE = UnknownStorage("cell")
+_CALL_DIAGNOSTICS = ("call heap effects require points-to refinement",)
+_EMPTY_SEMANTICS = OperationSemantics(control=_CONTROL_NORMAL)
 H = TypeVar("H", bound=Hashable)
 
 
-def _flatten(value):
+def _flatten_into(value, out: list) -> None:
     if isinstance(value, (tuple, list)):
         for item in value:
-            yield from _flatten(item)
+            if isinstance(item, (tuple, list)):
+                _flatten_into(item, out)
+            elif item is not None:
+                out.append(item)
     elif value is not None:
-        yield value
+        out.append(value)
 
 
-def _children(node):
+def _children(node) -> tuple[object, ...]:
+    if type(node) in _LEAF_AST_TYPES:
+        return ()
     if isinstance(node, (tuple, list)):
-        return tuple(_flatten(node))
+        out: list = []
+        _flatten_into(node, out)
+        return tuple(out)
     children = getattr(node, "children", None)
-    return tuple(_flatten(children())) if children is not None else ()
+    if children is None:
+        return ()
+    raw = children()
+    out = []
+    for item in raw:
+        if item is None:
+            continue
+        if isinstance(item, (tuple, list)):
+            _flatten_into(item, out)
+        else:
+            out.append(item)
+    return tuple(out)
 
 
 def _dedupe(values: Iterable[H]) -> tuple[H, ...]:
@@ -130,7 +174,7 @@ def _storage_for_expr(catalog: IRCatalog, code_id, node) -> tuple[StorageLocatio
         if catalog.has_symbol(cell, code_id):
             bases = (CellStorage(catalog.symbol_id(cell, code_id)),)
         else:
-            bases = (UnknownStorage("cell"),)
+            bases = (_CELL_UNKNOWN_STORAGE,)
     elif isinstance(current, ast.GetGlobal):
         bases = (GlobalStorage("", str(_literal_name(current.name))),)
     else:
@@ -199,35 +243,22 @@ def _explicit_storage(catalog: IRCatalog, code_id, node):
 
 def _control_effects(node) -> ControlEffects:
     if isinstance(node, ast.Return):
-        return ControlEffects(normal=False, returns=True)
+        return _CONTROL_RETURN
     if isinstance(node, ast.Raise):
-        return ControlEffects(normal=False, raises=True)
+        return _CONTROL_RAISE
     if isinstance(node, ast.Break):
-        return ControlEffects(normal=False, breaks=True)
+        return _CONTROL_BREAK
     if isinstance(node, ast.Continue):
-        return ControlEffects(normal=False, continues=True)
+        return _CONTROL_CONTINUE
     if isinstance(node, (ast.Yield, ast.YieldFrom, ast.AsyncYield)):
-        return ControlEffects(yields=True)
+        return _CONTROL_YIELD
     if isinstance(node, ast.Assert):
-        return ControlEffects(raises=True)
+        return _CONTROL_ASSERT
     if isinstance(node, _CALL_TYPES):
-        return ControlEffects(raises=True, errors=True)
-    if isinstance(
-        node,
-        (
-            ast.GetAttr,
-            ast.SetAttr,
-            ast.DeleteAttr,
-            ast.GetSubscript,
-            ast.SetSubscript,
-            ast.DeleteSubscript,
-            ast.Load,
-            ast.Store,
-            ast.Check,
-        ),
-    ):
-        return ControlEffects(errors=True)
-    return ControlEffects()
+        return _CONTROL_CALL
+    if isinstance(node, _ATTR_SUBSCRIPT_TYPES):
+        return _CONTROL_ATTR_SUBSCRIPT
+    return _CONTROL_NORMAL
 
 
 def _call_arguments(call) -> tuple[object, ...]:
@@ -370,6 +401,8 @@ def build_semantics(
         while cursor < len(pending):
             parent_id, parent = pending[cursor]
             cursor += 1
+            if type(parent) in _LEAF_AST_TYPES:
+                continue
             for child in children(parent):
                 if not isinstance(child, ast.PythonASTNode) or isinstance(child, ast.Code):
                     continue
@@ -411,6 +444,10 @@ def build_semantics(
         """
         if isinstance(root, (tuple, list)):
             return tuple(local for child in root for local in local_occurrences(child))
+        root_id = id(root)
+        cached = local_occurrences_by_identity.get(root_id)
+        if cached is not None:
+            return cached
         stack = [(root, False)]
         while stack:
             node, expanded = stack.pop()
@@ -424,6 +461,13 @@ def build_semantics(
             identity = id(node)
             if identity in local_occurrences_by_identity:
                 continue
+            node_type = type(node)
+            if node_type is ast.Local:
+                local_occurrences_by_identity[identity] = (node,)
+                continue
+            if node_type is ast.Existing or node_type is ast.DoNotCare or node_type is ast.Code:
+                local_occurrences_by_identity[identity] = ()
+                continue
             if isinstance(node, ast.Local):
                 local_occurrences_by_identity[identity] = (node,)
                 continue
@@ -431,23 +475,35 @@ def build_semantics(
                 local_occurrences_by_identity[identity] = ()
                 continue
             if expanded:
-                local_occurrences_by_identity[identity] = tuple(
-                    local
-                    for child in children(node)
-                    for local in local_occurrences_by_identity.get(id(child), ())
-                )
+                collected: list[ast.Local] = []
+                for child in children(node):
+                    sub = local_occurrences_by_identity.get(id(child))
+                    if sub:
+                        collected.extend(sub)
+                local_occurrences_by_identity[identity] = tuple(collected) if collected else ()
                 continue
             stack.append((node, True))
-            for child in reversed(list(children(node))):
+            for child in reversed(children(node)):
+                if type(child) is ast.Existing:
+                    continue
                 stack.append((child, False))
-        return local_occurrences_by_identity.get(id(root), ())
+        return local_occurrences_by_identity.get(root_id, ())
 
     # A Local/Cell occurrence's binding is immutable for the duration of this
     # pass, but container semantics encounter the same occurrence once for
     # every ancestor.  Cache the combined symbol/value lookup by identity so
     # those ancestors do not repeatedly traverse the catalog's nested ID keys.
     reference_bindings: dict[tuple[int, int], tuple[SymbolId, SymbolId | ValueId] | None] = {}
+    local_storage_by_symbol: dict[SymbolId, LocalStorage] = {}
+    local_semantics_by_binding: dict[tuple[SymbolId, SymbolId | ValueId], OperationSemantics] = {}
     missing_binding = object()
+
+    def local_storage(symbol_id: SymbolId) -> LocalStorage:
+        storage = local_storage_by_symbol.get(symbol_id)
+        if storage is None:
+            storage = LocalStorage(symbol_id)
+            local_storage_by_symbol[symbol_id] = storage
+        return storage
 
     def reference_binding(reference, code_id) -> tuple[SymbolId, SymbolId | ValueId] | None:
         key = (id(code_id), id(reference))
@@ -471,53 +527,106 @@ def build_semantics(
         catalog.semantics.clear()
     else:
         catalog.semantics.discard_codes(scope)
+    set_operation = catalog.semantics.set_operation
     for node_id, node in in_scope_nodes():
+        node_type = type(node)
+        if node_type is ast.Existing or node_type is ast.DoNotCare:
+            set_operation(node_id, _EMPTY_SEMANTICS)
+            continue
+        if node_type is ast.Local:
+            binding = reference_binding(node, node_id.code)
+            if binding is None:
+                set_operation(node_id, _EMPTY_SEMANTICS)
+            else:
+                sem = local_semantics_by_binding.get(binding)
+                if sem is None:
+                    symbol_id, value_id = binding
+                    sem = OperationSemantics(
+                        uses=(value_id,),
+                        reads=(local_storage(symbol_id),),
+                        control=_CONTROL_NORMAL,
+                    )
+                    local_semantics_by_binding[binding] = sem
+                set_operation(node_id, sem)
+            continue
+
         definition_references = _definition_references(node)
         definition_symbols: list[SymbolId] = []
         definitions: list[SymbolId | ValueId] = []
-        for reference in definition_references:
-            binding = reference_binding(reference, node_id.code)
-            if binding is None:
-                continue
-            symbol_id, value_id = binding
-            definition_symbols.append(symbol_id)
-            definitions.append(value_id)
+        if definition_references:
+            for reference in definition_references:
+                binding = reference_binding(reference, node_id.code)
+                if binding is None:
+                    continue
+                symbol_id, value_id = binding
+                definition_symbols.append(symbol_id)
+                definitions.append(value_id)
 
-        skipped = {id(reference) for reference in definition_references}
-        use_symbols_list: list[SymbolId] = []
-        uses_list: list[SymbolId | ValueId] = []
-        seen_symbols: set[int] = set()
-        seen_values: set[int] = set()
-        for local in local_occurrences(node):
-            if id(local) in skipped:
-                continue
-            binding = reference_binding(local, node_id.code)
+        locals_in_node = local_occurrences(node)
+        if not locals_in_node:
+            use_symbols: tuple[SymbolId, ...] = ()
+            uses: tuple[SymbolId | ValueId, ...] = ()
+        elif len(locals_in_node) == 1 and not definition_references:
+            binding = reference_binding(locals_in_node[0], node_id.code)
             if binding is None:
-                continue
-            symbol_id, value_id = binding
-            symbol_marker = id(symbol_id)
-            if symbol_marker not in seen_symbols:
-                seen_symbols.add(symbol_marker)
-                use_symbols_list.append(symbol_id)
-            value_marker = id(value_id)
-            if value_marker not in seen_values:
-                seen_values.add(value_marker)
-                uses_list.append(value_id)
-        use_symbols = tuple(use_symbols_list)
-        uses = tuple(uses_list)
-        reads: list[StorageLocation] = [LocalStorage(symbol) for symbol in use_symbols]
-        writes: list[StorageLocation] = [LocalStorage(symbol) for symbol in definition_symbols]
+                use_symbols = ()
+                uses = ()
+            else:
+                use_symbols = (binding[0],)
+                uses = (binding[1],)
+        else:
+            skipped = (
+                {id(reference) for reference in definition_references}
+                if definition_references
+                else ()
+            )
+            use_symbols_list: list[SymbolId] = []
+            uses_list: list[SymbolId | ValueId] = []
+            seen_symbols: set[int] = set()
+            seen_values: set[int] = set()
+            for local in locals_in_node:
+                if skipped and id(local) in skipped:
+                    continue
+                binding = reference_binding(local, node_id.code)
+                if binding is None:
+                    continue
+                symbol_id, value_id = binding
+                symbol_marker = id(symbol_id)
+                if symbol_marker not in seen_symbols:
+                    seen_symbols.add(symbol_marker)
+                    use_symbols_list.append(symbol_id)
+                value_marker = id(value_id)
+                if value_marker not in seen_values:
+                    seen_values.add(value_marker)
+                    uses_list.append(value_id)
+            use_symbols = tuple(use_symbols_list)
+            uses = tuple(uses_list)
+
+        reads: list[StorageLocation] = [local_storage(symbol) for symbol in use_symbols]
+        writes: list[StorageLocation] = [local_storage(symbol) for symbol in definition_symbols]
         explicit_reads, explicit_writes = _explicit_storage(catalog, node_id.code, node)
-        reads.extend(explicit_reads)
-        writes.extend(explicit_writes)
+        if explicit_reads:
+            reads.extend(explicit_reads)
+        if explicit_writes:
+            writes.extend(explicit_writes)
         allocations = (AllocationSiteId(node_id, 0),) if isinstance(node, _ALLOCATION_TYPES) else ()
         calls = _register_call(catalog, node, node_id)
         complete = not isinstance(node, _CALL_TYPES)
-        diagnostics = ("call heap effects require points-to refinement",) if not complete else ()
+        diagnostics = _CALL_DIAGNOSTICS if not complete else ()
         if not complete:
-            reads.append(UnknownStorage("call-read"))
-            writes.append(UnknownStorage("call-write"))
-        catalog.semantics.set_operation(
+            reads.append(_CALL_READ_STORAGE)
+            writes.append(_CALL_WRITE_STORAGE)
+        node_children = children(node)
+        eval_order = (
+            tuple(
+                catalog.node_id(child, node_id.code)
+                for child in node_children
+                if isinstance(child, ast.PythonASTNode) and not isinstance(child, ast.Code)
+            )
+            if node_children
+            else ()
+        )
+        set_operation(
             node_id,
             OperationSemantics(
                 definitions=_dedupe(tuple(definitions)),
@@ -526,11 +635,7 @@ def build_semantics(
                 writes=_dedupe(writes),
                 allocations=allocations,
                 calls=calls,
-                evaluation_order=tuple(
-                    catalog.node_id(child, node_id.code)
-                    for child in children(node)
-                    if isinstance(child, ast.PythonASTNode) and not isinstance(child, ast.Code)
-                ),
+                evaluation_order=eval_order,
                 control=_control_effects(node),
                 complete=complete,
                 diagnostics=diagnostics,

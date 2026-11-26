@@ -4,6 +4,8 @@ This module provides simplification passes for control flow graphs,
 including dead flow elimination, optimization, and garbage collection.
 """
 
+from pyflow.ir.core import ensure_code_indexed, index_cfg
+
 from . import killflow, optimize, gc
 from .revision import CFGTransformTransaction
 
@@ -19,4 +21,9 @@ def evaluate(compiler, g, *, commit_revision=True):
     killflow.evaluate(compiler, g)
     optimize.evaluate(compiler, g, commit_revision=False)
     gc.evaluate(compiler, g)
-    return transaction.commit() if transaction is not None else None
+    if transaction is not None:
+        return transaction.commit()
+    if getattr(g, "code", None) is not None:
+        catalog = ensure_code_indexed(g.code, rebuild_semantics=False)
+        index_cfg(catalog, g, rebuild_semantics=False)
+    return None

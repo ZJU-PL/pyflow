@@ -165,15 +165,27 @@ def index_code(
         parameters.kparam,
     ]
     for local in declared_parameters:
-        if not isinstance(local, ast.Local) or local.name is None:
+        if not isinstance(local, ast.Local):
             continue
-        symbol = catalog.symbols.intern(
-            scope,
-            local.name,
-            SymbolKind.PARAMETER,
-            declaration_origin=_source_origin(local),
-        )
-        parameter_ids[local.name] = symbol.id
+        if local.name is None:
+            if not first_index and catalog.has_symbol(local, code):
+                bound_references.add(id(local))
+                continue
+            ordinal = len(catalog.symbols)
+            symbol = catalog.symbols.fresh(
+                scope,
+                f"param{ordinal}",
+                SymbolKind.PARAMETER,
+                declaration_origin=_source_origin(local),
+            )
+        else:
+            symbol = catalog.symbols.intern(
+                scope,
+                local.name,
+                SymbolKind.PARAMETER,
+                declaration_origin=_source_origin(local),
+            )
+            parameter_ids[local.name] = symbol.id
         catalog.bind_symbol(local, symbol.id, invalidate_semantics=False)
         bound_references.add(id(local))
         catalog.source_map.set_declaration(symbol.id, symbol.declaration_origin)
@@ -182,10 +194,17 @@ def index_code(
 
     return_ids: dict[str, SymbolId] = {}
     for local in parameters.returnparams:
-        if not isinstance(local, ast.Local) or local.name is None:
+        if not isinstance(local, ast.Local):
             continue
-        symbol = catalog.symbols.intern(scope, local.name, SymbolKind.RETURN)
-        return_ids[local.name] = symbol.id
+        if local.name is None:
+            if not first_index and catalog.has_symbol(local, code):
+                bound_references.add(id(local))
+                continue
+            ordinal = len(catalog.symbols)
+            symbol = catalog.symbols.fresh(scope, f"ret{ordinal}", SymbolKind.RETURN)
+        else:
+            symbol = catalog.symbols.intern(scope, local.name, SymbolKind.RETURN)
+            return_ids[local.name] = symbol.id
         catalog.bind_symbol(local, symbol.id, invalidate_semantics=False)
         bound_references.add(id(local))
 
@@ -593,15 +612,20 @@ def ensure_codes_indexed(codes: Iterable[ast.Code], *, rebuild_semantics: bool =
 
 def index_cfg(catalog: IRCatalog, cfg, *, rebuild_semantics: bool = True) -> None:
     """Index AST operations introduced or cloned by CFG transformations."""
+    from collections import deque
+
     from pyflow.ir.cfg import graph as cfg_graph
 
     code = cfg.code
     procedure = catalog.procedure(code)
     scope = procedure.root_scope
+    mutated_semantics = False
 
     def bind_reference(reference, origin):
+        nonlocal mutated_semantics
         if catalog.has_symbol(reference, code):
             return
+        mutated_semantics = True
         name = getattr(reference, "name", None)
         kind = SymbolKind.CELL if isinstance(reference, ast.Cell) else _symbol_kind(name or "")
         symbol = None
@@ -639,6 +663,7 @@ def index_cfg(catalog: IRCatalog, cfg, *, rebuild_semantics: bool = True) -> Non
     seen_ast: set[int] = set()
 
     def visit_ast(root, inherited_origin=None):
+        nonlocal mutated_semantics
         # Explicit worklist: node registration must not recurse once per AST
         # level (deeply nested expressions are legal).
         worklist = [(root, inherited_origin)]
@@ -656,7 +681,9 @@ def index_cfg(catalog: IRCatalog, cfg, *, rebuild_semantics: bool = True) -> Non
             if isinstance(node, ast.Code) and node is not code:
                 continue
             origin = _source_origin(node, inherited)
-            catalog.register_node(procedure.code_id, node, origin=origin)
+            if not catalog.has_node(node, procedure.code_id):
+                mutated_semantics = True
+                catalog.register_node(procedure.code_id, node, origin=origin)
             if isinstance(node, (ast.Local, ast.Cell)):
                 bind_reference(node, origin)
                 continue
@@ -670,10 +697,10 @@ def index_cfg(catalog: IRCatalog, cfg, *, rebuild_semantics: bool = True) -> Non
         cfg.failTerminal,
         cfg.errorTerminal,
     )
-    pending = [cfg.entryTerminal]
+    pending = deque([cfg.entryTerminal])
     ordered_blocks = []
     while pending:
-        block = pending.pop(0)
+        block = pending.popleft()
         if block in visited_blocks:
             continue
         visited_blocks.add(block)
@@ -710,7 +737,10 @@ def index_cfg(catalog: IRCatalog, cfg, *, rebuild_semantics: bool = True) -> Non
         tuple(edge_specs),
     )
 
-    if rebuild_semantics:
+    semantics_up_to_date = (
+        catalog.semantics.ready and procedure.code_id not in catalog.semantics.dirty_codes
+    )
+    if rebuild_semantics and (mutated_semantics or not semantics_up_to_date):
         from .build_semantics import build_semantics
 
         # Only this procedure's CFG changed; rebuilding the whole program's

@@ -321,7 +321,7 @@ class SSARename(TypeDispatcher):
         Returns:
             ast.Local: Cloned local variable, or None if lcl is None
         """
-        if lcl:
+        if isinstance(lcl, ast.Local):
             result = lcl.clone()
             key = local_key(self.catalog, self.code, lcl)
             self.catalog.bind_symbol(result, key)
@@ -338,8 +338,7 @@ class SSARename(TypeDispatcher):
                 value = self.catalog.values.define(key, definition_id, undefined=undefined)
                 self.catalog.bind_value(self.code, result, value.id)
             return result
-        else:
-            return None
+        return lcl
 
     def renameWithFrame(self, node, frame):
         previous = self.currentFrame
@@ -927,18 +926,23 @@ def _lower_function_definitions(g, catalog):
         return operations
 
     pending, seen = [g.entryTerminal], set()
+    lowered = False
     while pending:
         block = pending.pop()
         if block in seen:
             continue
         seen.add(block)
-        if isinstance(block, cfg.Suite):
+        if isinstance(block, cfg.Suite) and any(
+            isinstance(node, ast.FunctionDef) for node in block.ops
+        ):
+            lowered = True
             block.ops = [operation for node in block.ops for operation in lower(node)]
         pending.extend(block.forward())
-    index_cfg(catalog, g)
+    if lowered:
+        index_cfg(catalog, g)
 
 
-def evaluate(compiler, g):
+def evaluate(compiler, g, *, commit_revision: bool = True):
     """Convert a CFG to SSA form.
 
     Main entry point for SSA conversion. Performs:
@@ -1022,7 +1026,7 @@ def evaluate(compiler, g):
     for node in order:
         ssar(node)
     ssar.doFixup()
-    return transaction.commit()
+    return transaction.commit(commit_revision=commit_revision)
 
 
 def _contains_phi(entry):

@@ -11,7 +11,7 @@ from .ids import AllocationSiteId, CallSiteId, CodeId, NodeId, SymbolId, ValueId
 from .storage import StorageLocation
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ControlEffects:
     normal: bool = True
     raises: bool = False
@@ -22,7 +22,7 @@ class ControlEffects:
     continues: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CallSite:
     id: CallSiteId
     operation: NodeId
@@ -36,7 +36,7 @@ class CallSite:
     symbolic_name: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class OperationSemantics:
     definitions: tuple[SymbolId | ValueId, ...] = ()
     uses: tuple[SymbolId | ValueId, ...] = ()

@@ -433,8 +433,15 @@ class ClassHierarchy:
 
         cls_info = self.classes.get(qualified_name)
         if cls_info is None:
-            result = [qualified_name]
-            self._mro_cache[qualified_name] = result
+            # Every Python 3 class implicitly inherits from builtins.object; keep
+            # object at the tail when an unregistered/external class participates
+            # in a registered class's C3 linearization so object never precedes
+            # external bases.
+            result = (
+                ["builtins.object"]
+                if qualified_name == "builtins.object"
+                else [qualified_name, "builtins.object"]
+            )
             visited.remove(qualified_name)
             return result
 

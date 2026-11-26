@@ -1786,6 +1786,31 @@ class _IndexVisitor(ast.NodeVisitor):
     def _current_scope(self) -> _Scope:
         return self._scopes[-1]
 
+    def _source_segment(self, node: ast.AST) -> Optional[str]:
+        """Slice *node*'s source text using already-split ``self.lines`` in O(1)."""
+        lineno = getattr(node, "lineno", None)
+        end_lineno = getattr(node, "end_lineno", None)
+        col_offset = getattr(node, "col_offset", None)
+        end_col_offset = getattr(node, "end_col_offset", None)
+        if lineno is None or end_lineno is None or col_offset is None or end_col_offset is None:
+            return None
+        start_idx = lineno - 1
+        end_idx = end_lineno - 1
+        if start_idx < 0 or end_idx >= len(self.lines) or start_idx > end_idx:
+            return None
+        if start_idx == end_idx:
+            line = self.lines[start_idx]
+            return line[
+                _byte_col_to_char(line, col_offset) : _byte_col_to_char(line, end_col_offset)
+            ]
+        first = self.lines[start_idx]
+        last = self.lines[end_idx]
+        parts = [first[_byte_col_to_char(first, col_offset) :]]
+        if end_idx - start_idx > 1:
+            parts.extend(self.lines[start_idx + 1 : end_idx])
+        parts.append(last[: _byte_col_to_char(last, end_col_offset)])
+        return "\n".join(parts)
+
     def _range(self, node: ast.AST, *, name: Optional[str] = None) -> SourceRange:
         start_line = max(getattr(node, "lineno", 1) - 1, 0)
         end_line = max(getattr(node, "end_lineno", start_line + 1) - 1, start_line)
@@ -2149,7 +2174,7 @@ class _IndexVisitor(ast.NodeVisitor):
         ]
         owner = ("symbol", self._current_scope.class_id)
         for item in value.elts:
-            escaped = _literal_payload(ast.get_source_segment(self.source, item)) != item.value
+            escaped = _literal_payload(self._source_segment(item)) != item.value
             location = self._range(item) if escaped else self._range(item, name=item.value)
             self.index._reference_targets[location] = ("member", owner, item.value, "read")
             self.index.references.append(
@@ -2173,7 +2198,7 @@ class _IndexVisitor(ast.NodeVisitor):
             name = key.value
             if not name.isidentifier():
                 continue
-            escaped = _literal_payload(ast.get_source_segment(self.source, key)) != name
+            escaped = _literal_payload(self._source_segment(key)) != name
             location = self._range(key) if escaped else self._range(key, name=name)
             self.index._reference_targets[location] = ("member", target, name, "read")
             self.index.references.append(
@@ -2208,7 +2233,7 @@ class _IndexVisitor(ast.NodeVisitor):
             name = item.value
             if not name.isidentifier():
                 continue
-            escaped = _literal_payload(ast.get_source_segment(self.source, item)) != name
+            escaped = _literal_payload(self._source_segment(item)) != name
             location = self._range(item) if escaped else self._range(item, name=name)
             symbol = self._add_local_definition_in_scope(
                 self._current_scope,
@@ -2245,7 +2270,7 @@ class _IndexVisitor(ast.NodeVisitor):
         for node in literals(value):
             symbol_id = self._resolve(node.value)
             if symbol_id and node.value.isidentifier():
-                escaped = _literal_payload(ast.get_source_segment(self.source, node)) != node.value
+                escaped = _literal_payload(self._source_segment(node)) != node.value
                 location = self._range(node) if escaped else self._range(node, name=node.value)
                 self.index.references.append(
                     SourceReference(
@@ -2628,7 +2653,7 @@ class _IndexVisitor(ast.NodeVisitor):
             expression = ast.parse(value, mode="eval").body
         except (SyntaxError, ValueError, RecursionError):
             return
-        segment = ast.get_source_segment(self.source, node)
+        segment = self._source_segment(node)
         if segment is None:
             return
         line_no = node.lineno - 1
@@ -3196,7 +3221,7 @@ class _IndexVisitor(ast.NodeVisitor):
         name = key.value
         if not name.isidentifier():
             return
-        escaped = _literal_payload(ast.get_source_segment(self.source, key)) != name
+        escaped = _literal_payload(self._source_segment(key)) != name
         location = self._range(key) if escaped else self._range(key, name=name)
         self.index._reference_targets[location] = ("member", self._target(node.value), name, "read")
         self.index.references.append(

@@ -19,6 +19,9 @@ from . import graph as cfg_graph
 from .verifier import verify_cfg
 
 
+from collections import deque
+
+
 def _blocks(cfg) -> tuple[object, ...]:
     terminals = (
         cfg.entryTerminal,
@@ -26,11 +29,11 @@ def _blocks(cfg) -> tuple[object, ...]:
         cfg.failTerminal,
         cfg.errorTerminal,
     )
-    pending = [cfg.entryTerminal]
+    pending = deque([cfg.entryTerminal])
     seen = set()
     ordered = []
     while pending:
-        block = pending.pop(0)
+        block = pending.popleft()
         if block in seen:
             continue
         seen.add(block)
@@ -147,7 +150,7 @@ class CFGTransformTransaction:
     def __init__(self, cfg, transform: str) -> None:
         self.cfg = cfg
         self.transform = transform
-        self.catalog: IRCatalog = ensure_code_indexed(cfg.code)
+        self.catalog: IRCatalog = ensure_code_indexed(cfg.code, rebuild_semantics=False)
         index_cfg(self.catalog, cfg)
         self.code_id = self.catalog.procedure(cfg.code).code_id
         self.before_revision: IRRevision = self.catalog.revision
@@ -196,7 +199,7 @@ class CFGTransformTransaction:
             ),
         )
 
-    def commit(self, generated_from=None) -> IRRemap:
+    def commit(self, generated_from=None, *, commit_revision: bool = True) -> IRRemap:
         generated_from = generated_from or {}
         index_cfg(self.catalog, self.cfg)
         after_nodes = {
@@ -207,7 +210,11 @@ class CFGTransformTransaction:
         }
         after_edges = {edge_id for edge_id, _edge in self.catalog.edges_for_code(self.code_id)}
         changed = self.before_fingerprint != self._fingerprint()
-        after_revision = self.catalog.commit_revision() if changed else self.before_revision
+        after_revision = (
+            self.catalog.commit_revision()
+            if (changed and commit_revision)
+            else self.before_revision
+        )
 
         if changed:
             for generated, sources in generated_from.items():

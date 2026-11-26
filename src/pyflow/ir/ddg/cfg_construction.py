@@ -32,7 +32,7 @@ class CFGOperation(df.GenericOp):
         return f"op({_ssa_repr(self.op)})"
 
 
-@dataclass(eq=False, repr=False)
+@dataclass(eq=False, repr=False, slots=True)
 class Point:
     block: object
     operation: object = None
@@ -58,6 +58,8 @@ class Point:
 
 def reaching(points, generators, kills=(), *, weak=False, readers=None):
     """Solve reaching program-point definitions to a fixed point."""
+    if not generators:
+        return {}
     incoming, outgoing = {}, {}
     needed = None
     if readers is not None and not weak:
@@ -97,6 +99,120 @@ def reaching(points, generators, kills=(), *, weak=False, readers=None):
             if successor not in queued and (needed is None or successor in needed):
                 queued.add(successor)
                 queue.append(successor)
+    return incoming
+
+
+def _build_chains(points):
+    """Partition *points* into maximal straight-line chains for fast dataflow."""
+    point_chain: dict[Point, int] = {}
+    point_offset: dict[Point, int] = {}
+    chains: list[list[Point]] = []
+
+    def is_chain_head(point: Point) -> bool:
+        if len(point.predecessors) != 1:
+            return True
+        pred = next(iter(point.predecessors))
+        return pred is point or len(pred.successors) != 1
+
+    def walk_chain(start: Point) -> None:
+        cid = len(chains)
+        chain: list[Point] = []
+        current = start
+        while True:
+            point_chain[current] = cid
+            point_offset[current] = len(chain)
+            chain.append(current)
+            if len(current.successors) != 1:
+                break
+            nxt = next(iter(current.successors))
+            if nxt in point_chain or len(nxt.predecessors) != 1:
+                break
+            current = nxt
+        chains.append(chain)
+
+    for point in points:
+        if point not in point_chain and is_chain_head(point):
+            walk_chain(point)
+    for point in points:
+        if point not in point_chain:
+            walk_chain(point)
+
+    chain_preds = [
+        tuple(dict.fromkeys(point_chain[pred] for pred in chain[0].predecessors))
+        for chain in chains
+    ]
+    chain_succs = [
+        tuple(dict.fromkeys(point_chain[succ] for succ in chain[-1].successors)) for chain in chains
+    ]
+    return chains, point_chain, point_offset, chain_preds, chain_succs
+
+
+def _solve_chain_reaching_strong(chain_preds, chain_succs, gen_chains, kill_chains, reader_chains):
+    """Exact strong reaching-definitions solve over the compressed chain graph."""
+    if not gen_chains:
+        return {}
+    needed = set(reader_chains)
+    pending = [pred for cid in reader_chains for pred in chain_preds[cid]]
+    visited = set()
+    while pending:
+        cid = pending.pop()
+        if cid in visited:
+            continue
+        visited.add(cid)
+        needed.add(cid)
+        if cid not in kill_chains:
+            pending.extend(chain_preds[cid])
+
+    incoming: dict[int, frozenset] = {}
+    outgoing: dict[int, frozenset] = {}
+    queue = deque(cid for cid in gen_chains if cid in needed)
+    queued = set(queue)
+    while queue:
+        cid = queue.popleft()
+        queued.discard(cid)
+        before = frozenset(
+            definition for pred in chain_preds[cid] for definition in outgoing.get(pred, ())
+        )
+        gen = gen_chains.get(cid)
+        if gen is not None:
+            after = frozenset((gen,))
+        elif cid in kill_chains:
+            after = frozenset()
+        else:
+            after = before
+        if incoming.get(cid, frozenset()) == before and outgoing.get(cid, frozenset()) == after:
+            continue
+        incoming[cid], outgoing[cid] = before, after
+        for succ in chain_succs[cid]:
+            if succ not in queued and succ in needed:
+                queued.add(succ)
+                queue.append(succ)
+    return incoming
+
+
+def _solve_chain_reaching_weak(chain_preds, chain_succs, gen_chain_sets):
+    """Exact weak reaching-definitions solve over the compressed chain graph."""
+    if not gen_chain_sets:
+        return {}
+    incoming: dict[int, frozenset] = {}
+    outgoing: dict[int, frozenset] = {}
+    queue = deque(gen_chain_sets.keys())
+    queued = set(queue)
+    while queue:
+        cid = queue.popleft()
+        queued.discard(cid)
+        before = frozenset(
+            definition for pred in chain_preds[cid] for definition in outgoing.get(pred, ())
+        )
+        gen_set = gen_chain_sets.get(cid)
+        after = (before | gen_set) if gen_set else before
+        if incoming.get(cid, frozenset()) == before and outgoing.get(cid, frozenset()) == after:
+            continue
+        incoming[cid], outgoing[cid] = before, after
+        for succ in chain_succs[cid]:
+            if succ not in queued:
+                queued.add(succ)
+                queue.append(succ)
     return incoming
 
 
@@ -315,7 +431,7 @@ class CFGDependences:
                         source.connect(destination)
 
     def local_edges(self):
-        definitions, uses, kills, slots = defaultdict(set), defaultdict(list), defaultdict(set), {}
+        slots = {}
         constants = {}
         references = {}
         for point in self.points:
@@ -327,7 +443,6 @@ class CFGDependences:
             for key, reference in point.definitions.items():
                 bindings.setdefault(id(reference), (key, reference))
             for reference_id, (key, reference) in bindings.items():
-                definitions[key].add(point)
                 slot = self.ddg.get_or_create_slot_node(df.LocalNode(None, (reference,)))
                 references[point, reference_id] = slot
                 if point.definitions.get(key) is reference:
@@ -339,18 +454,56 @@ class CFGDependences:
                 references[point, id(reference)].add_edge_to(
                     point.anchor, "def-use", label=self.catalog.symbols[key].display_name
                 )
-            for key in point.uses:
-                uses[key].append(point)
-            for key in point.kills:
-                kills[key].add(point)
-        for key, readers in uses.items():
-            available = reaching(self.points, definitions[key], kills[key], readers=readers)
-            for reader in readers:
-                self.local_reaching[reader, key] = available.get(reader, frozenset())
-                for writer in available.get(reader, ()):
-                    slots[writer, key].add_edge_to(
-                        reader.anchor, "def-use", label=self.catalog.symbols[key].display_name
-                    )
+
+        chains, point_chain, point_offset, chain_preds, chain_succs = _build_chains(self.points)
+        self._chains = (chains, point_chain, point_offset, chain_preds, chain_succs)
+
+        gen_chains: dict[object, dict[int, Point]] = defaultdict(dict)
+        kill_chains: dict[object, set[int]] = defaultdict(set)
+        upward_uses: dict[object, list[tuple[int, Point]]] = defaultdict(list)
+
+        for cid, chain in enumerate(chains):
+            local_state: dict[object, Point | None] = {}
+            for point in chain:
+                for key in point.uses:
+                    if key in local_state:
+                        writer = local_state[key]
+                        if writer is not None:
+                            self.local_reaching[point, key] = frozenset((writer,))
+                            slots[writer, key].add_edge_to(
+                                point.anchor,
+                                "def-use",
+                                label=self.catalog.symbols[key].display_name,
+                            )
+                        else:
+                            self.local_reaching[point, key] = frozenset()
+                    else:
+                        upward_uses[key].append((cid, point))
+                for key in point.kills:
+                    local_state[key] = None
+                for key in point.definitions:
+                    local_state[key] = point
+            for key, final_writer in local_state.items():
+                kill_chains[key].add(cid)
+                if final_writer is not None:
+                    gen_chains[key][cid] = final_writer
+
+        for key, exposed in upward_uses.items():
+            gens = gen_chains.get(key)
+            if not gens:
+                for _, reader in exposed:
+                    self.local_reaching[reader, key] = frozenset()
+                continue
+            reader_cids = {cid for cid, _ in exposed}
+            available_chains = _solve_chain_reaching_strong(
+                chain_preds, chain_succs, gens, kill_chains[key], reader_cids
+            )
+            label = self.catalog.symbols[key].display_name
+            for cid, reader in exposed:
+                avail = available_chains.get(cid, frozenset())
+                self.local_reaching[reader, key] = avail
+                for writer in avail:
+                    slots[writer, key].add_edge_to(reader.anchor, "def-use", label=label)
 
     def memory_edges(self):
         from .aliases import ValueOrigins
@@ -383,15 +536,31 @@ class CFGDependences:
                 slot = self.ddg.get_or_create_slot_node(df.FieldNode(None, key))
                 versions[point, key] = slot
                 point.anchor.add_edge_to(slot, "def-use", label="heap-write")
+
+        _chains, point_chain, point_offset, chain_preds, chain_succs = getattr(
+            self, "_chains", None
+        ) or _build_chains(self.points)
+
         for key, points in accesses.items():
             writers = {point for point in points if key in point.writes}
             if not writers:
                 continue
             if isinstance(key, UnknownStorage):
-                previous = reaching(self.points, points)
-                for later in points:
-                    for earlier in previous.get(later, ()):
-                        self.ddg.add_mem_dep(earlier.anchor, later.anchor, "EXTERNAL", key)
+                by_chain: dict[int, list[Point]] = defaultdict(list)
+                for point in points:
+                    by_chain[point_chain[point]].append(point)
+                gen_chains = {}
+                for cid, cpoints in by_chain.items():
+                    cpoints.sort(key=point_offset.__getitem__)
+                    gen_chains[cid] = cpoints[-1]
+                chain_in = _solve_chain_reaching_strong(
+                    chain_preds, chain_succs, gen_chains, set(gen_chains), set(gen_chains)
+                )
+                for cid, cpoints in by_chain.items():
+                    for earlier in chain_in.get(cid, ()):
+                        self.ddg.add_mem_dep(earlier.anchor, cpoints[0].anchor, "EXTERNAL", key)
+                    for prev_pt, cur_pt in zip(cpoints, cpoints[1:]):
+                        self.ddg.add_mem_dep(prev_pt.anchor, cur_pt.anchor, "EXTERNAL", key)
                 continue
             readers = {point for point in points if key in point.reads}
             if (
@@ -400,9 +569,33 @@ class CFGDependences:
                 and all(point.block.region is None for point in writers)
             ):
                 continue
-            previous = reaching(self.points, writers, weak=True)
+
+            writers_by_chain: dict[int, list[Point]] = defaultdict(list)
+            for writer in writers:
+                writers_by_chain[point_chain[writer]].append(writer)
+            gen_chain_sets = {}
+            for cid, cwriters in writers_by_chain.items():
+                cwriters.sort(key=point_offset.__getitem__)
+                gen_chain_sets[cid] = frozenset(cwriters)
+            chain_in = _solve_chain_reaching_weak(chain_preds, chain_succs, gen_chain_sets)
+
+            readers_by_chain: dict[int, list[Point]] = defaultdict(list)
+            if readers:
+                for reader in readers:
+                    readers_by_chain[point_chain[reader]].append(reader)
+                for creaders in readers_by_chain.values():
+                    creaders.sort(key=point_offset.__getitem__)
+
             for later in points:
-                for earlier in previous.get(later, ()):
+                cid = point_chain[later]
+                later_off = point_offset[later]
+                reaching_writers = set(chain_in.get(cid, ()))
+                for earlier_w in writers_by_chain.get(cid, ()):
+                    if point_offset[earlier_w] < later_off:
+                        reaching_writers.add(earlier_w)
+                    else:
+                        break
+                for earlier in reaching_writers:
                     if later in readers:
                         self.ddg.add_mem_dep(earlier.anchor, later.anchor, "RAW", key)
                         versions[earlier, key].add_edge_to(
@@ -411,16 +604,32 @@ class CFGDependences:
                     if later in writers:
                         self.ddg.add_mem_dep(earlier.anchor, later.anchor, "WAW", key)
                 if later in writers and readers:
-                    pending, seen = list(later.predecessors), set()
-                    while pending:
-                        earlier = pending.pop()
-                        if earlier in seen:
-                            continue
-                        seen.add(earlier)
-                        if earlier in readers:
-                            self.ddg.add_mem_dep(earlier.anchor, later.anchor, "WAR", key)
-                        if earlier not in writers:
-                            pending.extend(earlier.predecessors)
+                    prev_w_off = -1
+                    for earlier_w in writers_by_chain.get(cid, ()):
+                        w_off = point_offset[earlier_w]
+                        if w_off < later_off:
+                            prev_w_off = w_off
+                        else:
+                            break
+                    for earlier_r in readers_by_chain.get(cid, ()):
+                        r_off = point_offset[earlier_r]
+                        if prev_w_off <= r_off < later_off:
+                            self.ddg.add_mem_dep(earlier_r.anchor, later.anchor, "WAR", key)
+                    if prev_w_off == -1:
+                        pending_c = list(chain_preds[cid])
+                        seen_c: set[int] = set()
+                        while pending_c:
+                            pc = pending_c.pop()
+                            if pc in seen_c:
+                                continue
+                            seen_c.add(pc)
+                            pc_writers = writers_by_chain.get(pc)
+                            last_w_off = point_offset[pc_writers[-1]] if pc_writers else -1
+                            for earlier_r in readers_by_chain.get(pc, ()):
+                                if point_offset[earlier_r] >= last_w_off:
+                                    self.ddg.add_mem_dep(earlier_r.anchor, later.anchor, "WAR", key)
+                            if last_w_off == -1:
+                                pending_c.extend(chain_preds[pc])
 
     def construct(self):
         self.build_points()

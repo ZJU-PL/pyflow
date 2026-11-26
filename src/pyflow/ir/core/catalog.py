@@ -48,7 +48,7 @@ def _identity(value: object) -> _IdentityKey:
     return _IdentityKey(value)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ProcedureIR:
     code_id: CodeId
     root_scope: ScopeId

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import ClassVar
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class IRRevision:
     value: int = 0
 
@@ -18,17 +17,16 @@ class IRRevision:
         return f"r{self.value}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class SourceAnchor:
     """Stable source anchor used to disambiguate definitions with equal names."""
 
     filename: str = ""
     line: int = 0
     column: int = 0
-    _cached_hash: ClassVar[int | None] = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "_cached_hash", None)
+    _cached_hash: int | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __hash__(self) -> int:
         cached = self._cached_hash
@@ -43,16 +41,15 @@ class SourceAnchor:
         return f"{self.filename}:{self.line}:{self.column}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class CodeId:
     module: str
     qualname: str
     anchor: SourceAnchor = SourceAnchor()
     ordinal: int = 0
-    _cached_hash: ClassVar[int | None] = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "_cached_hash", None)
+    _cached_hash: int | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __hash__(self) -> int:
         # CodeId is the common prefix of nearly every catalog identifier.
@@ -72,14 +69,13 @@ class CodeId:
         return f"{self.module}:{self.qualname}@{self.anchor}{suffix}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class ScopeId:
     code: CodeId
     ordinal: int = 0
-    _cached_hash: ClassVar[int | None] = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "_cached_hash", None)
+    _cached_hash: int | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __hash__(self) -> int:
         cached = self._cached_hash
@@ -92,14 +88,13 @@ class ScopeId:
         return f"{self.code}/scope{self.ordinal}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class SymbolId:
     scope: ScopeId
     ordinal: int
-    _cached_hash: ClassVar[int | None] = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "_cached_hash", None)
+    _cached_hash: int | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __hash__(self) -> int:
         cached = self._cached_hash
@@ -112,14 +107,13 @@ class SymbolId:
         return f"{self.scope}/s{self.ordinal}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class NodeId:
     code: CodeId
     ordinal: int
-    _cached_hash: ClassVar[int | None] = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "_cached_hash", None)
+    _cached_hash: int | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
 
     def __hash__(self) -> int:
         cached = self._cached_hash
@@ -132,7 +126,7 @@ class NodeId:
         return f"{self.code}/n{self.ordinal}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class BlockId:
     code: CodeId
     ordinal: int
@@ -141,7 +135,7 @@ class BlockId:
         return f"{self.code}/bb{self.ordinal}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class EdgeId:
     source: BlockId
     label: str
@@ -152,7 +146,7 @@ class EdgeId:
         return f"{self.source}/{self.label}{suffix}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class ValueId:
     symbol: SymbolId
     version: int
@@ -161,7 +155,7 @@ class ValueId:
         return f"{self.symbol}/v{self.version}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class CallSiteId:
     node: NodeId
     ordinal: int = 0
@@ -170,7 +164,7 @@ class CallSiteId:
         return f"{self.node}/call{self.ordinal}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class AllocationSiteId:
     node: NodeId
     ordinal: int = 0
@@ -179,7 +173,7 @@ class AllocationSiteId:
         return f"{self.node}/alloc{self.ordinal}"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class ContextSignature:
     """Canonical, process-independent description of an analysis context."""
 
@@ -193,7 +187,7 @@ class ContextSignature:
         return self.digest[:16]
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True, order=True, slots=True)
 class ContextId:
     code: CodeId
     signature: ContextSignature

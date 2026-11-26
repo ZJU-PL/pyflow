@@ -393,3 +393,121 @@ def test_project_context_caches_realpath_and_stub_resolver_lazy_cache(tmp_path):
 
     resolver = StubResolver(ctx, typeshed_roots=[])
     assert resolver._stub_cache_instance is None
+
+
+def test_class_hierarchy_external_base_keeps_object_last_in_mro():
+    ch = ClassHierarchy()
+    ch.register_class("Base", [], "mod")
+    ch.register_class("OtherBase", [], "mod")
+    ch.register_class("Sub", ["Base"], "mod")
+    ch.get_class_info("mod.Sub").resolved_bases = ["mod.Base"]
+    ch.register_class("Mixed", ["Sub", "ext.Trait"], "mod")
+    ch.get_class_info("mod.Mixed").resolved_bases = ["mod.Sub", "ext.Trait"]
+    ch.register_class("Other", ["ext.Trait", "OtherBase"], "mod")
+    ch.get_class_info("mod.Other").resolved_bases = ["ext.Trait", "mod.OtherBase"]
+    ch.register_class("Combined", ["Other", "Mixed"], "mod")
+    ch.get_class_info("mod.Combined").resolved_bases = ["mod.Other", "mod.Mixed"]
+
+    mixed_mro = ch.get_mro("mod.Mixed")
+    assert mixed_mro[-1] == "builtins.object"
+    assert mixed_mro.index("ext.Trait") < mixed_mro.index("builtins.object")
+    combined_mro = ch.get_mro("mod.Combined")
+    assert combined_mro[-1] == "builtins.object"
+    assert ch.get_mro("ext.Trait") == ["ext.Trait"]
+
+
+def test_extractor_self_redefinition_class_does_not_create_mro_cycle():
+    source = (
+        "class Base:\n"
+        "    def a(self): return 1\n"
+        "class Child(Base):\n"
+        "    def b(self): return 2\n"
+        "class Child(Child):\n"
+        "    def c(self): return 3\n"
+    )
+    compiler = CompilerContext(Console(verbose=False))
+    program = Program()
+    compiler.extractor = Extractor(
+        compiler,
+        verbose=False,
+        source_code={"mod.py": source},
+        defer_semantics=True,
+    )
+    extract_program(compiler, program)
+
+    mro = program.class_hierarchy.get_mro("mod.Child")
+    assert mro == ["mod.Child", "mod.Base", "builtins.object"]
+
+
+def test_value_table_for_code_tracks_defined_values_and_ir_core_slots():
+    from pyflow.ir.core.ids import CodeId, NodeId, ScopeId, SymbolId
+    from pyflow.ir.core.semantics import ControlEffects, OperationSemantics
+    from pyflow.ir.core.storage import LocalStorage
+    from pyflow.ir.core.symbols import Symbol, SymbolKind, Value, ValueTable
+
+    code_id = CodeId("mod", "f")
+    scope_id = ScopeId(code_id, 0)
+    sym_id = SymbolId(scope_id, 0)
+    node_id = NodeId(code_id, 0)
+
+    vt = ValueTable()
+    val = vt.define(sym_id, node_id)
+    assert vt.for_code(code_id) == (val,)
+
+    # Hot IR identity/semantic records must stay slotted (no per-instance __dict__).
+    for obj in (
+        code_id,
+        node_id,
+        sym_id,
+        val,
+        Symbol(sym_id, "x", SymbolKind.LOCAL),
+        ControlEffects(),
+        OperationSemantics(),
+        LocalStorage(sym_id),
+    ):
+        assert not hasattr(obj, "__dict__"), f"{type(obj).__name__} unexpectedly has __dict__"
+
+
+def test_ddg_chain_compression_matches_point_reaching_on_loops_and_kills():
+    from pyflow.ir.cfg import transform as cfg_transform
+    from pyflow.ir.ddg import construct_ddg
+
+    source = (
+        "def f(items, obj):\n"
+        "    total = 0\n"
+        "    for x in items:\n"
+        "        total = total + x\n"
+        "        obj.val = total\n"
+        "        y = obj.val\n"
+        "        if y > 10:\n"
+        "            del total\n"
+        "            total = 0\n"
+        "    return total\n"
+    )
+    compiler = CompilerContext(Console(verbose=False))
+    program = Program()
+    compiler.extractor = Extractor(
+        compiler, verbose=False, source_code={"m.py": source}, defer_semantics=False
+    )
+    extract_program(compiler, program)
+    code = next(c for c in program.liveCode if c.codeName() == "f")
+    cfg = cfg_transform.evaluate(compiler, code)
+    ddg = construct_ddg(cfg)
+    assert ddg.all_edges()
+
+
+def test_cli_lsp_source_query_index_handles_non_utf8_and_parent_build_dir(tmp_path):
+    from pyflow.cli.lsp import _source_query_index
+
+    # Place repo inside a directory named 'build' to ensure parent path parts are not ignored.
+    project = tmp_path / "build" / "myproj"
+    project.mkdir(parents=True)
+    latin1_file = project / "latin1.py"
+    latin1_file.write_bytes(b"# -*- coding: latin-1 -*-\ndef caf\xe9():\n    return 1\n")
+    bom_file = project / "bom.py"
+    bom_file.write_bytes("\ufeffdef greet():\n    return 'hi'\n".encode("utf-8"))
+
+    index = _source_query_index(project)
+    names = {sym.name for sym in index.symbols}
+    assert "greet" in names
+    assert any(name.startswith("caf") for name in names)
