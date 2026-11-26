@@ -485,6 +485,10 @@ class CFGSupergraphAdapter:
             visit(scope)
             return result
 
+        file_imports_cache: dict[str | None, dict[str, str]] = {}
+        file_funcs_by_line: dict[str | None, dict[int, source_ast.AST]] = {}
+        file_module_bindings: dict[str | None, dict[str, str]] = {}
+
         for procedure in self.cfgs:
             filename = self._procedure_filename(procedure)
             if filename not in trees:
@@ -494,26 +498,34 @@ class CFGSupergraphAdapter:
                     )
                 except (OSError, UnicodeError, SyntaxError):
                     trees[filename] = None
+                tree_loaded = trees[filename]
+                if tree_loaded is not None:
+                    base_aliases = imports(tree_loaded)
+                    file_imports_cache[filename] = base_aliases
+                    factory_returns[filename] = ast_factory_return_types(tree_loaded, base_aliases)
+                    by_line: dict[int, source_ast.AST] = {}
+                    for node in source_ast.walk(tree_loaded):
+                        if isinstance(node, (source_ast.FunctionDef, source_ast.AsyncFunctionDef)):
+                            by_line.setdefault(node.lineno, node)
+                    file_funcs_by_line[filename] = by_line
+                    file_module_bindings[filename] = ast_receiver_bindings(
+                        tree_loaded, dict(base_aliases), factory_returns[filename]
+                    )
             tree = trees[filename]
             if tree is None:
                 bindings[procedure] = {}
                 continue
             catalog = self.catalog_by_procedure[procedure]
             identity = catalog.procedure(procedure.code).code_id
-            scope = next(
-                (
-                    node
-                    for node in source_ast.walk(tree)
-                    if isinstance(node, (source_ast.FunctionDef, source_ast.AsyncFunctionDef))
-                    and node.lineno == identity.anchor.line
-                ),
-                tree,
-            )
-            aliases = imports(tree)
-            if filename not in factory_returns:
-                factory_returns[filename] = ast_factory_return_types(tree, aliases)
-            aliases.update(imports(scope))
-            bindings[procedure] = ast_receiver_bindings(scope, aliases, factory_returns[filename])
+            scope = file_funcs_by_line[filename].get(identity.anchor.line, tree)
+            if scope is tree:
+                bindings[procedure] = dict(file_module_bindings[filename])
+            else:
+                aliases = dict(file_imports_cache[filename])
+                aliases.update(imports(scope))
+                bindings[procedure] = ast_receiver_bindings(
+                    scope, aliases, factory_returns[filename]
+                )
         # ImportFrom lowering introduces a temporary module receiver. Its
         # spelling is an IR implementation detail, never a library identity.
         temporary_modules = {}

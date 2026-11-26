@@ -166,35 +166,94 @@ class _AliasedTypeLookup:
         return self.lookup(self.qualify(name))
 
 
+_ANY_NAMES = frozenset({"Any", "typing.Any"})
+_ANYSTR_NAMES = frozenset({"AnyStr", "typing.AnyStr", "typing_extensions.AnyStr"})
+_NONE_NAMES = frozenset({"None", "NoneType", "types.NoneType"})
+_NEVER_NAMES = frozenset(
+    {
+        "Never",
+        "NoReturn",
+        "typing.Never",
+        "typing.NoReturn",
+        "typing_extensions.Never",
+        "typing_extensions.NoReturn",
+    }
+)
+_TUPLE_NAMES = frozenset({"tuple", "builtins.tuple", "typing.Tuple", "typing_extensions.Tuple"})
+_LITERAL_STR_NAMES = frozenset(
+    {"LiteralString", "typing.LiteralString", "typing_extensions.LiteralString"}
+)
+_TYPE_GUARD_NAMES = frozenset(
+    {
+        "TypeGuard",
+        "TypeIs",
+        "typing.TypeGuard",
+        "typing.TypeIs",
+        "typing_extensions.TypeGuard",
+        "typing_extensions.TypeIs",
+    }
+)
+_FINAL_CLASSVAR_NAMES = frozenset(
+    {
+        "Final",
+        "ClassVar",
+        "typing.Final",
+        "typing.ClassVar",
+        "typing_extensions.Final",
+        "typing_extensions.ClassVar",
+    }
+)
+
+
+@functools.lru_cache(maxsize=8192)
+def _parse_annotation_expr(annotation: str) -> ast.expr | None:
+    try:
+        return ast.parse(annotation, mode="eval").body
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+
+
 class BuiltinTypeLookup:
     """Resolve built-in type names, optionally delegating unknown names."""
+
+    _typesystem_cache: dict[str, Any] | None = None
 
     def __init__(self, fallback: TypeLookup | None = None) -> None:
         self._fallback = fallback
 
-    def __call__(self, qualified_name: str) -> ProperType | None:
-        from pyflow.analysis.typeinfo.core.typesystem import (
-            ANY,
-            NEVER,
-            NONE_TYPE,
-            Instance,
-            TupleType,
-            TypeVarType,
-            ClassDescriptor,
-        )
-
-        if qualified_name in {"Any", "typing.Any"}:
-            return ANY
-        if qualified_name in {"AnyStr", "typing.AnyStr", "typing_extensions.AnyStr"}:
-            return TypeVarType(
-                "AnyStr",
-                constraints=(
-                    Instance(ClassDescriptor(str)),
-                    Instance(ClassDescriptor(bytes)),
-                ),
-            )
+    @classmethod
+    def _ts(cls) -> dict[str, Any]:
+        cached = cls._typesystem_cache
+        if cached is not None:
+            return cached
         from pyflow.analysis.typeinfo.core import typesystem
 
+        str_inst = typesystem.Instance(typesystem.ClassDescriptor(str))
+        bytes_inst = typesystem.Instance(typesystem.ClassDescriptor(bytes))
+        bool_inst = typesystem.Instance(typesystem.ClassDescriptor(bool))
+        cached = {
+            "typesystem": typesystem,
+            "ANY": typesystem.ANY,
+            "NEVER": typesystem.NEVER,
+            "NONE_TYPE": typesystem.NONE_TYPE,
+            "Instance": typesystem.Instance,
+            "TupleType": typesystem.TupleType,
+            "ClassDescriptor": typesystem.ClassDescriptor,
+            "STR": str_inst,
+            "BOOL": bool_inst,
+            "TUPLE_ANY": typesystem.TupleType((typesystem.ANY,), unknown_size=True),
+            "ANYSTR": typesystem.TypeVarType("AnyStr", constraints=(str_inst, bytes_inst)),
+        }
+        cls._typesystem_cache = cached
+        return cached
+
+    def __call__(self, qualified_name: str) -> ProperType | None:
+        ts = self._ts()
+        if qualified_name in _ANY_NAMES:
+            return ts["ANY"]
+        if qualified_name in _ANYSTR_NAMES:
+            return ts["ANYSTR"]
+        typesystem = ts["typesystem"]
         if "." not in qualified_name or qualified_name.startswith("pyflow.analysis.typeinfo."):
             subtype = getattr(typesystem, qualified_name.rsplit(".", 1)[-1], None)
             if (
@@ -203,48 +262,21 @@ class BuiltinTypeLookup:
                 and subtype is not typesystem.StringSubtype
             ):
                 return subtype()
-        if qualified_name in {"None", "NoneType", "types.NoneType"}:
-            return NONE_TYPE
-        if qualified_name in {
-            "Never",
-            "NoReturn",
-            "typing.Never",
-            "typing.NoReturn",
-            "typing_extensions.Never",
-            "typing_extensions.NoReturn",
-        }:
-            return NEVER
-        if qualified_name in {
-            "tuple",
-            "builtins.tuple",
-            "typing.Tuple",
-            "typing_extensions.Tuple",
-        }:
-            return TupleType((ANY,), unknown_size=True)
-        if qualified_name in {
-            "LiteralString",
-            "typing.LiteralString",
-            "typing_extensions.LiteralString",
-        }:
-            return Instance(ClassDescriptor(str))
-        if qualified_name in {
-            "TypeGuard",
-            "TypeIs",
-            "typing.TypeGuard",
-            "typing.TypeIs",
-            "typing_extensions.TypeGuard",
-            "typing_extensions.TypeIs",
-        }:
-            return Instance(ClassDescriptor(bool))
-        if qualified_name in {
-            "Final",
-            "ClassVar",
-            "typing.Final",
-            "typing.ClassVar",
-            "typing_extensions.Final",
-            "typing_extensions.ClassVar",
-        }:
-            return ANY
+        if qualified_name in _NONE_NAMES:
+            return ts["NONE_TYPE"]
+        if qualified_name in _NEVER_NAMES:
+            return ts["NEVER"]
+        if qualified_name in _TUPLE_NAMES:
+            return ts["TUPLE_ANY"]
+        if qualified_name in _LITERAL_STR_NAMES:
+            return ts["STR"]
+        if qualified_name in _TYPE_GUARD_NAMES:
+            return ts["BOOL"]
+        if qualified_name in _FINAL_CLASSVAR_NAMES:
+            return ts["ANY"]
+        Instance = ts["Instance"]
+        ClassDescriptor = ts["ClassDescriptor"]
+        ANY = ts["ANY"]
         if qualified_name.startswith(("typing.", "typing_extensions.", "collections.abc.")):
             import typing
             import collections.abc
@@ -346,12 +378,11 @@ def resolve_annotation(
         inner = annotation[1:-1]
         return resolve_forward_reference(inner, lookup)
 
-    try:
-        tree = ast.parse(annotation, mode="eval")
-    except SyntaxError:
+    expr = _parse_annotation_expr(annotation)
+    if expr is None:
         return None
 
-    return _resolve_expr(tree.body, lookup)
+    return _resolve_expr(expr, lookup)
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ from pyflow.analysis.entrypoints import (
     select_entry_points,
 )
 from pyflow.analysis.taint_policy import TaintPolicy
+from pyflow.language.source_compat import parse_python_source
 
 from pyflow.checker.common.taint import AnalysisUncertainty, PrecisionLevel, TaintFact
 from ..frontend import find_function
@@ -86,9 +87,29 @@ class ASTInterproceduralAnalyzer:
             for name, source in sources_by_name.items()
             if name.endswith("::<module>")
         }
-        for name, source in sources_by_name.items():
+        # Parse and extract imports once per file rather than once per function.
+        file_import_aliases: dict[str, dict[str, str] | None] = {}
+
+        def _aliases_for_file(filename: str) -> dict[str, str] | None:
+            if filename in file_import_aliases:
+                return file_import_aliases[filename]
+            alias_tree = None
             try:
-                tree = ast.parse(textwrap.dedent(source))
+                if filename in file_sources:
+                    alias_tree = parse_python_source(file_sources[filename], filename)
+                else:
+                    with tokenize.open(filename) as stream:
+                        alias_tree = parse_python_source(stream.read(), filename)
+            except (OSError, SyntaxError, UnicodeError, RecursionError):
+                alias_tree = None
+            result = self._import_aliases(alias_tree) if alias_tree is not None else None
+            file_import_aliases[filename] = result
+            return result
+
+        for name, source in sources_by_name.items():
+            filename = (filenames or {}).get(name)
+            try:
+                tree = parse_python_source(textwrap.dedent(source), filename or "<unknown>")
             except (SyntaxError, RecursionError) as error:
                 diagnostics.add(
                     AnalysisUncertainty(
@@ -96,7 +117,7 @@ class ASTInterproceduralAnalyzer:
                         message=str(error),
                         level=PrecisionLevel.UNSUPPORTED,
                         function=name,
-                        filename=(filenames or {}).get(name),
+                        filename=filename,
                         line=getattr(error, "lineno", None),
                         operation="parse",
                     )
@@ -113,22 +134,16 @@ class ASTInterproceduralAnalyzer:
                     decorator_list=[],
                 )
                 ast.fix_missing_locations(function)
+                if filename and filename not in file_import_aliases:
+                    file_import_aliases[filename] = self._import_aliases(tree)
             else:
                 function = find_function(tree, lexical_name)
             if function is not None:
                 functions[name] = function
-                alias_tree = tree
-                filename = (filenames or {}).get(name)
-                if filename:
-                    try:
-                        if filename in file_sources:
-                            alias_tree = ast.parse(file_sources[filename])
-                        else:
-                            with tokenize.open(filename) as stream:
-                                alias_tree = ast.parse(stream.read())
-                    except (OSError, SyntaxError, UnicodeError):
-                        pass
-                import_aliases[name] = self._import_aliases(alias_tree)
+                file_aliases = _aliases_for_file(filename) if filename else None
+                import_aliases[name] = (
+                    file_aliases if file_aliases is not None else self._import_aliases(tree)
+                )
 
         # Index by file and module suffix once. A per-caller search across
         # every definition would make collision-safe project scans quadratic.
@@ -176,15 +191,43 @@ class ASTInterproceduralAnalyzer:
             name: ProcedureTaintSummary(name, parameters=self._parameter_names(function))
             for name, function in functions.items()
         }
+        # Precompute caller->callee dependencies once so subsequent rounds only
+        # re-analyze callers whose callees' summaries actually changed.
+        callers_by_callee: dict[str, set[str]] = {name: set() for name in functions}
+        by_short: dict[str, list[str]] = {}
+        for fn_name in functions:
+            by_short.setdefault(fn_name.rsplit("::", 1)[-1].rsplit(".", 1)[-1], []).append(fn_name)
+        summary_short_index: dict[str, tuple[str, ...]] = {
+            short: tuple(names) for short, names in by_short.items()
+        }
+        for caller_name, fn_node in functions.items():
+            aliases = import_aliases.get(caller_name, {})
+            for node in ast.walk(fn_node):
+                if not isinstance(node, ast.Call):
+                    continue
+                raw = self._dotted_name(node.func)
+                if not raw:
+                    continue
+                head, sep, tail = raw.partition(".")
+                resolved = aliases.get(head, head) + (sep + tail if sep else "")
+                resolved = aliases.get(resolved, resolved)
+                if resolved in functions:
+                    callers_by_callee[resolved].add(caller_name)
+                leaf = resolved.rsplit(".", 1)[-1]
+                for target in by_short.get(leaf, ()):
+                    callers_by_callee[target].add(caller_name)
+
         analyses: dict[str, ASTFunctionAnalysisResult] = {}
         universe = self._taint_kind_universe()
         rounds = 0
-        changed = True
+        dirty: list[str] = list(functions.keys())
+        changed = bool(dirty)
         while changed and rounds < self.max_rounds:
             rounds += 1
             changed = False
-            next_analyses: dict[str, ASTFunctionAnalysisResult] = {}
-            for name, function in functions.items():
+            next_dirty: set[str] = set()
+            for name in dirty:
+                function = functions[name]
                 parameters = self._parameter_names(function)
                 entry = {parameter: universe for parameter in parameters}
                 analysis = analyze_ast_function(
@@ -201,15 +244,17 @@ class ASTInterproceduralAnalyzer:
                     known_functions=functions,
                     import_aliases=import_aliases.get(name, {}),
                     unknown_call_policy=self.unknown_call_policy,
+                    summary_short_index=summary_short_index,
                 )
-                next_analyses[name] = analysis
+                analyses[name] = analysis
                 diagnostics.update(analysis.diagnostics)
                 candidate = self._summarize(name, parameters, analysis)
                 joined = summaries[name].join(candidate)
                 if joined != summaries[name]:
                     summaries[name] = joined
                     changed = True
-            analyses = next_analyses
+                    next_dirty.update(callers_by_callee.get(name, ()))
+            dirty = [name for name in functions if name in next_dirty]
 
         if changed:
             diagnostics.add(
@@ -432,6 +477,19 @@ class ASTInterproceduralAnalyzer:
         )
 
     @staticmethod
+    def _dotted_name(expr: ast.AST) -> str | None:
+        parts: list[str] = []
+        current = expr
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+            parts.reverse()
+            return ".".join(parts)
+        return None
+
+    @staticmethod
     def _entry_and_reachable_functions(
         functions: Mapping[str, ast.FunctionDef | ast.AsyncFunctionDef],
         entries: tuple[str, ...],
@@ -450,7 +508,9 @@ class ASTInterproceduralAnalyzer:
                     continue
                 if not isinstance(node.func, (ast.Name, ast.Attribute)):
                     continue
-                raw = ast.unparse(node.func)
+                raw = ASTInterproceduralAnalyzer._dotted_name(node.func)
+                if raw is None:
+                    raw = ast.unparse(node.func)
                 aliases = import_aliases.get(caller, {})
                 head, separator, tail = raw.partition(".")
                 raw = aliases.get(head, head) + (separator + tail if separator else "")

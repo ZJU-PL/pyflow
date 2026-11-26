@@ -43,13 +43,19 @@ class ControlFlowGraph(Generic[Node]):
     def __post_init__(self) -> None:
         if self.entry not in self.nodes:
             raise ValueError("CFG entry must be a member of nodes")
-        if any(
-            edge.source not in self.nodes or edge.target not in self.nodes for edge in self.edges
-        ):
-            raise ValueError("CFG edges must connect declared nodes")
+        outgoing: dict[Node, list[CFGEdge[Node]]] = {}
+        for edge in self.edges:
+            if edge.source not in self.nodes or edge.target not in self.nodes:
+                raise ValueError("CFG edges must connect declared nodes")
+            outgoing.setdefault(edge.source, []).append(edge)
+        object.__setattr__(
+            self,
+            "_outgoing_by_source",
+            {source: tuple(items) for source, items in outgoing.items()},
+        )
 
     def outgoing(self, node: Node) -> tuple[CFGEdge[Node], ...]:
-        return tuple(edge for edge in self.edges if edge.source == node)
+        return self._outgoing_by_source.get(node, ())
 
 
 @dataclass(frozen=True)

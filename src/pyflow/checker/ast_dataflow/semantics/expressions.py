@@ -79,11 +79,15 @@ class ExpressionContext:
     known_functions: frozenset[str] = frozenset()
     import_aliases: Mapping[str, str] = field(default_factory=dict)
     unknown_call_policy: str = "havoc"
+    summary_short_index: Mapping[str, tuple[str, ...]] | None = field(
+        default=None, repr=False, compare=False
+    )
 
 
 class PythonExpressionSemantics:
     def __init__(self, context: ExpressionContext) -> None:
         self.context = context
+        self._summary_short_index = context.summary_short_index
 
     def evaluate(self, expression: ast.AST | None, state: TaintState) -> ExpressionResult:
         if expression is None:
@@ -913,11 +917,16 @@ class PythonExpressionSemantics:
         if name in self.context.summaries:
             return name, False
         short = name.rsplit(".", 1)[-1]
-        candidates = [
-            candidate
-            for candidate in self.context.summaries
-            if candidate.rsplit("::", 1)[-1].rsplit(".", 1)[-1] == short
-        ]
+        short_index = self._summary_short_index
+        if short_index is None:
+            built: dict[str, list[str]] = {}
+            for candidate in self.context.summaries:
+                built.setdefault(candidate.rsplit("::", 1)[-1].rsplit(".", 1)[-1], []).append(
+                    candidate
+                )
+            short_index = {k: tuple(v) for k, v in built.items()}
+            self._summary_short_index = short_index
+        candidates = short_index.get(short, ())
         if len(candidates) == 1:
             return candidates[0], False
         return None, len(candidates) > 1

@@ -58,6 +58,7 @@ class HeapTransferEngine(
         intrinsics: HeapIntrinsicModels = DEFAULT_HEAP_INTRINSICS,
         collection_mutator_names: frozenset[str] | None = None,
         max_loop_iterations: int = 8,
+        max_nested_loop_steps: int = 64,
     ) -> None:
         self.heap = heap
         self.intrinsics = intrinsics
@@ -67,6 +68,7 @@ class HeapTransferEngine(
             else intrinsics.collection_mutator_names()
         )
         self.max_loop_iterations = max_loop_iterations
+        self.max_nested_loop_steps = max_nested_loop_steps
         self._module_owners: dict[object, object] = {}
         self._module_locations_by_owner: dict[object, HeapLocation] = {}
         self._class_definitions: dict[tuple[object, str], HeapLocation] = {}
@@ -124,6 +126,9 @@ class HeapTransferEngine(
         self.precision_degradations: list[tuple[object, str]] = []
         self._deferred_activations: dict[object, _DeferredActivation] = {}
         self._evaluation_epoch = 0
+        self._loop_depth = 0
+        self._procedure_loop_steps = 0
+        self._loop_iteration_token: tuple[object, ...] = ()
         self._current_context: tuple[object, ...] = ()
         self._definition_default_locations: dict[tuple[object, int], tuple[HeapLocation, ...]] = {}
         self._definition_locals: dict[tuple[object, str], py_ast.Local] = {}
@@ -171,6 +176,9 @@ class HeapTransferEngine(
         code_id = self._procedure_identity(code)
         if code_id in self._active_codes:
             return
+        is_top_level = not self._active_codes
+        if is_top_level:
+            self._procedure_loop_steps = 0
         self._active_codes.add(code_id)
         previous_context = self._current_context
         if not previous_context:
@@ -868,6 +876,15 @@ class HeapTransferEngine(
             return actuals[0], actuals[1], name == "interpreter__is__"
         return None
 
+    def _effective_loop_iterations(self) -> int:
+        if self._loop_depth <= 0:
+            return self.max_loop_iterations
+        if self._procedure_loop_steps >= self.max_nested_loop_steps:
+            return 1
+        if self._loop_depth == 1:
+            return min(self.max_loop_iterations, 4)
+        return min(self.max_loop_iterations, 2)
+
     def _analyze_while(
         self,
         procedure: object,
@@ -883,60 +900,70 @@ class HeapTransferEngine(
         natural_exits: list[_FlowState] = []
         abrupt: dict[str, _FlowState] = {}
         hit_iteration_bound = True
-        for _ in range(self.max_loop_iterations):
-            condition = self._outcome_after(procedure, node.condition, current)
-            abrupt = self._merge_abrupt_maps(abrupt, condition.abrupt)
-            if condition.normal is None:
-                hit_iteration_bound = False
-                break
+        max_iters = self._effective_loop_iterations()
+        prev_token = self._loop_iteration_token
+        self._loop_depth += 1
+        try:
+            for iteration in range(max_iters):
+                if self._loop_depth >= 2:
+                    self._procedure_loop_steps += 1
+                self._loop_iteration_token = (*prev_token, 0 if iteration == 0 else 1)
+                condition = self._outcome_after(procedure, node.condition, current)
+                abrupt = self._merge_abrupt_maps(abrupt, condition.abrupt)
+                if condition.normal is None:
+                    hit_iteration_bound = False
+                    break
 
-            self._restore_flow_state(condition.normal)
-            self._refine_identity_condition(
-                procedure,
-                node.condition.conditional,
-                truth=False,
-            )
-            natural_exits.append(self._capture_flow_state())
-
-            self._restore_flow_state(condition.normal)
-            self._refine_identity_condition(
-                procedure,
-                node.condition.conditional,
-                truth=True,
-            )
-            body_outcome = self._outcome_after(
-                procedure,
-                node.body,
-                self._capture_flow_state(),
-            )
-            if "break" in body_outcome.abrupt:
-                breaks.append(body_outcome.abrupt["break"])
-            abrupt = self._merge_abrupt_maps(
-                abrupt,
-                {
-                    kind: state
-                    for kind, state in body_outcome.abrupt.items()
-                    if kind not in {"break", "continue"}
-                },
-            )
-            back_edges = tuple(
-                state
-                for state in (
-                    body_outcome.normal,
-                    body_outcome.abrupt.get("continue"),
+                self._restore_flow_state(condition.normal)
+                self._refine_identity_condition(
+                    procedure,
+                    node.condition.conditional,
+                    truth=False,
                 )
-                if state is not None
-            )
-            if not back_edges:
-                hit_iteration_bound = False
-                break
-            body_state = self._join_flow_states(back_edges)
-            next_state = self._join_flow_states((entry, body_state))
-            if self._flow_states_equivalent(next_state, current):
+                natural_exits.append(self._capture_flow_state())
+
+                self._restore_flow_state(condition.normal)
+                self._refine_identity_condition(
+                    procedure,
+                    node.condition.conditional,
+                    truth=True,
+                )
+                body_outcome = self._outcome_after(
+                    procedure,
+                    node.body,
+                    self._capture_flow_state(),
+                )
+                if "break" in body_outcome.abrupt:
+                    breaks.append(body_outcome.abrupt["break"])
+                abrupt = self._merge_abrupt_maps(
+                    abrupt,
+                    {
+                        kind: state
+                        for kind, state in body_outcome.abrupt.items()
+                        if kind not in {"break", "continue"}
+                    },
+                )
+                back_edges = tuple(
+                    state
+                    for state in (
+                        body_outcome.normal,
+                        body_outcome.abrupt.get("continue"),
+                    )
+                    if state is not None
+                )
+                if not back_edges:
+                    hit_iteration_bound = False
+                    break
+                body_state = self._join_flow_states(back_edges)
+                next_state = self._join_flow_states((entry, body_state))
+                if self._flow_states_equivalent(next_state, current):
+                    current = next_state
+                    hit_iteration_bound = False
+                    break
                 current = next_state
-                hit_iteration_bound = False
-                break
-            current = next_state
+        finally:
+            self._loop_depth -= 1
+            self._loop_iteration_token = prev_token
         bound_exit: _FlowState | None = None
         if hit_iteration_bound:
             self.precision_degradations.append((node, "loop-iteration-bound"))
@@ -983,43 +1010,53 @@ class HeapTransferEngine(
         breaks: list[_FlowState] = []
         abrupt = dict(preamble.abrupt)
         hit_iteration_bound = True
-        for _ in range(self.max_loop_iterations):
-            self._restore_flow_state(current)
-            self._bind_for_index(procedure, node)
-            iteration_entry = self._capture_flow_state()
-            body_outcome = self._outcome_after(
-                procedure,
-                py_ast.Suite([node.bodyPreamble, node.body]),
-                iteration_entry,
-            )
-            if "break" in body_outcome.abrupt:
-                breaks.append(body_outcome.abrupt["break"])
-            abrupt = self._merge_abrupt_maps(
-                abrupt,
-                {
-                    kind: state
-                    for kind, state in body_outcome.abrupt.items()
-                    if kind not in {"break", "continue"}
-                },
-            )
-            back_edges = tuple(
-                state
-                for state in (
-                    body_outcome.normal,
-                    body_outcome.abrupt.get("continue"),
+        max_iters = self._effective_loop_iterations()
+        prev_token = self._loop_iteration_token
+        self._loop_depth += 1
+        try:
+            for iteration in range(max_iters):
+                if self._loop_depth >= 2:
+                    self._procedure_loop_steps += 1
+                self._loop_iteration_token = (*prev_token, 0 if iteration == 0 else 1)
+                self._restore_flow_state(current)
+                self._bind_for_index(procedure, node)
+                iteration_entry = self._capture_flow_state()
+                body_outcome = self._outcome_after(
+                    procedure,
+                    py_ast.Suite([node.bodyPreamble, node.body]),
+                    iteration_entry,
                 )
-                if state is not None
-            )
-            if not back_edges:
-                hit_iteration_bound = False
-                break
-            body_state = self._join_flow_states(back_edges)
-            next_state = self._join_flow_states((entry, body_state))
-            if self._flow_states_equivalent(next_state, current):
+                if "break" in body_outcome.abrupt:
+                    breaks.append(body_outcome.abrupt["break"])
+                abrupt = self._merge_abrupt_maps(
+                    abrupt,
+                    {
+                        kind: state
+                        for kind, state in body_outcome.abrupt.items()
+                        if kind not in {"break", "continue"}
+                    },
+                )
+                back_edges = tuple(
+                    state
+                    for state in (
+                        body_outcome.normal,
+                        body_outcome.abrupt.get("continue"),
+                    )
+                    if state is not None
+                )
+                if not back_edges:
+                    hit_iteration_bound = False
+                    break
+                body_state = self._join_flow_states(back_edges)
+                next_state = self._join_flow_states((entry, body_state))
+                if self._flow_states_equivalent(next_state, current):
+                    current = next_state
+                    hit_iteration_bound = False
+                    break
                 current = next_state
-                hit_iteration_bound = False
-                break
-            current = next_state
+        finally:
+            self._loop_depth -= 1
+            self._loop_iteration_token = prev_token
         bound_exit: _FlowState | None = None
         if hit_iteration_bound:
             self.precision_degradations.append((node, "loop-iteration-bound"))
@@ -1438,23 +1475,29 @@ class HeapTransferEngine(
     def _join_flow_states(self, states: tuple[_FlowState, ...]) -> _FlowState:
         if not states:
             return self._capture_flow_state()
-        joined_heap = states[0].heap_state.copy()
+        if len(states) == 1:
+            return states[0]
+        joined_heap = states[0].heap_state
         for state in states[1:]:
             joined_heap = joined_heap.join(state.heap_state)
         joined_environment = self.heap.join_environments(
             tuple(state.environment for state in states)
         )
-        default_keys = {key for state in states for key in state.definition_defaults}
-        joined_defaults = {
-            key: tuple(
-                dict.fromkeys(
-                    location
-                    for state in states
-                    for location in state.definition_defaults.get(key, ())
+        first_defaults = states[0].definition_defaults
+        if all(state.definition_defaults == first_defaults for state in states[1:]):
+            joined_defaults = dict(first_defaults)
+        else:
+            default_keys = {key for state in states for key in state.definition_defaults}
+            joined_defaults = {
+                key: tuple(
+                    dict.fromkeys(
+                        location
+                        for state in states
+                        for location in state.definition_defaults.get(key, ())
+                    )
                 )
-            )
-            for key in default_keys
-        }
+                for key in default_keys
+            }
         return _FlowState(joined_heap, joined_environment, joined_defaults)
 
     def _widen_loop_state(
@@ -1520,10 +1563,21 @@ class HeapTransferEngine(
         return tuple(locations)
 
     @staticmethod
+    def _storage_overrides_equivalent(a: dict, b: dict) -> bool:
+        if a == b:
+            return True
+        for key in a.keys() | b.keys():
+            if a.get(key, ()) != b.get(key, ()):
+                return False
+        return True
+
+    @staticmethod
     def _flow_states_equivalent(a: _FlowState, b: _FlowState) -> bool:
         return (
             a.heap_state.equivalent(b.heap_state)
-            and a.environment.storage_overrides == b.environment.storage_overrides
+            and HeapTransferEngine._storage_overrides_equivalent(
+                a.environment.storage_overrides, b.environment.storage_overrides
+            )
             and a.environment.local_values == b.environment.local_values
             and a.environment.escaped_objects == b.environment.escaped_objects
             and a.definition_defaults == b.definition_defaults

@@ -2,19 +2,29 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .objects import HeapObject
 from .policy import UpdatePolicy
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HeapSelector:
     """One field or element selector below a heap root."""
 
     kind: str
     value: str
     precise: bool = True
+    _cached_hash: int | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
+
+    def __hash__(self) -> int:
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash((self.kind, self.value, self.precise))
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     @classmethod
     def field(cls, name: str) -> "HeapSelector":
@@ -84,7 +94,7 @@ class HeapSelector:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HeapLocation:
     """Canonical heap location used by IFDS clients.
 
@@ -95,6 +105,16 @@ class HeapLocation:
 
     root: HeapObject
     selectors: tuple[HeapSelector, ...] = ()
+    _cached_hash: int | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
+
+    def __hash__(self) -> int:
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash((self.root, self.selectors))
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     def field(self, name: str) -> "HeapLocation":
         return HeapLocation(
@@ -137,7 +157,7 @@ class HeapLocation:
         }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HeapWrite:
     """A write target plus its update policy."""
 

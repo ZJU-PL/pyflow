@@ -1048,6 +1048,37 @@ class CallInference(InferenceComponent):
             return self.engine._value_rules._instance(cabc.Coroutine, ANY, ANY, result)
         return returned
 
+    def _specialization_shape(self, function: _FunctionInfo) -> tuple[frozenset[str], bool]:
+        cache = getattr(self, "_spec_shape_cache", None)
+        if cache is None:
+            cache = {}
+            self._spec_shape_cache = cache
+        key = id(function.node)
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        selectors: set[str] = set()
+        has_match = False
+        for node in ast.walk(function.node):
+            if isinstance(node, ast.Subscript):
+                for part in ast.walk(node.slice):
+                    if isinstance(part, ast.Name):
+                        selectors.add(part.id)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"get", "pop", "setdefault"}
+                and node.args
+            ):
+                for part in ast.walk(node.args[0]):
+                    if isinstance(part, ast.Name):
+                        selectors.add(part.id)
+            elif isinstance(node, ast.Match):
+                has_match = True
+        shape = (frozenset(selectors), has_match)
+        cache[key] = shape
+        return shape
+
     def _specialization_key(
         self,
         function: _FunctionInfo,
@@ -1056,24 +1087,7 @@ class CallInference(InferenceComponent):
         parameters = self._call_context_parameters(function, bound_arguments)
         # Only specialize scalar literals that control an element lookup.
         # Other arguments retain type-based contexts and the existing budget.
-        selectors = {
-            part.id
-            for node in ast.walk(function.node)
-            if isinstance(node, ast.Subscript)
-            for part in ast.walk(node.slice)
-            if isinstance(part, ast.Name)
-        }
-        selectors.update(
-            part.id
-            for node in ast.walk(function.node)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in {"get", "pop", "setdefault"}
-            and node.args
-            for part in ast.walk(node.args[0])
-            if isinstance(part, ast.Name)
-        )
-        has_match = any(isinstance(node, ast.Match) for node in ast.walk(function.node))
+        selectors, has_match = self._specialization_shape(function)
         key = _SpecializationKey(
             tuple((name, parameters[name]) for name in function.parameter_names),
             match_arguments=(

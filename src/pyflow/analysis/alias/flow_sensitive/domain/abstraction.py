@@ -119,7 +119,10 @@ class HeapAbstraction:
         self._site_ref_counts: dict[int, int] = {}
         self._local_values: dict[tuple[object, str], LocalValue] = {}
         self._opaque_sites: list[object] = []
+        self._opaque_site_ids: dict[int, int] = {}
         self._opaque_raw_objects: list[object] = []
+        self._opaque_raw_ids: dict[int, int] = {}
+        self._binding_sort_cache: dict[tuple[object, object], tuple[object, ...]] = {}
         self.next_site = next_site
 
     def locations_for_local(
@@ -244,6 +247,20 @@ class HeapAbstraction:
         """
         if not environments:
             return self.snapshot_environment()
+        if len(environments) == 1:
+            env0 = environments[0]
+            return HeapEnvironment(
+                storage_overrides=dict(env0.storage_overrides),
+                allocation_sites=dict(env0.allocation_sites),
+                site_storage=dict(env0.site_storage),
+                object_labels=dict(env0.object_labels),
+                local_names=dict(env0.local_names),
+                escaped_objects=set(env0.escaped_objects),
+                equiv_parent=dict(env0.equiv_parent),
+                equiv_members={root: set(members) for root, members in env0.equiv_members.items()},
+                site_ref_counts=dict(env0.site_ref_counts),
+                local_values=dict(env0.local_values),
+            )
 
         local_names: dict[tuple[int, int], str] = {}
         object_labels: dict[HeapObject, str] = {}
@@ -268,41 +285,102 @@ class HeapAbstraction:
             logical_keys.update(
                 (key[0], name) for key, name in environment.local_names.items() if name
             )
+        # Lazy per-environment reverse index (proc_key, name) -> [binding keys]
+        # avoids O(|logical_keys| * |local_names|) scans when local_values misses.
+        env_name_index: list[dict[tuple[object, str], list[tuple[int, int]]] | None] = [None] * len(
+            environments
+        )
         local_values: dict[tuple[object, str], LocalValue] = {}
         for logical_key in logical_keys:
-            incoming_values: list[LocalValue] = []
-            for environment in environments:
+            first_val = environments[0].local_values.get(logical_key)
+            if first_val is not None and all(
+                env.local_values.get(logical_key) is first_val for env in environments[1:]
+            ):
+                local_values[logical_key] = first_val
+                continue
+            joined_value: LocalValue | None = None
+            for env_idx, environment in enumerate(environments):
                 value = environment.local_values.get(logical_key)
                 if value is None:
-                    refs = frozenset(
-                        self.location_for_raw(raw)
-                        for key, name in environment.local_names.items()
-                        if (key[0], name) == logical_key
-                        for raw in self._environment_storage(environment, key)
-                    )
-                    value = LocalValue(refs=refs) if refs else LocalValue(may_unbound=True)
-                incoming_values.append(value)
-            joined_value = incoming_values[0]
-            for value in incoming_values[1:]:
-                joined_value = joined_value.join(value)
+                    idx_map = env_name_index[env_idx]
+                    if idx_map is None:
+                        idx_map = {}
+                        for key, name in environment.local_names.items():
+                            if name:
+                                idx_map.setdefault((key[0], name), []).append(key)
+                        env_name_index[env_idx] = idx_map
+                    matching_keys = idx_map.get(logical_key)
+                    if matching_keys:
+                        refs = frozenset(
+                            self.location_for_raw(raw)
+                            for key in matching_keys
+                            for raw in self._environment_storage(environment, key)
+                        )
+                        value = LocalValue(refs=refs) if refs else LocalValue(may_unbound=True)
+                    else:
+                        value = LocalValue(may_unbound=True)
+                joined_value = value if joined_value is None else joined_value.join(value)
+            assert joined_value is not None
             local_values[logical_key] = joined_value
 
-        for key in sorted(keys, key=self._binding_sort_key):
-            incoming = tuple(
-                self._environment_storage(environment, key) for environment in environments
-            )
-            joined = self._join_storage(incoming)
-            if not joined:
-                continue
+        sort_cache = self._binding_sort_cache
+        sort_key_fn = self._binding_sort_key
+        if len(sort_cache) > 65536:
+            sort_cache.clear()
+        for key in keys:
+            if key not in sort_cache:
+                sort_cache[key] = sort_key_fn(key)
+        sorted_keys = sorted(keys, key=sort_cache.__getitem__)
+
+        num_envs = len(environments)
+        first_env = environments[0]
+        rest_envs = environments[1:]
+        for key in sorted_keys:
+            first_storage = self._environment_storage(first_env, key)
+            all_identical_raw = True
+            incoming: list[tuple[object, ...]] = [first_storage]
+            for environment in rest_envs:
+                st = self._environment_storage(environment, key)
+                incoming.append(st)
+                if st != first_storage:
+                    all_identical_raw = False
+
+            if all_identical_raw:
+                if not first_storage:
+                    continue
+                if all(isinstance(raw, HeapLocation) for raw in first_storage) and (
+                    len(first_storage) <= 1 or len(set(first_storage)) == len(first_storage)
+                ):
+                    joined = first_storage  # type: ignore[assignment]
+                else:
+                    joined = self._canonicalize_storage(first_storage)
+                    if not joined:
+                        continue
+                same_storage = True
+            else:
+                canonical_nonempty = [self._canonicalize_storage(st) for st in incoming if st]
+                if not canonical_nonempty:
+                    continue
+                if len(canonical_nonempty) == 1:
+                    joined = canonical_nonempty[0]
+                    same_storage = True
+                else:
+                    first_c = canonical_nonempty[0]
+                    if all(c == first_c for c in canonical_nonempty[1:]):
+                        joined = first_c
+                        same_storage = True
+                    else:
+                        joined = tuple(dict.fromkeys(loc for c in canonical_nonempty for loc in c))
+                        same_storage = False
 
             storage_overrides[key] = joined
-            sites = tuple(environment.allocation_sites.get(key) for environment in environments)
-            concrete_sites = tuple(site for site in sites if site is not None)
-            same_storage = all(
-                self._canonicalize_storage(storage) == joined for storage in incoming if storage
-            )
-            if concrete_sites and len(concrete_sites) == len(environments) and same_storage:
-                site = concrete_sites[0]
+            first_site = first_env.allocation_sites.get(key)
+            if (
+                same_storage
+                and first_site is not None
+                and all(env.allocation_sites.get(key) is not None for env in rest_envs)
+            ):
+                site = first_site
             else:
                 site = self.next_site
                 self.next_site += 1
@@ -1635,11 +1713,13 @@ class HeapAbstraction:
                 line,
                 column,
             )
-        for ordinal, candidate in enumerate(self._opaque_sites):
-            if candidate is node:
-                return ("opaque-site", ordinal, type(node).__qualname__)
+        node_id = id(node)
+        ordinal = self._opaque_site_ids.get(node_id)
+        if ordinal is not None:
+            return ("opaque-site", ordinal, type(node).__qualname__)
         ordinal = len(self._opaque_sites)
         self._opaque_sites.append(node)
+        self._opaque_site_ids[node_id] = ordinal
         return ("opaque-site", ordinal, type(node).__qualname__)
 
     def _context_key(self, context: tuple[object, ...]) -> tuple[object, ...]:
@@ -1696,11 +1776,13 @@ class HeapAbstraction:
         label = getattr(raw, "label", None)
         if isinstance(label, str):
             return ("labeled", type(raw).__module__, type(raw).__qualname__, label)
-        for ordinal, candidate in enumerate(self._opaque_raw_objects):
-            if candidate is raw:
-                return ("opaque-storage", ordinal, type(raw).__qualname__)
+        raw_id = id(raw)
+        ordinal = self._opaque_raw_ids.get(raw_id)
+        if ordinal is not None:
+            return ("opaque-storage", ordinal, type(raw).__qualname__)
         ordinal = len(self._opaque_raw_objects)
         self._opaque_raw_objects.append(raw)
+        self._opaque_raw_ids[raw_id] = ordinal
         return ("opaque-storage", ordinal, type(raw).__qualname__)
 
     @staticmethod

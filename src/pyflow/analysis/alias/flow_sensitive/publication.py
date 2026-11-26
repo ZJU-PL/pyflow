@@ -38,17 +38,17 @@ def publish_alias_facts(catalog, graph, heap, codes) -> None:
         seen_codes.add(id(code))
         publication_codes.append(code)
 
-    nodes = catalog.nodes()
-    for code in publication_codes:
-        code_id = catalog.procedure(code).code_id
-        for _node_id, node in nodes:
-            if not isinstance(node, ast.Local) or not catalog.has_node(node, code_id):
-                continue
-            if not catalog.has_symbol(node, code_id):
-                continue
-            symbol = catalog.symbol_id(node, code_id)
-            references[symbol]
-            references[symbol].update(heap.locations_for_local(code, node))
+    code_by_id = {catalog.procedure(code).code_id: code for code in publication_codes}
+    for node_id, node in catalog.nodes():
+        if not isinstance(node, ast.Local):
+            continue
+        code_id = node_id.code
+        code = code_by_id.get(code_id)
+        if code is None or not catalog.has_symbol(node, code_id):
+            continue
+        symbol = catalog.symbol_id(node, code_id)
+        references[symbol]
+        references[symbol].update(heap.locations_for_local(code, node))
 
     precision: dict[object, FactResult] = {}
     for _operation, identity in graph.operation_identities.items():

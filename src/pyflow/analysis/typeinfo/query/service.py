@@ -121,6 +121,7 @@ class TypeInfoService:
         # PEP 561 classification cache: module name -> "typed"/"untyped"
         # third-party source (``None`` for project/stub/stdlib modules).
         self._third_party_kind: dict[str, str | None] = {}
+        self._should_collect_cache: dict[str, bool] = {}
         self._known_class_cache: dict[str, bool] = {}
         self._documented_parameters: dict[tuple[str, str], set[str]] = {}
         self._documented_returns: set[tuple[str, str]] = set()
@@ -220,7 +221,7 @@ class TypeInfoService:
         try:
             for _ in range(3):
                 changed = False
-                for facts in self._module_facts.values():
+                for facts in list(self._module_facts.values()):
                     for name, fact in list(facts.items()):
                         if fact.source != "import" or not fact.raw_annotation:
                             continue
@@ -1693,11 +1694,16 @@ class TypeInfoService:
         Installed packages without ``py.typed`` are treated as untyped
         (``Any``) instead of being parsed and half-analysed.
         """
-        if self._module_may_be_project(module_name):
-            return True
-        if self.stub_resolver.resolve_path(module_name) is not None:
-            return True
-        return self._third_party_typed(module_name) is True
+        cached = self._should_collect_cache.get(module_name)
+        if cached is not None:
+            return cached
+        result = (
+            self._module_may_be_project(module_name)
+            or self.stub_resolver.resolve_path(module_name) is not None
+            or self._third_party_typed(module_name) is True
+        )
+        self._should_collect_cache[module_name] = result
+        return result
 
     def _third_party_typed(self, module_name: str) -> bool | None:
         """Whether an installed module is a PEP 561 typed package.

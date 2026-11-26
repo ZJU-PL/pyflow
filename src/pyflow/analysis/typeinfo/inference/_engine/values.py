@@ -1017,6 +1017,13 @@ class ValueInference(InferenceComponent):
         return replace(value, element_dict_shapes=frozenset(shapes)) if shapes else value
 
     def _join(self, left: AbstractTypeValue, right: AbstractTypeValue) -> AbstractTypeValue:
+        if (
+            left is right
+            and len(left.types) <= 1
+            and (left.literal_values_complete or not left.literal_values)
+            and (not left.types or not isinstance(next(iter(left.types)), UnionType))
+        ):
+            return self._bound_type_depth(left)
         joined = left.join(
             right,
             self.engine.type_system,
@@ -1095,11 +1102,17 @@ class ValueInference(InferenceComponent):
         left: dict[str, AbstractTypeValue],
         right: dict[str, AbstractTypeValue],
     ) -> dict[str, AbstractTypeValue]:
+        if left is right:
+            return dict(left)
         result: dict[str, AbstractTypeValue] = {}
+        unresolved = AbstractTypeValue.unresolved()
         for name in left.keys() | right.keys():
-            left_value = left.get(name, AbstractTypeValue.unresolved())
-            right_value = right.get(name, AbstractTypeValue.unresolved())
-            result[name] = self._join(left_value, right_value)
+            left_value = left.get(name, unresolved)
+            right_value = right.get(name, unresolved)
+            if left_value is right_value:
+                result[name] = left_value
+            else:
+                result[name] = self._join(left_value, right_value)
         return result
 
     def _fill_missing_attribute_joins(

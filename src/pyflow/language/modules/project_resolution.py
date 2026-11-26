@@ -228,6 +228,8 @@ def check_sys_path_modifications(source: str, file_path: Optional[str]) -> List[
     This follows Jedi's tolerant approach, but remains AST/literal based so it
     never executes analyzed code.
     """
+    if "sys" not in source or "path" not in source:
+        return []
 
     try:
         tree = ast.parse(source)
@@ -313,6 +315,7 @@ class ProjectContext:
         self._max_find_module_cache = 4096
         self._realpath_cache: Dict[str, str] = {}
         self._resolved_roots_cache: Dict[tuple[str, ...], tuple[str, ...]] = {}
+        self._sys_path_mod_cache: Dict[tuple[str, str], tuple[str, ...]] = {}
 
     def _realpath(self, path_str: str) -> str:
         cached = self._realpath_cache.get(path_str)
@@ -378,7 +381,16 @@ class ProjectContext:
                 if source is None:
                     source = self.source_files.get(str(script_path))
                 if source is not None:
-                    suffixed += check_sys_path_modifications(source, str(script))
+                    script_str = str(script)
+                    mod_key = (script_str, source)
+                    cached_mods = self._sys_path_mod_cache.get(mod_key)
+                    if cached_mods is None:
+                        cached_mods = tuple(check_sys_path_modifications(source, script_str))
+                        if len(self._sys_path_mod_cache) >= 512:
+                            self._sys_path_mod_cache.clear()
+                        self._sys_path_mod_cache[mod_key] = cached_mods
+                    if cached_mods:
+                        suffixed.extend(cached_mods)
 
         return _remove_duplicates_from_path(prefixed + base + suffixed)
 
@@ -641,9 +653,11 @@ class ProjectContext:
                 )
                 yield from emit(resolved)
                 if resolved:
-                    for alias in node.names:
-                        if alias.name == "*":
-                            continue
-                        candidate = f"{resolved}.{alias.name}"
-                        if self.find_module(candidate, script_path=current_path):
-                            yield from emit(candidate)
+                    resolved_mod = self.find_module(resolved, script_path=current_path)
+                    if resolved_mod is None or resolved_mod.is_package:
+                        for alias in node.names:
+                            if alias.name == "*":
+                                continue
+                            candidate = f"{resolved}.{alias.name}"
+                            if self.find_module(candidate, script_path=current_path):
+                                yield from emit(candidate)

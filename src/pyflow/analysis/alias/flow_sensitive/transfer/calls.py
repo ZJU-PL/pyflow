@@ -305,74 +305,83 @@ class _CallTransferMixin:
         normal_states: list[_FlowState] = []
         possible_returns: list[HeapLocation] = []
         return_slots: list[list[HeapLocation]] = []
-        for code, receiver_locations in candidates:
-            self._restore_flow_state(base)
-            method_call = isinstance(call, py_ast.MethodCall)
-            direct = py_ast.DirectCall(
-                code,
-                None,
-                (
-                    [call.expr, *getattr(call, "args", ())]
-                    if method_call and receiver_locations
-                    else list(getattr(call, "args", ()))
-                ),
-                list(getattr(call, "kwds", ())),
-                getattr(call, "vargs", None),
-                getattr(call, "kargs", None),
-            )
-            binding_result = self._direct_call_actual_locations(
-                caller,
-                code,
-                direct,
-                receiver_supplied=bool(receiver_locations),
-                receiver_consumes_positional=bool(receiver_locations) and not method_call,
-            )
-            bindings = dict(binding_result.bindings)
-            if receiver_locations:
-                formals = self._callee_formals(code)
-                if formals:
-                    if not method_call:
-                        original = dict(bindings)
-                        bindings = {
-                            index + 1: locations
-                            for index, locations in original.items()
-                            if index + 1 < len(formals)
-                        }
-                    bindings[0] = receiver_locations
-            returned = self._evaluate_direct_call_with_bindings(
-                caller,
-                direct,
-                _CallBindingResult(
-                    bindings,
-                    binding_result.definitely_invalid,
-                    binding_result.maybe_invalid,
-                    binding_result.reasons,
-                ),
-            )
-            if self._operation_normal_possible[-1]:
-                normal_states.append(self._capture_flow_state())
-                possible_returns.extend(returned)
-                summary = self._last_direct_call_summary.get(
-                    self._program_point_identity(caller, direct)
+        pushed_normal_frame = False
+        if not self._operation_normal_possible:
+            self._operation_normal_possible.append(True)
+            pushed_normal_frame = True
+        try:
+            for code, receiver_locations in candidates:
+                self._restore_flow_state(base)
+                self._operation_normal_possible[-1] = True
+                method_call = isinstance(call, py_ast.MethodCall)
+                direct = py_ast.DirectCall(
+                    code,
+                    None,
+                    (
+                        [call.expr, *getattr(call, "args", ())]
+                        if method_call and receiver_locations
+                        else list(getattr(call, "args", ()))
+                    ),
+                    list(getattr(call, "kwds", ())),
+                    getattr(call, "vargs", None),
+                    getattr(call, "kargs", None),
                 )
-                if summary is not None:
-                    while len(return_slots) < len(summary.returns):
-                        return_slots.append([])
-                    for return_index, locations in enumerate(summary.returns):
-                        return_slots[return_index].extend(locations)
-                        for formal_index in summary.param_returns.get(
-                            return_index,
-                            frozenset(),
-                        ):
-                            return_slots[return_index].extend(bindings.get(formal_index, ()))
-            # A target that raises exclusively only contributes its abrupt
-            # outcome, already recorded by _evaluate_direct_call_with_bindings.
-            self._operation_normal_possible[-1] = True
-        if normal_states:
-            self._restore_flow_state(self._join_flow_states(tuple(normal_states)))
-        else:
-            self._restore_flow_state(base)
-            self._operation_normal_possible[-1] = False
+                binding_result = self._direct_call_actual_locations(
+                    caller,
+                    code,
+                    direct,
+                    receiver_supplied=bool(receiver_locations),
+                    receiver_consumes_positional=bool(receiver_locations) and not method_call,
+                )
+                bindings = dict(binding_result.bindings)
+                if receiver_locations:
+                    formals = self._callee_formals(code)
+                    if formals:
+                        if not method_call:
+                            original = dict(bindings)
+                            bindings = {
+                                index + 1: locations
+                                for index, locations in original.items()
+                                if index + 1 < len(formals)
+                            }
+                        bindings[0] = receiver_locations
+                returned = self._evaluate_direct_call_with_bindings(
+                    caller,
+                    direct,
+                    _CallBindingResult(
+                        bindings,
+                        binding_result.definitely_invalid,
+                        binding_result.maybe_invalid,
+                        binding_result.reasons,
+                    ),
+                )
+                if self._operation_normal_possible[-1]:
+                    normal_states.append(self._capture_flow_state())
+                    possible_returns.extend(returned)
+                    summary = self._last_direct_call_summary.get(
+                        self._program_point_identity(caller, direct)
+                    )
+                    if summary is not None:
+                        while len(return_slots) < len(summary.returns):
+                            return_slots.append([])
+                        for return_index, locations in enumerate(summary.returns):
+                            return_slots[return_index].extend(locations)
+                            for formal_index in summary.param_returns.get(
+                                return_index,
+                                frozenset(),
+                            ):
+                                return_slots[return_index].extend(bindings.get(formal_index, ()))
+                # A target that raises exclusively only contributes its abrupt
+                # outcome, already recorded by _evaluate_direct_call_with_bindings.
+                self._operation_normal_possible[-1] = True
+            if normal_states:
+                self._restore_flow_state(self._join_flow_states(tuple(normal_states)))
+            else:
+                self._restore_flow_state(base)
+                self._operation_normal_possible[-1] = False
+        finally:
+            if pushed_normal_frame:
+                self._operation_normal_possible.pop()
         targets = assigned_locals(operation)
         if targets:
             values = tuple(dict.fromkeys(possible_returns))
@@ -645,10 +654,13 @@ class _CallTransferMixin:
             return result
 
         previous_context = self._current_context
+        activation_token: object = (
+            ("loop", self._loop_iteration_token) if self._loop_depth > 0 else self._evaluation_epoch
+        )
         self._current_context = (
             *previous_context,
             self._program_point_identity(caller, call),
-            self._evaluation_epoch,
+            activation_token,
         )
         try:
             summary = self._callee_summary(callee, actual_bindings)

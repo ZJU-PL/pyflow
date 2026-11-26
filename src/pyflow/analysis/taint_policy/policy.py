@@ -69,6 +69,7 @@ class TaintPolicy:
     modeled_call_names: FrozenSet[str] = frozenset()
 
     def __post_init__(self) -> None:
+        suffix_indexes: dict[int, dict[str, tuple[str, ...]]] = {}
         for attribute in (
             "source_kinds_by_call",
             "sink_kinds_by_call",
@@ -79,11 +80,20 @@ class TaintPolicy:
             "sink_behavior_by_call",
             "sanitizer_kinds_by_call",
         ):
-            object.__setattr__(
-                self,
-                attribute,
-                MappingProxyType(dict(getattr(self, attribute))),
-            )
+            proxy = MappingProxyType(dict(getattr(self, attribute)))
+            object.__setattr__(self, attribute, proxy)
+            by_suffix: dict[str, list[str]] = {}
+            for key in proxy:
+                dot = key.find(".")
+                while dot != -1:
+                    suffix = key[dot + 1 :]
+                    if "." in suffix:
+                        by_suffix.setdefault(suffix, []).append(key)
+                    dot = key.find(".", dot + 1)
+            suffix_indexes[id(proxy)] = {suffix: tuple(keys) for suffix, keys in by_suffix.items()}
+        object.__setattr__(self, "_suffix_indexes", suffix_indexes)
+        object.__setattr__(self, "_match_cache", {})
+        object.__setattr__(self, "_resolve_cache", {})
 
     @classmethod
     def from_call_models(
@@ -141,22 +151,56 @@ class TaintPolicy:
     def sink_names(self) -> FrozenSet[str]:
         return frozenset(self.sink_kinds_by_call)
 
-    @staticmethod
-    def _resolve_name(mapping: Mapping[str, object], name: str | None) -> str | None:
+    def _suffix_candidates(self, mapping: Mapping[str, object], name: str) -> tuple[str, ...]:
+        if "." not in name:
+            return ()
+        suffix_indexes = getattr(self, "_suffix_indexes", None)
+        by_suffix = suffix_indexes.get(id(mapping)) if suffix_indexes is not None else None
+        if by_suffix is None:
+            return tuple(
+                candidate for candidate in mapping if call_name_suffix_matches(candidate, name)
+            )
+        found: list[str] = []
+        seen: set[str] = set()
+        # Case 1: qualified in mapping ends with "." + name
+        for candidate in by_suffix.get(name, ()):
+            if candidate not in seen:
+                seen.add(candidate)
+                found.append(candidate)
+        # Case 2: name ends with "." + qualified (where qualified has ".")
+        dot = name.find(".")
+        while dot != -1:
+            suffix = name[dot + 1 :]
+            if "." in suffix and suffix in mapping and suffix not in seen:
+                seen.add(suffix)
+                found.append(suffix)
+            dot = name.find(".", dot + 1)
+        return tuple(found)
+
+    def _resolve_name(self, mapping: Mapping[str, object], name: str | None) -> str | None:
         if not name:
             return None
         if name in mapping:
             return name
-        candidates = [
-            candidate for candidate in mapping if call_name_suffix_matches(candidate, name)
-        ]
+        if "." not in name:
+            return None
+        cache = getattr(self, "_resolve_cache", None)
+        cache_key = (id(mapping), name)
+        if cache is not None and cache_key in cache:
+            return cache[cache_key]
+        candidates = self._suffix_candidates(mapping, name)
+        result: str | None = None
         if len(candidates) == 1:
-            return candidates[0]
-        if candidates:
+            result = candidates[0]
+        elif candidates:
             first = mapping[candidates[0]]
             if all(mapping[candidate] == first for candidate in candidates[1:]):
-                return candidates[0]
-        return None
+                result = candidates[0]
+        if cache is not None:
+            if len(cache) >= 8192:
+                cache.clear()
+            cache[cache_key] = result
+        return result
 
     def _matching_names(self, mapping: Mapping[str, object], name: str | None) -> tuple[str, ...]:
         if not name:
@@ -167,12 +211,18 @@ class TaintPolicy:
         # different library that happens to use the same method name.
         if name in self.modeled_call_names:
             return ()
-        matches = tuple(
-            candidate for candidate in mapping if call_name_suffix_matches(candidate, name)
-        )
-        if matches:
-            return matches
-        return ()
+        if "." not in name:
+            return ()
+        cache = getattr(self, "_match_cache", None)
+        cache_key = (id(mapping), name)
+        if cache is not None and cache_key in cache:
+            return cache[cache_key]
+        matches = self._suffix_candidates(mapping, name)
+        if cache is not None:
+            if len(cache) >= 8192:
+                cache.clear()
+            cache[cache_key] = matches
+        return matches
 
     def source_kinds_for(self, name: str | None) -> FrozenSet[str]:
         keys = self._matching_names(self.source_kinds_by_call, name)

@@ -221,6 +221,65 @@ class _Value:
         return changed
 
 
+def _collect_expr_constants(expr: Expr, integers: set[int], strings: set[str]) -> None:
+    t = type(expr)
+    if t is Literal:
+        v = expr.value
+        if type(v) is int:
+            integers.add(v)
+        elif type(v) is str:
+            strings.add(v)
+    elif t is Attr:
+        _collect_expr_constants(expr.base, integers, strings)
+        _collect_expr_constants(expr.key, integers, strings)
+    elif t is ListExpr:
+        items = expr.items
+        n = len(items)
+        if n:
+            integers.update(range(-n, n + 1))
+            for item in items:
+                _collect_expr_constants(item, integers, strings)
+    elif t is DictExpr:
+        items = expr.items
+        integers.add(len(items))
+        for key, val in items:
+            strings.add(key)
+            _collect_expr_constants(val, integers, strings)
+    elif t is Binary:
+        _collect_expr_constants(expr.left, integers, strings)
+        _collect_expr_constants(expr.right, integers, strings)
+    elif t is Not or t is Length:
+        _collect_expr_constants(expr.operand, integers, strings)
+    elif isinstance(expr, Expr) and t not in (Var, NewObject, Lambda):
+        for nested in _walk_expressions(expr):
+            if nested is not expr:
+                _collect_expr_constants(nested, integers, strings)
+
+
+def _collect_instruction_constants(
+    instruction: Instruction, integers: set[int], strings: set[str]
+) -> None:
+    t = type(instruction)
+    if t is Skip or t is Env:
+        return
+    if t is Alloc:
+        _collect_expr_constants(instruction.value, integers, strings)
+    elif t is Bind:
+        _collect_expr_constants(instruction.target, integers, strings)
+        _collect_expr_constants(instruction.source, integers, strings)
+    elif t is Assume:
+        _collect_expr_constants(instruction.condition, integers, strings)
+    elif t is Delete:
+        _collect_expr_constants(instruction.target, integers, strings)
+    elif t is Call:
+        _collect_expr_constants(instruction.function, integers, strings)
+        _collect_expr_constants(instruction.args, integers, strings)
+        _collect_expr_constants(instruction.kwargs, integers, strings)
+    else:
+        for expr in _walk_expressions(instruction):
+            _collect_expr_constants(expr, integers, strings)
+
+
 def _walk_expressions(value: object) -> Iterable[Expr]:
     if isinstance(value, Expr):
         yield value
@@ -256,19 +315,11 @@ class _Analysis:
         self.integers: set[int] = {-1, 0, 1}
         self.strings: set[str] = set()
 
+        integers = self.integers
+        strings = self.strings
         for cfg in program.cfgs.values():
             for node in cfg.nodes.values():
-                for expr in _walk_expressions(node.instruction):
-                    if isinstance(expr, Literal):
-                        if type(expr.value) is int:
-                            self.integers.add(expr.value)
-                        elif isinstance(expr.value, str):
-                            self.strings.add(expr.value)
-                    elif isinstance(expr, ListExpr):
-                        self.integers.update(range(-len(expr.items), len(expr.items) + 1))
-                    elif isinstance(expr, DictExpr):
-                        self.strings.update(key for key, _ in expr.items)
-                        self.integers.add(len(expr.items))
+                _collect_instruction_constants(node.instruction, integers, strings)
 
         self._activate(program.entry)
 
@@ -851,6 +902,7 @@ def analyze_program(
     raise_on_truncation: bool = False,
     include_synthetic: bool = False,
     analyze_all_functions: bool = True,
+    _validated: bool = False,
 ) -> PyCGMIRResult:
     """Analyze a MIR program without parsing, importing or executing Python.
 
@@ -871,7 +923,8 @@ def analyze_program(
     if max_seconds is not None:
         if not math.isfinite(max_seconds) or max_seconds <= 0:
             raise ValueError("max_seconds must be finite and positive")
-    program.validate()
+    if not _validated:
+        program.validate()
     analysis = _Analysis(program, analyze_all_functions)
     analysis.deadline = started + max_seconds if max_seconds is not None else None
     iterations = 0
@@ -932,7 +985,7 @@ def extract_call_graph_pycg_mir(
         kwargs["filename"] = source_path
         kwargs["module_name"] = _module_name(path, project_root)
         kwargs["project_root"] = str(project_root)
-    result = analyze_program(lower_source(source_code, **kwargs))
+    result = analyze_program(lower_source(source_code, **kwargs), _validated=True)
     if verbose:
         print(
             f"MIR PyCG: {result.iterations} iterations, "
@@ -960,7 +1013,7 @@ def analyze_file_pycg_mir(
     Lowering, validation and I/O failures propagate to the caller.  They are
     never converted to an empty graph or a successful-looking result.
     """
-    from pyflow.ir.mir.lowering import lower_file
+    from pyflow.ir.mir.lowering import LoweringBudgetError, lower_file
 
     from .formats import generate_text_output, CallGraphOutput
 
@@ -969,19 +1022,32 @@ def analyze_file_pycg_mir(
         raise ValueError("max_seconds must be finite and positive")
     diagnostics = []
     started = monotonic()
-    program = lower_file(
-        filepath,
-        import_policy=import_policy,
-        diagnostics=diagnostics,
-        max_import_depth=max_import_depth,
-        **kwargs,
-    )
-    remaining = (
-        max(1e-6, max_seconds - (monotonic() - started)) if max_seconds is not None else None
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", PyCGMIRConvergenceWarning)
-        result = analyze_program(program, max_seconds=remaining)
+    try:
+        program = lower_file(
+            filepath,
+            import_policy=import_policy,
+            diagnostics=diagnostics,
+            max_import_depth=max_import_depth,
+            max_seconds=max_seconds,
+            **kwargs,
+        )
+    except LoweringBudgetError as exc:
+        result = PyCGMIRResult(
+            call_graph=MIRCallGraph(),
+            assignment_graph={},
+            converged=False,
+            iterations=0,
+            reachable_cfgs=frozenset(),
+            call_sites={},
+            diagnostics=(f"MIR lowering exceeded max_seconds={max_seconds}: {exc}",),
+        )
+    else:
+        remaining = (
+            max(1e-6, max_seconds - (monotonic() - started)) if max_seconds is not None else None
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PyCGMIRConvergenceWarning)
+            result = analyze_program(program, max_seconds=remaining, _validated=True)
     if not result.converged:
         print(f"MIR call graph is partial: {result.diagnostics[0]}", file=sys.stderr)
     if diagnostics:

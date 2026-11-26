@@ -137,12 +137,20 @@ class TaintState:
     def facts_at(self, location: TaintLocation) -> frozenset[TaintFact]:
         """Read facts that may contaminate ``location``."""
 
+        root_facts = self._facts_by_root.get(location.root)
+        if not root_facts:
+            return frozenset()
         location = self.abstract_location(location)
-        candidates = (
+        candidates = [
             fact
-            for fact in self._facts_by_root.get(location.root, ())
+            for fact in root_facts
             if fact.location.is_prefix_of(location) or location.is_prefix_of(fact.location)
-        )
+        ]
+        if not candidates:
+            return frozenset()
+        root_guarantees = self._guarantees_by_root.get(location.root)
+        if not root_guarantees:
+            return frozenset(candidates)
         return frozenset(
             fact
             for fact in candidates
@@ -150,9 +158,7 @@ class TaintState:
                 guarantee_kind == fact.kind
                 and guarantee_location.is_prefix_of(location)
                 and len(guarantee_location.selectors) >= len(fact.location.selectors)
-                for guarantee_location, guarantee_kind in self._guarantees_by_root.get(
-                    location.root, ()
-                )
+                for guarantee_location, guarantee_kind in root_guarantees
             )
         )
 
@@ -202,12 +208,16 @@ class TaintState:
 
         if not self.reachable:
             return self
+        raw_values = values if isinstance(values, (tuple, list, set, frozenset)) else tuple(values)
+        previous_facts = self._facts_by_root.get(location.root)
+        if not raw_values and not previous_facts:
+            return self
         location = self.abstract_location(location)
         source_base = self.abstract_location(source_base) if source_base is not None else None
         strong = strong and location.is_precise
         source_facts = tuple(
             TaintFact(self.abstract_location(fact.location), fact.kind, fact.origin)
-            for fact in values
+            for fact in raw_values
         )
         contaminating = self.facts_at(location) if strong else frozenset()
         relocations = tuple(
@@ -224,7 +234,7 @@ class TaintState:
             for fact in source_facts
         )
         relocated = frozenset(target for _source, target in relocations)
-        previous_facts = self._facts_by_root.get(location.root, frozenset())
+        previous_facts = previous_facts or frozenset()
         removed = (
             frozenset(fact for fact in previous_facts if location.is_prefix_of(fact.location))
             if strong

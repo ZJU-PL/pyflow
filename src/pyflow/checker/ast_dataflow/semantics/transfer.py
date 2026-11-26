@@ -520,6 +520,7 @@ def analyze_ast_function(
     known_functions: Iterable[str] = (),
     import_aliases: Mapping[str, str] | None = None,
     unknown_call_policy: str = "havoc",
+    summary_short_index: Mapping[str, tuple[str, ...]] | None = None,
 ) -> ASTFunctionAnalysisResult:
     from pyflow.analysis.taint_policy.call_types import ast_receiver_bindings
 
@@ -533,6 +534,7 @@ def analyze_ast_function(
         known_functions=frozenset(known_functions),
         import_aliases=ast_receiver_bindings(function, import_aliases or {}),
         unknown_call_policy=unknown_call_policy,
+        summary_short_index=summary_short_index,
     )
     expressions = PythonExpressionSemantics(context)
     transfer = PythonStatementTransfer(expressions, refinement)

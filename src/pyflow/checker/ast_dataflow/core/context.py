@@ -12,6 +12,7 @@ from pyflow.application.program import Program
 from pyflow.api.queries import QueryComponents, create_query_components
 from pyflow.frontend.extractor import Extractor, extract_program
 from pyflow.frontend.source import read_python_source
+from pyflow.language.source_compat import parse_python_source
 from pyflow.checker.common.diagnostics import CheckerDiagnostic
 from pyflow.frontend.interface_builder import (
     InterfaceBuildOptions,
@@ -76,7 +77,12 @@ class AnalysisSession:
             InterfaceBuildOptions(verbose=verbose),
             source_overrides=source_overrides,
         )
-        compiler.extractor = Extractor(compiler, verbose=verbose, source_code=all_source_code)
+        compiler.extractor = Extractor(
+            compiler,
+            verbose=verbose,
+            source_code=all_source_code,
+            defer_semantics=True,
+        )
 
         with console.scope("extraction"):
             extract_program(compiler, program)
@@ -155,7 +161,7 @@ class AnalysisSession:
             name_to_source[module_name] = src
             func_to_file[module_name] = filename
             try:
-                tree = ast.parse(src)
+                tree = parse_python_source(src, filename)
             except (SyntaxError, RecursionError):
                 continue
 
@@ -196,12 +202,12 @@ class AnalysisSession:
 
             FunctionCollector().visit(tree)
             if qualified_functions:
+                lines = src.splitlines(keepends=True)
                 for qualified_name, node in qualified_functions:
                     if getattr(node, "lineno", None) and getattr(node, "end_lineno", None):
                         # Keep file coordinates and multiline string contents.
                         # A synthetic suite accommodates indented definitions
                         # without dedenting or re-rendering their source.
-                        lines = src.splitlines(keepends=True)
                         prefix = "\n" * (node.lineno - 1)
                         if node.col_offset:
                             prefix = "\n" * (node.lineno - 2) + "if True:\n"

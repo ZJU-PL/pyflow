@@ -116,14 +116,33 @@ class Module:
     opaque: bool = False
 
 
+from time import monotonic
+
+
+class LoweringBudgetError(LoweringError):
+    """Raised when MIR lowering exceeds a caller-provided time budget."""
+
+
 class PythonToMIR:
     """Compile a statically discovered local module graph without importing it."""
 
-    def __init__(self, modules, entry, *, inspection_only=False, diagnostics=None):
+    def __init__(
+        self,
+        modules,
+        entry,
+        *,
+        inspection_only=False,
+        diagnostics=None,
+        max_seconds: float | None = None,
+    ):
         self.modules = modules
         self.entry_module = entry
         self.inspection_only = inspection_only
         self.diagnostics = diagnostics if diagnostics is not None else []
+        self._deadline = (
+            monotonic() + max_seconds if max_seconds is not None and max_seconds > 0 else None
+        )
+        self._budget_ticks = 0
         self.program = Program({}, "$entry")
         self.runtime = Runtime(self.program)
         self.b = None
@@ -167,7 +186,20 @@ class PythonToMIR:
         self.program.validate()
         return self.program
 
+    def _check_budget(self, node=None):
+        if self._deadline is None:
+            return
+        self._budget_ticks += 1
+        if self._budget_ticks & 0x3F == 0 and monotonic() >= self._deadline:
+            filename = self.module.filename if self.module is not None else "<string>"
+            raise LoweringBudgetError(
+                "MIR lowering exceeded time budget",
+                filename,
+                getattr(node, "lineno", None),
+            )
+
     def compile_module(self, module):
+        self._check_budget()
         self.module = module
         self.b = Builder(self.program, module.name, module.filename, synthetic=module.opaque)
         self.scope = Scope(module.name, "module", module.name, _Bindings(module.tree.body))
@@ -266,6 +298,7 @@ class PythonToMIR:
 
     def statements(self, statements):
         for node in statements:
+            self._check_budget(node)
             if not self.b.tails:
                 # Still check/compile unreachable syntax into disconnected CFG
                 # nodes. Analyses traverse CFG reachability, not dictionary order.
@@ -394,6 +427,15 @@ class PythonToMIR:
         if isinstance(node, ast.Lambda):
             return self.function(node, lambda_body=node.body)
         if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            if isinstance(node, (ast.List, ast.Tuple)) and not any(
+                isinstance(item, ast.Starred) for item in node.elts
+            ):
+                items = tuple(self.expression(item) for item in node.elts)
+                return rt.box(
+                    b,
+                    ListExpr(items),
+                    "list" if isinstance(node, ast.List) else "tuple",
+                )
             values = b.alloc(ListExpr(()), "elements")
             for item in node.elts:
                 if isinstance(item, ast.Starred):
@@ -412,8 +454,28 @@ class PythonToMIR:
                 "list" if isinstance(node, ast.List) else "tuple",
             )
         if isinstance(node, ast.Dict):
+            # Fast path for literal dicts with distinct string keys: emit the
+            # underlying pair list directly instead of cloning 4 dynamic-dispatch
+            # helper CFGs per entry (which turned 3,800-entry tables into millions
+            # of MIR nodes).
+            if node.keys and all(
+                isinstance(key, ast.Constant) and type(key.value) is str for key in node.keys
+            ):
+                seen_keys = {key.value for key in node.keys}
+                if len(seen_keys) == len(node.keys):
+                    pairs = []
+                    for key, value in zip(node.keys, node.values):
+                        self._check_budget(key)
+                        k_val = self.expression(key)
+                        v_val = self.expression(value)
+                        pair_obj = b.alloc(NewObject(), "pair")
+                        b.assign(field(pair_obj, "key"), k_val)
+                        b.assign(field(pair_obj, "value"), v_val)
+                        pairs.append(pair_obj)
+                    return rt.box(b, ListExpr(tuple(pairs)), "dict")
             result = rt.sequence(b, (), "dict")
             for key, value in zip(node.keys, node.values):
+                self._check_budget(key or value)
                 if key is None:
                     if not self.inspection_only:
                         self.fail(
@@ -432,7 +494,10 @@ class PythonToMIR:
                     )
                     self.expression(value)
                     continue
-                self.special(result, "__setitem__", (self.expression(key), self.expression(value)))
+                k_val = self.expression(key)
+                v_val = self.expression(value)
+                b.invoke("builtins.dict.__setitem__", (result, k_val, v_val))
+                self.checked()
             return result
         if isinstance(node, ast.Subscript):
             if isinstance(node.slice, ast.Slice):
@@ -1772,6 +1837,7 @@ def lower_source(
     diagnostics: list | None = None,
     follow_imports: bool = True,
     max_import_depth: int | None = None,
+    max_seconds: float | None = None,
 ) -> Program:
     """Lower authoritative source text; filename supplies import context only.
 
@@ -1798,7 +1864,11 @@ def lower_source(
         max_import_depth=max_import_depth,
     )
     return PythonToMIR(
-        modules, module_name, inspection_only=import_policy == "opaque", diagnostics=diagnostics
+        modules,
+        module_name,
+        inspection_only=import_policy == "opaque",
+        diagnostics=diagnostics,
+        max_seconds=max_seconds,
     ).compile()
 
 
@@ -1810,6 +1880,7 @@ def lower_file(
     diagnostics: list | None = None,
     follow_imports: bool = True,
     max_import_depth: int | None = None,
+    max_seconds: float | None = None,
 ) -> Program:
     """Lower an entry file and its statically discoverable local imports."""
     entry = Path(path).resolve()
@@ -1831,7 +1902,8 @@ def lower_file(
         diagnostics=diagnostics,
         follow_imports=follow_imports,
         max_import_depth=max_import_depth,
+        max_seconds=max_seconds,
     )
 
 
-__all__ = ["LoweringError", "PythonToMIR", "lower_source", "lower_file"]
+__all__ = ["LoweringBudgetError", "LoweringError", "PythonToMIR", "lower_source", "lower_file"]

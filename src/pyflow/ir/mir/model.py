@@ -188,28 +188,49 @@ class Program:
         infinite loop is a valid program.  Name availability is a runtime or
         static-analysis question, so this is not a definite-assignment check.
         """
-        if self.entry not in self.cfgs:
+        cfgs = self.cfgs
+        if self.entry not in cfgs:
             raise MIRValidationError(f"Unknown entry CFG: {self.entry!r}")
-        for name, cfg in self.cfgs.items():
+        for name, cfg in cfgs.items():
             if name != cfg.name:
                 raise MIRValidationError(f"CFG key {name!r} does not match {cfg.name!r}")
-            if cfg.entry not in cfg.nodes or cfg.exit not in cfg.nodes:
+            nodes = cfg.nodes
+            if cfg.entry not in nodes or cfg.exit not in nodes:
                 raise MIRValidationError(f"CFG {name!r} has a missing entry or exit node")
-            if cfg.nodes[cfg.exit].successors:
+            if nodes[cfg.exit].successors:
                 raise MIRValidationError(f"CFG {name!r} exit must not have successors")
-            for node_id, node in cfg.nodes.items():
-                prefix = f"CFG {name!r}, node {node_id}"
+            for node_id, node in nodes.items():
                 if type(node_id) is not int or node.id != node_id:
-                    raise MIRValidationError(f"{prefix}: inconsistent node identifier")
-                if len(set(node.successors)) != len(node.successors):
-                    raise MIRValidationError(f"{prefix}: duplicate successor")
-                for successor in node.successors:
-                    if type(successor) is not int or successor not in cfg.nodes:
-                        raise MIRValidationError(f"{prefix}: unknown successor {successor!r}")
+                    raise MIRValidationError(
+                        f"CFG {name!r}, node {node_id}: inconsistent node identifier"
+                    )
+                succs = node.successors
+                n_succs = len(succs)
+                if n_succs == 1:
+                    s0 = succs[0]
+                    if type(s0) is not int or s0 not in nodes:
+                        raise MIRValidationError(
+                            f"CFG {name!r}, node {node_id}: unknown successor {s0!r}"
+                        )
+                elif n_succs > 1:
+                    if n_succs == 2:
+                        if succs[0] == succs[1]:
+                            raise MIRValidationError(
+                                f"CFG {name!r}, node {node_id}: duplicate successor"
+                            )
+                    elif len(set(succs)) != n_succs:
+                        raise MIRValidationError(
+                            f"CFG {name!r}, node {node_id}: duplicate successor"
+                        )
+                    for successor in succs:
+                        if type(successor) is not int or successor not in nodes:
+                            raise MIRValidationError(
+                                f"CFG {name!r}, node {node_id}: unknown successor {successor!r}"
+                            )
                 try:
                     _validate_instruction(node.instruction, self)
                 except MIRValidationError as exc:
-                    raise MIRValidationError(f"{prefix}: {exc}") from exc
+                    raise MIRValidationError(f"CFG {name!r}, node {node_id}: {exc}") from exc
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -224,49 +245,128 @@ def _identifier(value: Any) -> None:
         raise MIRValidationError(f"Expected a nonempty identifier, got {value!r}")
 
 
+_BINARY_OPS = frozenset({"+", "-", "=", "<", "or", "∨", "in"})
+
+
 def _validate_expr(expr: Expr, program: Program, lvalue: bool = False) -> None:
-    if lvalue and not isinstance(expr, LValue):
-        raise MIRValidationError(f"Expected an l-value, got {expr!r}")
-    if isinstance(expr, Var):
-        _identifier(expr.name)
-    elif isinstance(expr, Attr):
+    t = type(expr)
+    if t is Var:
+        name = expr.name
+        if type(name) is not str or not name:
+            _identifier(name)
+        return
+    if t is Attr:
         _validate_expr(expr.base, program, lvalue=True)
         _validate_expr(expr.key, program)
-    elif isinstance(expr, Literal):
+        return
+    if lvalue and not isinstance(expr, LValue):
+        raise MIRValidationError(f"Expected an l-value, got {expr!r}")
+    if t is Literal:
         if type(expr.value) not in (bool, int, str):
             raise MIRValidationError("Invalid primitive literal")
-    elif isinstance(expr, NewObject):
+    elif t is NewObject:
         pass
-    elif isinstance(expr, ListExpr):
+    elif t is ListExpr:
         for item in expr.items:
             _validate_expr(item, program, lvalue=True)
-    elif isinstance(expr, DictExpr):
+    elif t is DictExpr:
         for key, value in expr.items:
             if not isinstance(key, str):
                 raise MIRValidationError("Dictionary keys must be strings")
             _validate_expr(value, program, lvalue=True)
-    elif isinstance(expr, Lambda):
-        for name in (expr.args_param, expr.kwargs_param, expr.parent_param, expr.return_var):
-            _identifier(name)
-        if len({expr.args_param, expr.kwargs_param, expr.parent_param}) != 3:
+    elif t is Lambda:
+        a, k, p, r = expr.args_param, expr.kwargs_param, expr.parent_param, expr.return_var
+        if not (
+            type(a) is str
+            and a
+            and type(k) is str
+            and k
+            and type(p) is str
+            and p
+            and type(r) is str
+            and r
+        ):
+            for name in (a, k, p, r):
+                _identifier(name)
+        if a == k or a == p or k == p:
             raise MIRValidationError("Lambda argument and parent identifiers must be distinct")
         if expr.body not in program.cfgs:
             raise MIRValidationError(f"Unknown lambda body CFG: {expr.body!r}")
-    elif isinstance(expr, (Not, Length)):
+    elif t is Not or t is Length:
         _validate_expr(expr.operand, program)
-    elif isinstance(expr, Binary):
-        if expr.op not in {"+", "-", "=", "<", "or", "∨", "in"}:
+    elif t is Binary:
+        if expr.op not in _BINARY_OPS:
             raise MIRValidationError(f"Unknown primitive operator: {expr.op!r}")
         _validate_expr(expr.left, program)
         _validate_expr(expr.right, program)
     else:
-        raise MIRValidationError(f"Unknown expression: {expr!r}")
+        # Subclass fallback
+        if isinstance(expr, Var):
+            _identifier(expr.name)
+        elif isinstance(expr, Attr):
+            _validate_expr(expr.base, program, lvalue=True)
+            _validate_expr(expr.key, program)
+        elif isinstance(expr, Literal):
+            if type(expr.value) not in (bool, int, str):
+                raise MIRValidationError("Invalid primitive literal")
+        elif isinstance(expr, NewObject):
+            pass
+        elif isinstance(expr, ListExpr):
+            for item in expr.items:
+                _validate_expr(item, program, lvalue=True)
+        elif isinstance(expr, DictExpr):
+            for key, value in expr.items:
+                if not isinstance(key, str):
+                    raise MIRValidationError("Dictionary keys must be strings")
+                _validate_expr(value, program, lvalue=True)
+        elif isinstance(expr, Lambda):
+            for name in (expr.args_param, expr.kwargs_param, expr.parent_param, expr.return_var):
+                _identifier(name)
+            if len({expr.args_param, expr.kwargs_param, expr.parent_param}) != 3:
+                raise MIRValidationError("Lambda argument and parent identifiers must be distinct")
+            if expr.body not in program.cfgs:
+                raise MIRValidationError(f"Unknown lambda body CFG: {expr.body!r}")
+        elif isinstance(expr, (Not, Length)):
+            _validate_expr(expr.operand, program)
+        elif isinstance(expr, Binary):
+            if expr.op not in _BINARY_OPS:
+                raise MIRValidationError(f"Unknown primitive operator: {expr.op!r}")
+            _validate_expr(expr.left, program)
+            _validate_expr(expr.right, program)
+        else:
+            raise MIRValidationError(f"Unknown expression: {expr!r}")
 
 
 def _validate_instruction(instruction: Instruction, program: Program) -> None:
-    if isinstance(instruction, Skip):
+    t = type(instruction)
+    if t is Skip:
         return
-    if isinstance(instruction, Assume):
+    if t is Bind:
+        _validate_expr(instruction.target, program, lvalue=True)
+        _validate_expr(instruction.source, program, lvalue=True)
+    elif t is Alloc:
+        target = instruction.target
+        if type(target) is not str or not target:
+            _identifier(target)
+        _validate_expr(instruction.value, program)
+    elif t is Assume:
+        _validate_expr(instruction.condition, program)
+    elif t is Call:
+        target = instruction.target
+        if type(target) is not str or not target:
+            _identifier(target)
+        _validate_expr(instruction.function, program)
+        _validate_expr(instruction.args, program, lvalue=True)
+        _validate_expr(instruction.kwargs, program, lvalue=True)
+    elif t is Env:
+        target = instruction.target
+        if type(target) is not str or not target:
+            _identifier(target)
+    elif t is Delete:
+        _validate_expr(instruction.target, program, lvalue=True)
+    elif isinstance(instruction, Skip):
+        return
+    elif isinstance(instruction, Assume):
         _validate_expr(instruction.condition, program)
     elif isinstance(instruction, Alloc):
         _identifier(instruction.target)

@@ -295,64 +295,81 @@ class HeapState:
         self.return_slots[procedure] = tuple(merged)
 
     def join(self, other: "HeapState") -> "HeapState":
+        if self is other:
+            return self.copy()
+
+        def merge_tuple_map(left: dict, right: dict) -> dict:
+            if not right:
+                return dict(left)
+            if not left:
+                return dict(right)
+            merged = dict(left)
+            for key, values in right.items():
+                existing = merged.get(key)
+                if existing is None:
+                    merged[key] = values
+                elif existing != values:
+                    merged[key] = tuple(dict.fromkeys((*existing, *values)))
+            return merged
+
+        def merge_frozenset_map(left: dict, right: dict) -> dict:
+            if not right:
+                return dict(left)
+            if not left:
+                return dict(right)
+            merged = dict(left)
+            for key, values in right.items():
+                existing = merged.get(key)
+                if existing is None:
+                    merged[key] = values
+                elif existing != values:
+                    merged[key] = existing | values
+            return merged
+
         joined = HeapState()
-        for source in (self, other):
-            for location, values in source.values.items():
-                joined.values[location] = tuple(
-                    dict.fromkeys((*joined.values.get(location, ()), *values))
-                )
-            for location, values in source.contaminants.items():
-                joined.contaminants[location] = tuple(
-                    dict.fromkeys((*joined.contaminants.get(location, ()), *values))
-                )
-            for location, versions in source.versions.items():
-                joined.versions[location] = frozenset(
-                    (*joined.versions.get(location, ()), *versions)
-                )
-            joined.escaped.update(source.escaped)
-            joined.scalar_present.update(source.scalar_present)
-            for procedure, values in source.returns.items():
-                joined.returns[procedure] = tuple(
-                    dict.fromkeys((*joined.returns.get(procedure, ()), *values))
-                )
-            for procedure, slots in source.return_slots.items():
-                existing = joined.return_slots.get(procedure, ())
+        joined.values = merge_tuple_map(self.values, other.values)
+        joined.contaminants = merge_tuple_map(self.contaminants, other.contaminants)
+        joined.versions = merge_frozenset_map(self.versions, other.versions)
+        joined.escaped = self.escaped | other.escaped
+        joined.scalar_present = self.scalar_present | other.scalar_present
+        joined.returns = merge_tuple_map(self.returns, other.returns)
+        joined.return_slots = dict(self.return_slots)
+        for procedure, slots in other.return_slots.items():
+            existing = joined.return_slots.get(procedure)
+            if existing is None:
+                joined.return_slots[procedure] = slots
+            elif existing != slots:
                 count = max(len(existing), len(slots))
                 joined.return_slots[procedure] = tuple(
-                    tuple(
-                        dict.fromkeys(
-                            (
-                                *(existing[index] if index < len(existing) else ()),
-                                *(slots[index] if index < len(slots) else ()),
+                    (
+                        existing[index]
+                        if index < len(existing)
+                        and index < len(slots)
+                        and existing[index] == slots[index]
+                        else tuple(
+                            dict.fromkeys(
+                                (
+                                    *(existing[index] if index < len(existing) else ()),
+                                    *(slots[index] if index < len(slots) else ()),
+                                )
                             )
                         )
                     )
                     for index in range(count)
                 )
-            for procedure, values in source.yields.items():
-                joined.yields[procedure] = tuple(
-                    dict.fromkeys((*joined.yields.get(procedure, ()), *values))
-                )
-            for procedure, depths in source.yield_depths.items():
-                joined.yield_depths[procedure] = frozenset(
-                    (*joined.yield_depths.get(procedure, ()), *depths)
-                )
-            for procedure, values in source.raised.items():
-                joined.raised[procedure] = tuple(
-                    dict.fromkeys((*joined.raised.get(procedure, ()), *values))
-                )
-            for procedure, values in source.active_exceptions.items():
-                joined.active_exceptions[procedure] = tuple(
-                    dict.fromkeys((*joined.active_exceptions.get(procedure, ()), *values))
-                )
-        joined.absent = set(self.absent).intersection(other.absent)
-        joined.absent.difference_update(joined.values)
-        joined.absent.difference_update(joined.scalar_present)
-        joined.definitely_scalar_present = set(self.definitely_scalar_present).intersection(
-            other.definitely_scalar_present
+        joined.yields = merge_tuple_map(self.yields, other.yields)
+        joined.yield_depths = merge_frozenset_map(self.yield_depths, other.yield_depths)
+        joined.raised = merge_tuple_map(self.raised, other.raised)
+        joined.active_exceptions = merge_tuple_map(self.active_exceptions, other.active_exceptions)
+        joined.absent = self.absent & other.absent
+        if joined.absent:
+            joined.absent.difference_update(joined.values)
+            joined.absent.difference_update(joined.scalar_present)
+        joined.definitely_scalar_present = (
+            self.definitely_scalar_present & other.definitely_scalar_present
         )
-        joined.precise_shadows = set(self.precise_shadows).intersection(other.precise_shadows)
-        joined.complete_roots = set(self.complete_roots).intersection(other.complete_roots)
+        joined.precise_shadows = self.precise_shadows & other.precise_shadows
+        joined.complete_roots = self.complete_roots & other.complete_roots
         return joined
 
     def copy(self) -> "HeapState":
@@ -375,20 +392,31 @@ class HeapState:
         return copied
 
     def equivalent(self, other: "HeapState") -> bool:
+        if self is other:
+            return True
+
         def set_map_equal(left, right):
-            return left.keys() == right.keys() and all(
-                frozenset(left[key]) == frozenset(right[key]) for key in left
-            )
+            if left.keys() != right.keys():
+                return False
+            for key, lval in left.items():
+                rval = right[key]
+                if lval != rval and frozenset(lval) != frozenset(rval):
+                    return False
+            return True
 
         def slot_map_equal(left, right):
-            return left.keys() == right.keys() and all(
-                len(left[key]) == len(right[key])
-                and all(
-                    frozenset(left[key][index]) == frozenset(right[key][index])
-                    for index in range(len(left[key]))
-                )
-                for key in left
-            )
+            if left.keys() != right.keys():
+                return False
+            for key, lslots in left.items():
+                rslots = right[key]
+                if lslots == rslots:
+                    continue
+                if len(lslots) != len(rslots):
+                    return False
+                for lslot, rslot in zip(lslots, rslots):
+                    if lslot != rslot and frozenset(lslot) != frozenset(rslot):
+                        return False
+            return True
 
         return (
             set_map_equal(self.values, other.values)

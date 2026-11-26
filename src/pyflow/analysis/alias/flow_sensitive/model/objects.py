@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
 
@@ -58,7 +58,7 @@ class HeapEscapeState(str, Enum):
     UNKNOWN = "unknown"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HeapObject:
     """Canonical root object for an abstract heap location."""
 
@@ -72,6 +72,29 @@ class HeapObject:
     cardinality: HeapObjectCardinality = HeapObjectCardinality.UNKNOWN
     identity: HeapObjectIdentity = HeapObjectIdentity.SUMMARY
     escape: HeapEscapeState = HeapEscapeState.LOCAL
+    _cached_hash: int | None = field(
+        default=None, init=False, repr=False, compare=False, hash=False
+    )
+
+    def __hash__(self) -> int:
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash(
+                (
+                    self.kind,
+                    self.key,
+                    self.label,
+                    self.type_hint,
+                    self.allocation_site,
+                    self.context,
+                    self.freshness,
+                    self.cardinality,
+                    self.identity,
+                    self.escape,
+                )
+            )
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     def is_singleton(self) -> bool:
         if self.kind in {

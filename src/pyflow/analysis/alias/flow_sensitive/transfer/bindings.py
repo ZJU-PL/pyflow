@@ -73,24 +73,43 @@ class _BindingTransferMixin:
             parent = self._lexical_parents.get(parent)
         return fallback
 
-    def _scope_defines_name(self, procedure: object, name: str) -> bool:
+    def _scope_static_defined_names(self, procedure: object) -> frozenset[str]:
+        cache = getattr(self, "_scope_defined_names_cache", None)
+        if cache is None:
+            cache = {}
+            self._scope_defined_names_cache = cache
+        proc_id = self._procedure_identity(procedure)
+        cached = cache.get(proc_id)
+        if cached is not None:
+            return cached
+        names: set[str] = set()
         parameters = getattr(procedure, "codeparameters", None)
         if parameters is not None:
             for formal in self._callee_formals(procedure):
-                if getattr(formal, "name", None) == name:
-                    return True
+                formal_name = getattr(formal, "name", None)
+                if formal_name:
+                    names.add(formal_name)
+        body = getattr(procedure, "ast", None)
+        for operation in self.iter_operations(body):
+            if isinstance(operation, (py_ast.FunctionDef, py_ast.ClassDef)):
+                if operation.name:
+                    names.add(operation.name)
+                continue
+            for local in assigned_locals(operation):
+                local_name = getattr(local, "name", None)
+                if local_name:
+                    names.add(local_name)
+        result = frozenset(names)
+        cache[proc_id] = result
+        return result
+
+    def _scope_defines_name(self, procedure: object, name: str) -> bool:
+        if name in self._scope_static_defined_names(procedure):
+            return True
         if (self._procedure_identity(procedure), name) in self._definition_locals:
             return True
         if self._scope_name_locations(procedure, name):
             return True
-        body = getattr(procedure, "ast", None)
-        for operation in self.iter_operations(body):
-            if isinstance(operation, (py_ast.FunctionDef, py_ast.ClassDef)):
-                if operation.name == name:
-                    return True
-                continue
-            if any(getattr(local, "name", None) == name for local in assigned_locals(operation)):
-                return True
         return False
 
     def _scope_name_locations(
