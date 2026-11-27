@@ -106,6 +106,7 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._active_project_lookups: set[str] = set()
         self._refreshing_inference = False
         self._refreshing_import_facts = False
+        self._last_refreshed_import_modules: frozenset[str] = frozenset()
         self._needs_refresh = False
         self._collection_diagnostics: list[StubDiagnostic] = []
         self._collection_diagnostics_seen: set[StubDiagnostic] = set()
@@ -185,7 +186,11 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                 self.type_system.invalidate_subtype_caches()
                 self._known_class_cache.clear()
                 self._reexport_cache.clear()
-                if self._refresh_import_facts() and self.enable_static_inference:
+                if (
+                    self._refresh_import_facts()
+                    and self.enable_static_inference
+                    and module_name in self._last_refreshed_import_modules
+                ):
                     cached = self._module_sources.get(module_name)
                     if cached is not None:
                         self._collect_inferred_source_facts(module_name, *cached)

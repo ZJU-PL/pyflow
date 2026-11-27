@@ -241,9 +241,10 @@ class ConstraintCallGraphBuilder(
             return None
         if not self.classes:
             return None
-        if self._fixpoint_deadline is not None and (
-            self._fixpoint_deadline - time.monotonic()
-        ) < 0.5:
+        if (
+            self._fixpoint_deadline is not None
+            and (self._fixpoint_deadline - time.monotonic()) < 0.5
+        ):
             return None
         if self._typeinfo_bridge is None:
             from pyflow.analysis.typeinfo.publication import TypeFactBridge

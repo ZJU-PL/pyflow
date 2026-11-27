@@ -515,3 +515,99 @@ def test_service_collection_diagnostics_and_import_refresh_scale_linearly() -> N
     assert service._refresh_import_facts() is True
     assert service._module_facts["consumer_0"]["helper"].typ is first
     assert service._module_facts["consumer_199"]["helper"].typ is first
+
+
+def test_typeinfo_service_bounds_transitive_inference_and_preserves_unrelated_caches(
+    tmp_path: Path,
+):
+    """Wave 1 perf guards: skip absent attrs, bound transitive inference, keep unaffected caches."""
+    (tmp_path / "dep.py").write_text(
+        "def present(x: int) -> int:\n    return x\n\nclass Box:\n    value = 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "entry.py").write_text(
+        "import dep\n\ndef run() -> int:\n    return dep.present(1)\n",
+        encoding="utf-8",
+    )
+    service = TypeInfoService(ProjectContext(tmp_path), enable_static_inference=True)
+    service.collect_module("dep", path=str(tmp_path / "dep.py"))
+    # Simulate deferred dependency status as during nested collection
+    service._deferred_inference_modules.add("dep")
+    service._inference_results.pop("dep", None)
+
+    calls: list[str] = []
+    original_ensure_inferred = service._ensure_inferred
+
+    def tracked_ensure_inferred(module_name: str, *, transitive: bool = False) -> None:
+        calls.append(module_name)
+        original_ensure_inferred(module_name, transitive=transitive)
+
+    service._ensure_inferred = tracked_ensure_inferred  # type: ignore[method-assign]
+    assert (
+        service._lookup_project_type(
+            "dep.does_not_exist",
+            allow_synthetic=False,
+            collect_missing=True,
+        )
+        is None
+    )
+    assert calls == []
+
+    # Targeted cache invalidation preserves unaffected non-None external symbols
+    service._external_symbol_cache["other.Symbol"] = Instance(
+        service.type_system.to_class_descriptor(int)
+    )
+    service._external_symbol_cache["dep.Box"] = Instance(
+        service.type_system.to_class_descriptor(str)
+    )
+    service._external_symbol_cache["missing.Item"] = None
+    service._invalidate_external_symbol_cache("dep")
+    assert "other.Symbol" in service._external_symbol_cache
+    assert "dep.Box" not in service._external_symbol_cache
+    assert "missing.Item" not in service._external_symbol_cache
+
+    # Transitive deferred inference obeys depth and module-count caps
+    for idx in range(25):
+        mod_name = f"fan_{idx}"
+        src = f"def f_{idx}():\n    return {idx}\n"
+        (tmp_path / f"{mod_name}.py").write_text(src, encoding="utf-8")
+        service._module_sources[mod_name] = (src, str(tmp_path / f"{mod_name}.py"))
+        service._deferred_inference_modules.add(mod_name)
+    service._collecting_modules.add("entry")
+    service._collection_stack.append("entry")
+    try:
+        service._transitive_inferred_count = 0
+        for idx in range(25):
+            service._ensure_inferred(f"fan_{idx}", transitive=True)
+        assert service._transitive_inferred_count == service._max_transitive_inferred_modules
+    finally:
+        service._collection_stack.clear()
+        service._collecting_modules.clear()
+
+    # PEP 695 TypeAlias works even with enable_static_inference=False
+    no_infer_service = TypeInfoService(ProjectContext(tmp_path), enable_static_inference=False)
+    no_infer_service.collect_module(
+        "aliases",
+        source="class A:\n    pass\nclass B:\n    pass\ntype Pair = A | B\nx: Pair\n",
+    )
+    x_fact = no_infer_service.fact_of("aliases", "x")
+    assert x_fact is not None and x_fact.typ is not None
+    assert "aliases.A" in str(x_fact.typ) and "aliases.B" in str(x_fact.typ)
+
+
+def test_call_inference_caches_return_dependencies():
+    import ast as _ast
+    from pyflow.analysis.typeinfo.inference._engine.state import _FunctionInfo
+    from pyflow.analysis.typeinfo.inference.engine import StaticTypeInferenceEngine
+
+    engine = StaticTypeInferenceEngine(ProjectContext(None))
+    node = _ast.parse("def identity(x):\n    return x\n").body[0]
+    fn_info = _FunctionInfo(
+        qualified_name="mod.identity",
+        node=node,
+        parameter_names=["x"],
+    )
+    first = engine._call_rules._return_dependencies(fn_info)
+    second = engine._call_rules._return_dependencies(fn_info)
+    assert first == frozenset({"x"})
+    assert first is second

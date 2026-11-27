@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed transitive TypeInfo & CallGraph performance bottlenecks and false MRO
+  self-cycles uncovered across real-world `top100` repositories (`keras`,
+  `MemPalace`, `scikit-learn`, `learn-claude-code`):
+  - Eliminated cascading transitive deferred inferences in `TypeInfoService`
+    with a depth guard and bounded transitive inference budget, tracked module
+    defined names to skip `infer_source` lookups for absent attributes,
+    replaced whole-cache clears with targeted `_invalidate_external_symbol_cache`,
+    gated import-refresh re-inference to modules whose imports actually changed,
+    and extracted PEP 695/annotated `TypeAlias` definitions during source collection.
+  - Memoized parameter-to-return dependency scans on `_FunctionInfo` in
+    `CallInference._return_dependencies`.
+  - Configured `ConstraintCallGraphBuilder`'s lazy `TypeFactBridge` with
+    `enable_static_inference=False` and gated fallback queries to loaded project
+    classes/modules with remaining fixpoint budget.
+  - Pruned spurious self-cycles in `_resolve_class_bases` when a class shadows
+    an imported base with the same name (`from _impl import Base; class Base(Base):`).
+
 - Fixed an $O(N^3)$ performance cliff in `TypeInfoService` when collecting large
   transitive dependency graphs with partial modules (discovered during
   real-world profiling of `MiroFish`): replaced linear list scans over

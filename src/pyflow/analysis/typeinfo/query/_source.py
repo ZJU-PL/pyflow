@@ -241,7 +241,8 @@ class _SourceCollectionMixin:
         is_third_party = self._third_party_typed(module_name) is True
         collect_missing = not is_third_party
         grouped_functions: dict[str, list[FunctionTypeInfo]] = {}
-        for node in _module_statements(tree):
+        statements = list(_module_statements(tree))
+        for node in statements:
             if isinstance(node, ast.ClassDef):
                 local_classes.add(node.name)
                 class_info = self._class_info_from_source(
@@ -258,7 +259,50 @@ class _SourceCollectionMixin:
                     source="annotation",
                     kind="class",
                 )
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        # Collect module-level type aliases (PEP 695 ``type X = ...`` and
+        # ``X: TypeAlias = ...``) before functions and annotated variables so
+        # forward references within the same module resolve immediately even
+        # when static inference is disabled.
+        for node in statements:
+            if (
+                hasattr(ast, "TypeAlias")
+                and isinstance(node, ast.TypeAlias)
+                and isinstance(node.name, ast.Name)
+            ):
+                raw_annotation = _annotation_to_str(node.value)
+                alias_type = self._resolve_annotation(
+                    raw_annotation,
+                    module_name=module_name,
+                    imports=imports,
+                    collect_missing=collect_missing,
+                )
+                facts[node.name.id] = TypeFact(
+                    name=node.name.id,
+                    typ=alias_type,
+                    raw_annotation=raw_annotation,
+                    source="annotation",
+                    kind="variable",
+                )
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                raw_annotation = _annotation_to_str(node.annotation)
+                head = raw_annotation.split("[", 1)[0].rsplit(".", 1)[-1]
+                if head in {"TypeAlias", "TypeAliasType"} and node.value is not None:
+                    raw_value = _annotation_to_str(node.value)
+                    alias_type = self._resolve_annotation(
+                        raw_value,
+                        module_name=module_name,
+                        imports=imports,
+                        collect_missing=collect_missing,
+                    )
+                    facts[node.target.id] = TypeFact(
+                        name=node.target.id,
+                        typ=alias_type,
+                        raw_annotation=raw_value,
+                        source="annotation",
+                        kind="variable",
+                    )
+        for node in statements:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 grouped_functions.setdefault(node.name, []).append(
                     self._function_info_from_source(
                         node,
@@ -413,14 +457,28 @@ class _SourceCollectionMixin:
         path: str | None,
     ) -> None:
         self._module_sources[module_name] = (source, path)
-        engine = StaticTypeInferenceEngine(
-            self.project_context,
-            type_system=self.type_system,
-            external_symbol_resolver=self._resolve_inference_external_symbol,
-            call_model_providers=self.call_model_providers,
-            options=self.inference_options,
-        )
-        result = engine.infer_source(module_name, source, filename=path)
+        pushed = module_name not in self._collecting_modules
+        if pushed:
+            self._collecting_modules.add(module_name)
+            self._collection_stack.append(module_name)
+        try:
+            engine = StaticTypeInferenceEngine(
+                self.project_context,
+                type_system=self.type_system,
+                external_symbol_resolver=self._resolve_inference_external_symbol,
+                call_model_providers=self.call_model_providers,
+                options=self.inference_options,
+            )
+            result = engine.infer_source(module_name, source, filename=path)
+        finally:
+            if pushed:
+                self._collecting_modules.discard(module_name)
+                if self._collection_stack and self._collection_stack[-1] == module_name:
+                    self._collection_stack.pop()
+                else:
+                    self._collection_stack = [
+                        name for name in self._collection_stack if name != module_name
+                    ]
         self._inference_results[module_name] = result
         for qualified_name, summary in result.functions.items():
             self._function_summaries[qualified_name] = summary

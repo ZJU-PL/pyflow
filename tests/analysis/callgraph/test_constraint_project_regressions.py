@@ -407,3 +407,53 @@ def test_monorepo_roots_do_not_merge_distinct_companion_scripts(tmp_path):
     assert "libs.other.scripts.check.check" in graph
     assert len(builder.modules) == len(sources)
     assert "scripts.check" not in builder.project_context._source_map()
+
+
+def test_shadowed_import_base_avoids_self_mro_cycle(tmp_path):
+    (tmp_path / "_impl.py").write_text("class Base:\n    def ping(self):\n        return 1\n")
+    entry = tmp_path / "wrapper.py"
+    entry.write_text(
+        "from _impl import Base\n\n"
+        "class Base(Base):\n"
+        "    def pong(self):\n"
+        "        return self.ping()\n\n"
+        "Base().pong()\n"
+    )
+    sources = {str(p): p.read_text() for p in tmp_path.glob("*.py")}
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        builder = ConstraintCallGraphBuilder(
+            entry.read_text(),
+            entry_path=str(entry),
+            additional_sources=sources,
+            project_root=str(tmp_path),
+            canonical_entry_names=True,
+        )
+        graph = builder.build().get()
+    assert not any("Inconsistent MRO" in str(w.message) for w in caught)
+    assert "wrapper.Base" not in builder._invalid_mro_classes
+    assert builder.classes["wrapper.Base"].bases == ["_impl.Base"]
+    assert "_impl.Base.ping" in graph.get("wrapper.Base.pong", set())
+
+
+def test_callgraph_typeinfo_bridge_avoids_unloaded_external_queries_and_heavy_inference():
+    source = (
+        "import json\n\n"
+        "class Local:\n"
+        "    def ok(self):\n"
+        "        return 1\n\n"
+        "def run():\n"
+        "    obj = json.loads('{}')\n"
+        "    obj.missing()\n"
+        "    return Local().ok()\n"
+    )
+    builder = ConstraintCallGraphBuilder(
+        source,
+        options=AnalysisOptions(use_type_hints=True, use_typeinfo_facts=True),
+    )
+    builder.build()
+    bridge = builder._typeinfo_bridge
+    assert bridge is not None
+    assert bridge._enable_static_inference is False
+    # External stdlib calls like json.loads must not trigger TypeInfo bridge queries
+    assert ("json", "json.loads") not in bridge._return_cache
