@@ -126,10 +126,8 @@ class MonotoneCFGDataflowSolver(Generic[Node]):
         in_states: dict[Node, TaintState] = {node: bottom for node in graph.nodes}
         in_states[graph.entry] = initial_state
         edge_states: dict[CFGEdge[Node], TaintState] = {edge: bottom for edge in graph.edges}
-        outgoing_lists: dict[Node, list[CFGEdge[Node]]] = {node: [] for node in graph.nodes}
-        for edge in graph.edges:
-            outgoing_lists[edge.source].append(edge)
-        outgoing_by_node = {node: tuple(edges) for node, edges in outgoing_lists.items()}
+        outgoing_by_node = graph._outgoing_by_source
+        declared_sets = {node: frozenset(edges) for node, edges in outgoing_by_node.items()}
         returned: FlowOutcome | None = None
         raised: FlowOutcome | None = None
         yielded: FlowOutcome | None = None
@@ -143,25 +141,26 @@ class MonotoneCFGDataflowSolver(Generic[Node]):
             queued.discard(node)
             steps += 1
             state = in_states[node]
-            outgoing_edges = outgoing_by_node[node]
+            outgoing_edges = outgoing_by_node.get(node, ())
             result = transfer(node, state, outgoing_edges)
             returned = self._join_outcome(returned, result.returned)
             raised = self._join_outcome(raised, result.raised)
             yielded = self._join_outcome(yielded, result.yielded)
-            events.update(result.events)
+            if result.events:
+                events.update(result.events)
 
-            supplied = {edge for edge, _state in result.outgoing}
-            declared = set(outgoing_edges)
-            if not supplied <= declared:
-                raise ValueError("transfer emitted a state for a non-successor edge")
-
+            declared = declared_sets.get(node, frozenset())
             for edge, outgoing in result.outgoing:
+                if edge not in declared:
+                    raise ValueError("transfer emitted a state for a non-successor edge")
                 previous_edge = edge_states[edge]
                 if outgoing.leq(previous_edge):
                     continue
-                edge_states[edge] = previous_edge.join(outgoing)
-                target_state = in_states[edge.target].join(edge_states[edge])
-                if target_state != in_states[edge.target]:
+                joined_edge = previous_edge.join(outgoing)
+                edge_states[edge] = joined_edge
+                prev_target = in_states[edge.target]
+                target_state = prev_target.join(joined_edge)
+                if target_state is not prev_target and target_state != prev_target:
                     in_states[edge.target] = target_state
                     if edge.target not in queued:
                         queued.add(edge.target)

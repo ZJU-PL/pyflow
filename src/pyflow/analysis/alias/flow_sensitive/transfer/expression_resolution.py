@@ -33,11 +33,12 @@ class _ExpressionResolverMixin(
         expression: object,
     ) -> ExpressionValue:
         cache = self._operation_expression_caches[-1] if self._operation_expression_caches else None
-        cacheable = not isinstance(
+        is_pure_leaf = isinstance(
             expression,
             (
                 HeapLocation,
                 py_ast.Local,
+                py_ast.Existing,
                 py_ast.GetGlobal,
                 py_ast.GetCell,
                 py_ast.GetCellDeref,
@@ -45,14 +46,15 @@ class _ExpressionResolverMixin(
                 py_ast.Input,
             ),
         )
-        cache_key = self._program_point_identity(procedure, expression)
+        cacheable = not is_pure_leaf
+        cache_key = self._program_point_identity(procedure, expression) if cacheable else None
         if cache is not None and cacheable:
             cached = cache.get(cache_key)
             if cached is not None:
                 return cached
-        self._record_exception_prefix()
         result = self._value_for_expression_impl(procedure, expression)
-        self._record_exception_prefix()
+        if not is_pure_leaf:
+            self._record_exception_prefix()
         if cache is not None and cacheable:
             cache[cache_key] = result
         return result

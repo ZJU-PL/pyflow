@@ -325,18 +325,16 @@ class PythonExpressionSemantics:
         if inactive_sink:
             sink_kinds = frozenset()
         if source_kinds:
-            for kind in source_kinds:
-                current = current.introduce(
+            line = getattr(call, "lineno", None)
+            col = getattr(call, "col_offset", None)
+            current = current.introduce_many(
+                (
                     call_location,
-                    {kind},
-                    TaintOrigin(
-                        kind,
-                        self.context.filename,
-                        getattr(call, "lineno", None),
-                        getattr(call, "col_offset", None),
-                        name,
-                    ),
+                    (kind,),
+                    TaintOrigin(kind, self.context.filename, line, col, name),
                 )
+                for kind in source_kinds
+            )
 
         all_argument_facts = frozenset(
             fact for result in (*positional, *keywords) for fact in result.facts
@@ -809,26 +807,33 @@ class PythonExpressionSemantics:
             inputs[port] = inputs.get(port, set()) | {(fact.kind, fact) for fact in result.facts}
         values = summary.propagate_tokens(inputs)
         returned = values.get(SummaryPort(SummaryPortKind.RETURN), frozenset())
-        for kind, token in returned:
-            if isinstance(token, TaintFact):
-                source = TaintFact(token.location, kind, token.origin)
+        if returned:
+            returned_sources: list[TaintFact] = []
+            introduced_entries: list[tuple[TaintLocation, tuple[str, ...], TaintOrigin]] = []
+            line = getattr(call, "lineno", None)
+            for kind, token in returned:
+                if isinstance(token, TaintFact):
+                    returned_sources.append(TaintFact(token.location, kind, token.origin))
+                else:
+                    origin = TaintOrigin(
+                        kind,
+                        self.context.filename,
+                        line,
+                        symbol=name,
+                    )
+                    introduced_entries.append((call_location, (kind,), origin))
+            if returned_sources:
                 state = state.write(
                     call_location,
-                    (source,),
+                    returned_sources,
                     strong=False,
                     operation=ProvenanceOperation.CALL,
                     filename=self.context.filename,
-                    line=getattr(call, "lineno", None),
+                    line=line,
                     detail=name,
                 )
-                continue
-            origin = TaintOrigin(
-                kind,
-                self.context.filename,
-                getattr(call, "lineno", None),
-                symbol=name,
-            )
-            state = state.introduce(call_location, {kind}, origin)
+            if introduced_entries:
+                state = state.introduce_many(introduced_entries)
         for sink in summary.sinks:
             sink_values = values.get(sink.port, frozenset())
             if not sink_values:

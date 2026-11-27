@@ -1109,6 +1109,11 @@ class HeapTransferEngine(
         if explicit_raise is not None:
             exception_prefixes.append(explicit_raise)
         exception_state = self._join_flow_states(tuple(exception_prefixes))
+        if self._exception_prefix_stack:
+            outer = self._exception_prefix_stack[-1]
+            outer.append(exception_state)
+            if len(outer) >= 16:
+                outer[:] = [self._join_flow_states(tuple(outer))]
 
         normal_states: list[_FlowState] = []
         abrupt = {kind: state for kind, state in body_outcome.abrupt.items() if kind != "raise"}
@@ -1426,8 +1431,10 @@ class HeapTransferEngine(
         if not self._exception_prefix_stack:
             return
         prefix = self._capture_flow_state()
-        for collector in self._exception_prefix_stack:
-            collector.append(prefix)
+        collector = self._exception_prefix_stack[-1]
+        collector.append(prefix)
+        if len(collector) >= 16:
+            collector[:] = [self._join_flow_states(tuple(collector))]
 
     def _restore_flow_state(self, state: _FlowState) -> None:
         self.state = state.heap_state.copy()
@@ -1477,6 +1484,16 @@ class HeapTransferEngine(
             return self._capture_flow_state()
         if len(states) == 1:
             return states[0]
+        seen_ids: set[int] = set()
+        unique_states: list[_FlowState] = []
+        for state in states:
+            sid = id(state)
+            if sid not in seen_ids:
+                seen_ids.add(sid)
+                unique_states.append(state)
+        if len(unique_states) == 1:
+            return unique_states[0]
+        states = tuple(unique_states)
         joined_heap = states[0].heap_state
         for state in states[1:]:
             joined_heap = joined_heap.join(state.heap_state)

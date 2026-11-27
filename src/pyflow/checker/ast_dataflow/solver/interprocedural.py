@@ -217,8 +217,17 @@ class ASTInterproceduralAnalyzer:
                 for target in by_short.get(leaf, ()):
                     callers_by_callee[target].add(caller_name)
 
+        from pyflow.analysis.taint_policy.call_types import ast_receiver_bindings
+        from ..frontend import ASTCFGBuilder
+
         analyses: dict[str, ASTFunctionAnalysisResult] = {}
         universe = self._taint_kind_universe()
+        known_functions_set = frozenset(functions)
+        built_cfgs: dict[str, object] = {}
+        resolved_receiver_aliases: dict[str, Mapping[str, str]] = {}
+        parameters_by_fn = {
+            name: self._parameter_names(function) for name, function in functions.items()
+        }
         rounds = 0
         dirty: list[str] = list(functions.keys())
         changed = bool(dirty)
@@ -228,8 +237,16 @@ class ASTInterproceduralAnalyzer:
             next_dirty: set[str] = set()
             for name in dirty:
                 function = functions[name]
-                parameters = self._parameter_names(function)
+                parameters = parameters_by_fn[name]
                 entry = {parameter: universe for parameter in parameters}
+                built_cfg = built_cfgs.get(name)
+                if built_cfg is None:
+                    built_cfg = ASTCFGBuilder(name).build(function)
+                    built_cfgs[name] = built_cfg
+                resolved_aliases = resolved_receiver_aliases.get(name)
+                if resolved_aliases is None:
+                    resolved_aliases = ast_receiver_bindings(function, import_aliases.get(name, {}))
+                    resolved_receiver_aliases[name] = resolved_aliases
                 analysis = analyze_ast_function(
                     function,
                     procedure=name,
@@ -241,10 +258,12 @@ class ASTInterproceduralAnalyzer:
                     shape_contracts=self.shape_contracts,
                     refinement=self.refinement,
                     solver_options=self.solver_options,
-                    known_functions=functions,
+                    known_functions=known_functions_set,
                     import_aliases=import_aliases.get(name, {}),
                     unknown_call_policy=self.unknown_call_policy,
                     summary_short_index=summary_short_index,
+                    built_cfg=built_cfg,
+                    resolved_import_aliases=resolved_aliases,
                 )
                 analyses[name] = analysis
                 diagnostics.update(analysis.diagnostics)
@@ -346,10 +365,11 @@ class ASTInterproceduralAnalyzer:
 
         normal_state = self._normal_exit_state(analysis)
         if normal_state is not None:
+            facts_by_root = normal_state._facts_by_root
             for index, parameter in enumerate(parameters):
                 root = (name, parameter)
-                for fact in normal_state.facts:
-                    if fact.location.root != root or not fact.location.selectors:
+                for fact in facts_by_root.get(root, ()):
+                    if not fact.location.selectors:
                         continue
                     target = SummaryPort(
                         SummaryPortKind.PARAMETER,

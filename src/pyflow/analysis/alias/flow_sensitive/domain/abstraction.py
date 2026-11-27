@@ -174,7 +174,12 @@ class HeapAbstraction:
             policy=policy or self.update_policy_for_location(location),
         )
 
-    def update_policy_for_location(self, location: HeapLocation) -> UpdatePolicy:
+    def update_policy_for_location(
+        self,
+        location: HeapLocation,
+        *,
+        ref_count: int | None = None,
+    ) -> UpdatePolicy:
         """Default IFDS update policy gated by equivalence-class reference counts.
 
         Root locations (locals, globals, cells) can be strongly updated when
@@ -199,7 +204,8 @@ class HeapAbstraction:
             return UpdatePolicy.STRONG
         if location.is_nested():
             return UpdatePolicy.WEAK
-        ref_count = self.reference_count_for_root(location.root)
+        if ref_count is None:
+            ref_count = self.reference_count_for_root(location.root, stop_at=2)
         return UpdatePolicy.STRONG if ref_count <= 1 else UpdatePolicy.WEAK
 
     def snapshot_environment(self) -> HeapEnvironment:
@@ -291,13 +297,19 @@ class HeapAbstraction:
             environments
         )
         local_values: dict[tuple[object, str], LocalValue] = {}
+        first_lv = environments[0].local_values
+        rest_lvs = [env.local_values for env in environments[1:]]
         for logical_key in logical_keys:
-            first_val = environments[0].local_values.get(logical_key)
-            if first_val is not None and all(
-                env.local_values.get(logical_key) is first_val for env in environments[1:]
-            ):
-                local_values[logical_key] = first_val
-                continue
+            first_val = first_lv.get(logical_key)
+            if first_val is not None:
+                same_val = True
+                for other_lv in rest_lvs:
+                    if other_lv.get(logical_key) is not first_val:
+                        same_val = False
+                        break
+                if same_val:
+                    local_values[logical_key] = first_val
+                    continue
             joined_value: LocalValue | None = None
             for env_idx, environment in enumerate(environments):
                 value = environment.local_values.get(logical_key)
@@ -323,33 +335,43 @@ class HeapAbstraction:
             assert joined_value is not None
             local_values[logical_key] = joined_value
 
-        sort_cache = self._binding_sort_cache
-        sort_key_fn = self._binding_sort_key
-        if len(sort_cache) > 65536:
-            sort_cache.clear()
-        for key in keys:
-            if key not in sort_cache:
-                sort_cache[key] = sort_key_fn(key)
-        sorted_keys = sorted(keys, key=sort_cache.__getitem__)
-
-        num_envs = len(environments)
         first_env = environments[0]
         rest_envs = environments[1:]
-        for key in sorted_keys:
-            first_storage = self._environment_storage(first_env, key)
+        first_so = first_env.storage_overrides
+        first_as = first_env.allocation_sites
+        first_ss = first_env.site_storage
+        rest_so = [env.storage_overrides for env in rest_envs]
+        rest_as = [env.allocation_sites for env in rest_envs]
+        rest_ss = [env.site_storage for env in rest_envs]
+        fresh_entries: list[tuple[tuple[int, int], tuple[HeapLocation, ...]]] = []
+
+        for key in keys:
+            first_storage = first_so.get(key)
+            if first_storage is None:
+                site0 = first_as.get(key)
+                first_storage = first_ss.get(site0, ()) if site0 is not None else ()
             all_identical_raw = True
-            incoming: list[tuple[object, ...]] = [first_storage]
-            for environment in rest_envs:
-                st = self._environment_storage(environment, key)
-                incoming.append(st)
-                if st != first_storage:
+            incoming: list[tuple[object, ...]] | None = None
+            for idx_r, r_so in enumerate(rest_so):
+                st = r_so.get(key)
+                if st is None:
+                    r_site = rest_as[idx_r].get(key)
+                    st = rest_ss[idx_r].get(r_site, ()) if r_site is not None else ()
+                if st is not first_storage and st != first_storage:
                     all_identical_raw = False
+                    if incoming is None:
+                        incoming = [first_storage] * (idx_r + 1)
+                    incoming.append(st)
+                elif incoming is not None:
+                    incoming.append(st)
 
             if all_identical_raw:
                 if not first_storage:
                     continue
-                if all(isinstance(raw, HeapLocation) for raw in first_storage) and (
-                    len(first_storage) <= 1 or len(set(first_storage)) == len(first_storage)
+                if len(first_storage) == 1 and type(first_storage[0]) is HeapLocation:
+                    joined = first_storage  # type: ignore[assignment]
+                elif all(type(raw) is HeapLocation for raw in first_storage) and (
+                    len(set(first_storage)) == len(first_storage)
                 ):
                     joined = first_storage  # type: ignore[assignment]
                 else:
@@ -358,6 +380,7 @@ class HeapAbstraction:
                         continue
                 same_storage = True
             else:
+                assert incoming is not None
                 canonical_nonempty = [self._canonicalize_storage(st) for st in incoming if st]
                 if not canonical_nonempty:
                     continue
@@ -373,20 +396,39 @@ class HeapAbstraction:
                         joined = tuple(dict.fromkeys(loc for c in canonical_nonempty for loc in c))
                         same_storage = False
 
-            storage_overrides[key] = joined
-            first_site = first_env.allocation_sites.get(key)
-            if (
-                same_storage
-                and first_site is not None
-                and all(env.allocation_sites.get(key) is not None for env in rest_envs)
-            ):
-                site = first_site
+            first_site = first_as.get(key)
+            reuse_site = False
+            if same_storage and first_site is not None:
+                reuse_site = True
+                for r_as in rest_as:
+                    if r_as.get(key) is None:
+                        reuse_site = False
+                        break
+            if reuse_site:
+                storage_overrides[key] = joined
+                allocation_sites[key] = first_site
+                site_storage[first_site] = joined
+                site_ref_counts[first_site] = site_ref_counts.get(first_site, 0) + 1
             else:
+                fresh_entries.append((key, joined))
+
+        if fresh_entries:
+            if len(fresh_entries) > 1:
+                sort_cache = self._binding_sort_cache
+                sort_key_fn = self._binding_sort_key
+                if len(sort_cache) > 65536:
+                    sort_cache.clear()
+                for key, _ in fresh_entries:
+                    if key not in sort_cache:
+                        sort_cache[key] = sort_key_fn(key)
+                fresh_entries.sort(key=lambda item: sort_cache[item[0]])
+            for key, joined in fresh_entries:
                 site = self.next_site
                 self.next_site += 1
-            allocation_sites[key] = site
-            site_storage[site] = joined
-            site_ref_counts[site] = site_ref_counts.get(site, 0) + 1
+                storage_overrides[key] = joined
+                allocation_sites[key] = site
+                site_storage[site] = joined
+                site_ref_counts[site] = site_ref_counts.get(site, 0) + 1
 
         equiv_parent = {site: site for site in site_storage}
         equiv_members = {site: {site} for site in site_storage}
@@ -466,20 +508,68 @@ class HeapAbstraction:
             )
         )
 
-    def reference_count_for_root(self, root: HeapObject) -> int:
+    def reference_count_for_root(
+        self,
+        root: HeapObject,
+        *,
+        stop_at: int | None = None,
+    ) -> int:
         """Count live logical local bindings that may reference *root*."""
         logical_bindings: set[tuple[object, ...]] = set()
-        keys = set(self.storage_overrides) | set(self.allocation_sites)
+        storage_overrides = self.storage_overrides
+        allocation_sites = self.allocation_sites
+        site_storage = self.site_storage
+        local_names = self._local_names
+        loc_for_raw = self.location_for_raw
+        keys = set(storage_overrides)
+        keys.update(allocation_sites)
         for key in keys:
-            storage = self.storage_overrides.get(key)
+            storage = storage_overrides.get(key)
             if storage is None:
-                site = self.allocation_sites.get(key)
-                storage = self.site_storage.get(site, ()) if site is not None else ()
-            if not any(self.location_for_raw(raw).root == root for raw in storage):
+                site = allocation_sites.get(key)
+                storage = site_storage.get(site, ()) if site is not None else ()
+            if not storage:
                 continue
-            name = self._local_names.get(key)
+            matched = False
+            for raw in storage:
+                if (raw.root if type(raw) is HeapLocation else loc_for_raw(raw).root) == root:
+                    matched = True
+                    break
+            if not matched:
+                continue
+            name = local_names.get(key)
             logical_bindings.add((key[0], name) if name is not None else key)
+            if stop_at is not None and len(logical_bindings) >= stop_at:
+                return len(logical_bindings)
         return len(logical_bindings)
+
+    def _all_reference_counts_by_root(self) -> dict[HeapObject, int]:
+        """Compute reference_count_for_root for every root in a single linear pass."""
+        bindings_by_root: dict[HeapObject, set[tuple[object, ...]]] = {}
+        storage_overrides = self.storage_overrides
+        allocation_sites = self.allocation_sites
+        site_storage = self.site_storage
+        local_names = self._local_names
+        loc_for_raw = self.location_for_raw
+        keys = set(storage_overrides)
+        keys.update(allocation_sites)
+        for key in keys:
+            storage = storage_overrides.get(key)
+            if storage is None:
+                site = allocation_sites.get(key)
+                storage = site_storage.get(site, ()) if site is not None else ()
+            if not storage:
+                continue
+            name = local_names.get(key)
+            logical = (key[0], name) if name is not None else key
+            for raw in storage:
+                root = raw.root if type(raw) is HeapLocation else loc_for_raw(raw).root
+                bindings = bindings_by_root.get(root)
+                if bindings is None:
+                    bindings_by_root[root] = {logical}
+                else:
+                    bindings.add(logical)
+        return {root: len(bindings) for root, bindings in bindings_by_root.items()}
 
     def _is_immutable_type(self, root: HeapObject) -> bool:
         if root.type_hint is not None and root.type_hint in self.policy.immutable_type_hints:
@@ -1287,13 +1377,14 @@ class HeapAbstraction:
         from .points_to import HeapValueSnapshot, PointsToEntry, PointsToGraph
 
         entries: dict[HeapLocation, PointsToEntry] = {}
+        ref_counts_by_root = self._all_reference_counts_by_root()
         # Alias/reference-count queries may lazily intern summary objects.
         # Iterate over the entry snapshot so that does not invalidate export.
         for obj_key, obj in tuple(self._objects.items()):
             location = HeapLocation(obj)
             if location in entries:
                 continue
-            ref_count = self.reference_count_for_root(obj)
+            ref_count = ref_counts_by_root.get(obj, 0)
             escaped = obj in self._escaped_objects or obj.escape in {
                 HeapEscapeState.ESCAPED,
                 HeapEscapeState.EXTERNAL,
@@ -1306,7 +1397,7 @@ class HeapAbstraction:
                 ref_count=ref_count,
                 is_escaped=escaped,
                 is_singleton=obj.is_singleton(),
-                update_policy=self.update_policy_for_location(location),
+                update_policy=self.update_policy_for_location(location, ref_count=ref_count),
                 cardinality=obj.cardinality,
                 identity=obj.identity,
             )

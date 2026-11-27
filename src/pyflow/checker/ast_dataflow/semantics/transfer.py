@@ -521,9 +521,19 @@ def analyze_ast_function(
     import_aliases: Mapping[str, str] | None = None,
     unknown_call_policy: str = "havoc",
     summary_short_index: Mapping[str, tuple[str, ...]] | None = None,
+    built_cfg=None,
+    resolved_import_aliases: Mapping[str, str] | None = None,
 ) -> ASTFunctionAnalysisResult:
     from pyflow.analysis.taint_policy.call_types import ast_receiver_bindings
 
+    known_set = (
+        known_functions if isinstance(known_functions, frozenset) else frozenset(known_functions)
+    )
+    resolved_aliases = (
+        resolved_import_aliases
+        if resolved_import_aliases is not None
+        else ast_receiver_bindings(function, import_aliases or {})
+    )
     context = ExpressionContext(
         procedure=procedure,
         filename=filename,
@@ -531,23 +541,25 @@ def analyze_ast_function(
         summaries=summaries or {},
         contracts=contracts or SanitizerContractRegistry(),
         shape_contracts=shape_contracts or CallShapeContractRegistry(),
-        known_functions=frozenset(known_functions),
-        import_aliases=ast_receiver_bindings(function, import_aliases or {}),
+        known_functions=known_set,
+        import_aliases=resolved_aliases,
         unknown_call_policy=unknown_call_policy,
         summary_short_index=summary_short_index,
     )
     expressions = PythonExpressionSemantics(context)
     transfer = PythonStatementTransfer(expressions, refinement)
     initial = TaintState()
-    for name, kinds in (entry_taint or {}).items():
-        location = TaintLocation((procedure, name))
-        for kind in kinds:
-            initial = initial.introduce(
-                location,
-                {kind},
+    if entry_taint:
+        initial = initial.introduce_many(
+            (
+                TaintLocation((procedure, name)),
+                (kind,),
                 TaintOrigin(kind, filename, symbol=f"parameter:{name}"),
             )
-    built = ASTCFGBuilder(procedure).build(function)
+            for name, kinds in entry_taint.items()
+            for kind in kinds
+        )
+    built = built_cfg if built_cfg is not None else ASTCFGBuilder(procedure).build(function)
     cfg_result: CFGSolverResult[ASTCFGNode] = MonotoneCFGDataflowSolver[ASTCFGNode](
         solver_options
     ).solve(built.graph, initial, transfer)

@@ -68,7 +68,9 @@ def test_typeinfo_refresh_import_facts_tolerates_dict_mutation(tmp_path: Path):
     mutated = False
     original_lookup = service._lookup_project_type
 
-    def _mutating_lookup(qualified_name: str, *, allow_synthetic: bool = True):
+    def _mutating_lookup(
+        qualified_name: str, *, allow_synthetic: bool = True, collect_missing: bool = True
+    ):
         nonlocal mutated
         if not mutated:
             mutated = True
@@ -76,7 +78,11 @@ def test_typeinfo_refresh_import_facts_tolerates_dict_mutation(tmp_path: Path):
             service._module_facts["a"]["late_sym"] = TypeFact(
                 name="late_sym", typ=int, raw_annotation="int", source="inferred", kind="variable"
             )
-        return original_lookup(qualified_name, allow_synthetic=allow_synthetic)
+        return original_lookup(
+            qualified_name,
+            allow_synthetic=allow_synthetic,
+            collect_missing=collect_missing,
+        )
 
     service._module_facts["a"] = {
         "imported_x": TypeFact(

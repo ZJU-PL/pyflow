@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from typing import Iterable, Mapping
 
 from pyflow.checker.common.taint import AccessSelector, AnalysisUncertainty
+
+_WILDCARD_KINDS = frozenset({"*"})
 
 
 class SummaryPortKind(str, Enum):
@@ -53,16 +56,40 @@ class SummaryRelation:
     guard: str | None = None
 
     def transform(self, incoming: Iterable[str]) -> frozenset[str]:
-        mapping = dict(self.mapped_kinds)
+        if not incoming:
+            return frozenset()
         remove_all = "*" in self.removed_kinds
+        if remove_all:
+            return frozenset()
+        allow_all = self.kinds == _WILDCARD_KINDS
+        if not self.mapped_kinds and not self.removed_kinds:
+            if isinstance(incoming, frozenset):
+                return incoming if allow_all else incoming & self.kinds
+            if allow_all:
+                return frozenset(incoming)
+            return frozenset(kind for kind in incoming if kind in self.kinds)
+        mapping = dict(self.mapped_kinds) if self.mapped_kinds else None
+        removed = self.removed_kinds
         result = set()
         for kind in incoming:
-            if self.kinds != frozenset({"*"}) and kind not in self.kinds:
+            if not allow_all and kind not in self.kinds:
                 continue
-            if remove_all or kind in self.removed_kinds:
+            if removed and kind in removed:
                 continue
-            result.add(mapping.get(kind, kind))
+            result.add(mapping.get(kind, kind) if mapping is not None else kind)
         return frozenset(result)
+
+    def transform_one(self, kind: str) -> str | None:
+        if "*" in self.removed_kinds or (self.removed_kinds and kind in self.removed_kinds):
+            return None
+        if self.kinds != _WILDCARD_KINDS and kind not in self.kinds:
+            return None
+        if not self.mapped_kinds:
+            return kind
+        for src, dst in self.mapped_kinds:
+            if src == kind:
+                return dst
+        return kind
 
 
 @dataclass(frozen=True, order=True)
@@ -123,29 +150,50 @@ class ProcedureTaintSummary:
             uncertainties=self.uncertainties | other.uncertainties,
         )
 
+    @cached_property
+    def _relations_by_source(self) -> dict[SummaryPort, tuple[SummaryRelation, ...]]:
+        grouped: dict[SummaryPort, list[SummaryRelation]] = {}
+        for relation in self.relations:
+            grouped.setdefault(relation.source, []).append(relation)
+        return {port: tuple(items) for port, items in grouped.items()}
+
     def propagate(
         self,
         inputs: Mapping[SummaryPort, Iterable[str]],
     ) -> dict[SummaryPort, frozenset[str]]:
         """Instantiate the summary and close its finite relation to a fixpoint."""
 
-        values = {port: frozenset(kinds) for port, kinds in inputs.items()}
+        values: dict[SummaryPort, set[str]] = {port: set(kinds) for port, kinds in inputs.items()}
         for port, kind in self.seeds:
-            values[port] = values.get(port, frozenset()) | {kind}
-        changed = True
-        while changed:
-            changed = False
-            for relation in self.relations:
-                incoming = values.get(relation.source, frozenset())
+            values.setdefault(port, set()).add(kind)
+        if not self.relations:
+            return {port: frozenset(kinds) for port, kinds in values.items()}
+        by_source = self._relations_by_source
+        worklist = [port for port, kinds in values.items() if kinds and port in by_source]
+        in_worklist = set(worklist)
+        while worklist:
+            source_port = worklist.pop()
+            in_worklist.discard(source_port)
+            incoming = values.get(source_port)
+            if not incoming:
+                continue
+            for relation in by_source[source_port]:
                 produced = relation.transform(incoming)
                 if not produced:
                     continue
-                current = values.get(relation.target, frozenset())
-                joined = current | produced
-                if joined != current:
-                    values[relation.target] = joined
-                    changed = True
-        return values
+                target = relation.target
+                current = values.get(target)
+                if current is None:
+                    values[target] = set(produced)
+                    if target in by_source and target not in in_worklist:
+                        in_worklist.add(target)
+                        worklist.append(target)
+                elif not produced <= current:
+                    current.update(produced)
+                    if target in by_source and target not in in_worklist:
+                        in_worklist.add(target)
+                        worklist.append(target)
+        return {port: frozenset(kinds) for port, kinds in values.items()}
 
     def propagate_tokens(
         self,
@@ -153,25 +201,65 @@ class ProcedureTaintSummary:
     ) -> dict[SummaryPort, frozenset[tuple[str, object]]]:
         """Propagate kinds while preserving their caller-side origin token."""
 
-        values = {port: frozenset(tokens) for port, tokens in inputs.items()}
+        values: dict[SummaryPort, set[tuple[str, object]]] = {
+            port: set(tokens) for port, tokens in inputs.items()
+        }
         for port, kind in self.seeds:
             token = ("summary-seed", self.procedure, port, kind)
-            values[port] = values.get(port, frozenset()) | {(kind, token)}
-        changed = True
-        while changed:
-            changed = False
-            for relation in self.relations:
-                incoming = values.get(relation.source, frozenset())
-                produced = frozenset(
-                    (output_kind, token)
-                    for input_kind, token in incoming
-                    for output_kind in relation.transform({input_kind})
-                )
-                if not produced:
-                    continue
-                current = values.get(relation.target, frozenset())
-                joined = current | produced
-                if joined != current:
-                    values[relation.target] = joined
-                    changed = True
-        return values
+            values.setdefault(port, set()).add((kind, token))
+        if not self.relations:
+            return {port: frozenset(tokens) for port, tokens in values.items()}
+        by_source = self._relations_by_source
+        worklist = [port for port, tokens in values.items() if tokens and port in by_source]
+        in_worklist = set(worklist)
+        while worklist:
+            source_port = worklist.pop()
+            in_worklist.discard(source_port)
+            incoming = values.get(source_port)
+            if not incoming:
+                continue
+            for relation in by_source[source_port]:
+                target = relation.target
+                current = values.get(target)
+                added = False
+                if (
+                    relation.kinds == _WILDCARD_KINDS
+                    and not relation.mapped_kinds
+                    and not relation.removed_kinds
+                ):
+                    if current is None:
+                        values[target] = set(incoming)
+                        added = True
+                    elif not incoming <= current:
+                        current.update(incoming)
+                        added = True
+                elif not relation.mapped_kinds and not relation.removed_kinds:
+                    rel_kinds = relation.kinds
+                    if current is None:
+                        new_set = {item for item in incoming if item[0] in rel_kinds}
+                        if new_set:
+                            values[target] = new_set
+                            added = True
+                    else:
+                        before = len(current)
+                        for item in incoming:
+                            if item[0] in rel_kinds:
+                                current.add(item)
+                        added = len(current) != before
+                else:
+                    for input_kind, token in incoming:
+                        output_kind = relation.transform_one(input_kind)
+                        if output_kind is None:
+                            continue
+                        pair = (output_kind, token)
+                        if current is None:
+                            current = {pair}
+                            values[target] = current
+                            added = True
+                        elif pair not in current:
+                            current.add(pair)
+                            added = True
+                if added and target in by_source and target not in in_worklist:
+                    in_worklist.add(target)
+                    worklist.append(target)
+        return {port: frozenset(tokens) for port, tokens in values.items()}

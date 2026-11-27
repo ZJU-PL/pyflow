@@ -8,7 +8,7 @@ selector algebra.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from math import gcd
 from typing import Hashable, Iterable, cast
@@ -33,6 +33,14 @@ class AccessSelector:
 
     kind: SelectorKind
     value: Hashable | None = None
+    _cached_hash: int | None = field(default=None, init=False, repr=False, compare=False)
+
+    def __hash__(self) -> int:
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash((self.kind, self.value))
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     @classmethod
     def attribute(cls, name: str) -> "AccessSelector":
@@ -100,6 +108,14 @@ class TaintLocation:
 
     root: Hashable
     selectors: tuple[AccessSelector, ...] = ()
+    _cached_hash: int | None = field(default=None, init=False, repr=False, compare=False)
+
+    def __hash__(self) -> int:
+        cached = self._cached_hash
+        if cached is None:
+            cached = hash((self.root, self.selectors))
+            object.__setattr__(self, "_cached_hash", cached)
+        return cached
 
     def select(self, selector: AccessSelector) -> "TaintLocation":
         return TaintLocation(self.root, (*self.selectors, selector))
@@ -121,13 +137,21 @@ class TaintLocation:
 
     @property
     def is_precise(self) -> bool:
+        if not self.selectors:
+            return True
         return all(selector.is_precise for selector in self.selectors)
 
     def is_prefix_of(self, other: "TaintLocation") -> bool:
         """Whether this location conservatively contains ``other``."""
 
-        if self.root != other.root or len(self.selectors) > len(other.selectors):
+        if self.root != other.root:
             return False
+        if not self.selectors:
+            return True
+        if len(self.selectors) > len(other.selectors):
+            return False
+        if self.selectors == other.selectors[: len(self.selectors)]:
+            return True
         return all(left.may_match(right) for left, right in zip(self.selectors, other.selectors))
 
     def may_overlap(self, other: "TaintLocation") -> bool:
@@ -135,10 +159,15 @@ class TaintLocation:
 
         if self.root != other.root:
             return False
+        if not self.selectors or not other.selectors:
+            return True
         return all(left.may_match(right) for left, right in zip(self.selectors, other.selectors))
 
     def descendants(self, selectors: Iterable[AccessSelector]) -> "TaintLocation":
-        return TaintLocation(self.root, (*self.selectors, *tuple(selectors)))
+        extra = selectors if isinstance(selectors, tuple) else tuple(selectors)
+        if not extra:
+            return self
+        return TaintLocation(self.root, (*self.selectors, *extra))
 
     def summarize(self, max_selectors: int) -> "TaintLocation":
         """Widen a deep path to a wildcard summary at a finite depth."""
