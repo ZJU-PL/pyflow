@@ -354,6 +354,7 @@ def load_analysis_session(
     root_function: str | None = None,
     entry_file: str | Path | None = None,
     callgraph_max_iterations: int = 256,
+    callgraph_max_seconds: float | None = None,
 ) -> PreparedIFDSProgram:
     """Load source files into a PyFlow program and build CFGs for all live code."""
     if root_function is not None and entry_file is not None:
@@ -419,6 +420,7 @@ def load_analysis_session(
             entry_path=callgraph_entry,
             analyze_reachable_only=entry_file is not None,
             max_iterations=callgraph_max_iterations,
+            max_seconds=callgraph_max_seconds,
             follow_imports=dependency_strategy != "stubs",
         )
         callgraph_edges = callgraph_analysis.edges
@@ -507,6 +509,7 @@ def run_nullness_analysis(
         root_function=function,
         entry_file=entry_file,
         callgraph_max_iterations=callgraph_max_iterations,
+        callgraph_max_seconds=(solver_options.max_seconds if solver_options is not None else None),
     )
     result = analyze_nullness(
         session.adapter,
@@ -568,6 +571,7 @@ def run_typestate_analysis(
         root_function=function,
         entry_file=entry_file,
         callgraph_max_iterations=callgraph_max_iterations,
+        callgraph_max_seconds=(solver_options.max_seconds if solver_options is not None else None),
     )
     result = analyze_typestate(
         session.adapter,

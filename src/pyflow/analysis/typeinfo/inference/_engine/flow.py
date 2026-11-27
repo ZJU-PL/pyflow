@@ -1453,24 +1453,44 @@ class FlowInference(InferenceComponent):
                     return AbstractTypeValue.from_type(function.summary.return_type)
         return None
 
-    @staticmethod
-    def _invalidate_refinements(environment, target):
-        assigned = ast.unparse(target)
+    _subscript_key_names_cache: dict[str, frozenset[str]] = {}
+
+    @classmethod
+    def _subscript_key_identifiers(cls, key: str) -> frozenset[str]:
+        cached = cls._subscript_key_names_cache.get(key)
+        if cached is not None:
+            return cached
+        try:
+            expression = ast.parse(key, mode="eval")
+        except SyntaxError:
+            names: frozenset[str] = frozenset()
+        else:
+            names = frozenset(
+                ast.unparse(child)
+                for child in ast.walk(expression)
+                if isinstance(child, (ast.Name, ast.Attribute))
+            )
+        if len(cls._subscript_key_names_cache) >= 4096:
+            cls._subscript_key_names_cache.clear()
+        cls._subscript_key_names_cache[key] = names
+        return names
+
+    @classmethod
+    def _invalidate_refinements(cls, environment, target):
+        assigned = target.id if isinstance(target, ast.Name) else ast.unparse(target)
+        assigned_dot = assigned + "."
+        assigned_sub = assigned + "["
+        is_subscript = isinstance(target, ast.Subscript)
         for key in tuple(environment):
-            if key.startswith((assigned + ".", assigned + "[")):
+            if key.startswith((assigned_dot, assigned_sub)):
                 environment.pop(key)
             elif "[" in key:
-                if isinstance(target, ast.Subscript):
+                if is_subscript:
                     environment.pop(key)
                     continue
-                try:
-                    expression = ast.parse(key, mode="eval")
-                except SyntaxError:
+                if assigned not in key:
                     continue
-                if any(
-                    isinstance(child, (ast.Name, ast.Attribute)) and ast.unparse(child) == assigned
-                    for child in ast.walk(expression)
-                ):
+                if assigned in cls._subscript_key_identifiers(key):
                     environment.pop(key)
 
     def _unpack_value(self, value: AbstractTypeValue, count: int) -> list[AbstractTypeValue]:

@@ -246,15 +246,22 @@ class InterproceduralNullnessProblem(
                     self._facts_for_locals_with_path(
                         node.procedure,
                         targets,
-                        self._access_path_for_expression(expr),
+                        self._resulting_access_path(expr, fact),
                     )
                 )
             outputs.update(
                 self._make_location_fact(location)
-                for location in self._aliased_dynamic_locations_for_assignment(
-                    node.procedure,
-                    operation,
-                    fact,
+                for location in (
+                    *self._aliased_dynamic_locations_for_assignment(
+                        node.procedure,
+                        operation,
+                        fact,
+                    ),
+                    *self._collection_copy_result_locations_for_assignment(
+                        node.procedure,
+                        operation,
+                        fact,
+                    ),
                 )
             )
             for locations, value in constructor_writes:
@@ -282,7 +289,7 @@ class InterproceduralNullnessProblem(
                     return tuple(outputs)
             for index, expr in enumerate(operation.exprs):
                 if self._expr_is_nullable(node.procedure, expr, fact):
-                    path = self._access_path_for_expression(expr)
+                    path = self._resulting_access_path(expr, fact)
                     outputs.update(
                         self._facts_for_return_location(
                             node.procedure,
@@ -308,7 +315,7 @@ class InterproceduralNullnessProblem(
             if value is None:
                 return tuple(outputs)
             if self._expr_is_nullable(node.procedure, value, fact):
-                path = self._access_path_for_expression(value)
+                path = self._resulting_access_path(value, fact)
                 outputs.update(
                     self._facts_for_modified_operation(
                         operation,
@@ -333,7 +340,7 @@ class InterproceduralNullnessProblem(
         self._bind_callee_formals(call_node, callee)
         for actual, formal in self._bind_call_arguments_for_callee(call_node, callee):
             if self._expr_is_nullable(call_node.procedure, actual, fact):
-                path = self._access_path_for_expression(actual)
+                path = self._resulting_access_path(actual, fact)
                 if path:
                     outputs.update(self._facts_for_locals_with_path(callee, (formal,), path))
                 else:
@@ -400,6 +407,54 @@ class InterproceduralNullnessProblem(
         killed = self._killed_locations_for_node(call_node, include_semantic=False)
         return self._identity_outputs(fact, killed)
 
+    @staticmethod
+    def _is_definitely_non_null_expression(expr: object) -> bool:
+        if isinstance(expr, py_ast.Existing):
+            return getattr(expr.object, "pyobj", None) is not None
+        return isinstance(
+            expr,
+            (
+                py_ast.BuildList,
+                py_ast.BuildTuple,
+                py_ast.BuildMap,
+                py_ast.BuildSet,
+                py_ast.BuildSlice,
+                py_ast.MakeFunction,
+                py_ast.FunctionDef,
+                py_ast.ClassDef,
+            ),
+        )
+
+    def _call_has_non_null_default(
+        self, call: py_ast.PythonASTNode | None, model_name: str
+    ) -> bool:
+        """True when a default-accepting getter call supplies a non-null fallback."""
+        if call is None:
+            return False
+        leaf = model_name.rsplit(".", 1)[-1]
+        kwds = {
+            name: val
+            for kw in getattr(call, "kwds", ())
+            if isinstance(kw, tuple) and len(kw) == 2
+            for name, val in (kw,)
+        }
+        actuals = actual_argument_expressions(call)
+        default_expr: object | None = None
+        if leaf in {"get", "getenv", "pop", "setdefault", "next"}:
+            if "default" in kwds:
+                default_expr = kwds["default"]
+            elif "fallback" in kwds:
+                default_expr = kwds["fallback"]
+            elif len(actuals) >= 2:
+                default_expr = actuals[1]
+        elif leaf == "getattr":
+            if len(actuals) >= 3:
+                default_expr = actuals[2]
+        elif leaf in {"getint", "getfloat", "getboolean"}:
+            if "fallback" in kwds:
+                default_expr = kwds["fallback"]
+        return default_expr is not None and self._is_definitely_non_null_expression(default_expr)
+
     def _local_call_outputs(self, node: CFGNode, fact: object):
         call_effect = self._call_effect(node)
         if call_effect is None or call_effect.callees:
@@ -407,7 +462,12 @@ class InterproceduralNullnessProblem(
 
         outputs = set(self._identity_outputs(fact, self._killed_locations_for_node(node)))
         model = self._call_model_for_node(node)
-        if fact == ZERO_NULLNESS and model is not None and model.nullness_nullable_return:
+        if (
+            fact == ZERO_NULLNESS
+            and model is not None
+            and model.nullness_nullable_return
+            and not self._call_has_non_null_default(call_effect.call_expression, model.name)
+        ):
             outputs.update(
                 self._facts_for_nested_call_result(
                     node.procedure,
@@ -490,6 +550,46 @@ class InterproceduralNullnessProblem(
             return ()
         return (fact,)
 
+    def _resulting_access_path(self, expr: object, fact: object) -> tuple[str, ...]:
+        """Compute the access path carried by evaluating *expr* under *fact*."""
+        fact_path = self._access_path_from_fact(fact)
+        if not fact_path:
+            return ()
+        expr_path = self._access_path_for_expression(expr)
+        if expr_path and fact_path[: len(expr_path)] == expr_path:
+            return fact_path[len(expr_path) :]
+        return fact_path
+
+    def _value_facts_for_expression(
+        self, procedure: cfg_graph.Code, expr: object
+    ) -> tuple[object, ...]:
+        """Return nullness facts representing the value of *expr* (not its base/args)."""
+        if expr is None or isinstance(expr, py_ast.leafTypes):
+            return ()
+        if isinstance(expr, py_ast.Local):
+            return self._facts_for_expression_node(procedure, expr)
+        if isinstance(expr, (py_ast.GetAttr, py_ast.Load)):
+            attr_facts = tuple(
+                self._make_location_fact(location)
+                for location in self._static_attribute_read_locations(procedure, expr)
+            )
+            path_facts = (
+                self._facts_for_expression_node(procedure, expr, extend_paths=True)
+                if isinstance(expr, py_ast.GetAttr)
+                else ()
+            )
+            return tuple(dict.fromkeys((*attr_facts, *path_facts)))
+        if isinstance(expr, py_ast.GetSubscript):
+            return tuple(
+                self._make_location_fact(location)
+                for location in self._dynamic_subscript_read_locations(procedure, expr)
+            )
+        if isinstance(expr, (py_ast.DirectCall, py_ast.Call, py_ast.MethodCall)):
+            return self._facts_for_expression_node(procedure, expr)
+        if isinstance(expr, (py_ast.GetGlobal, py_ast.GetCellDeref)):
+            return self._facts_for_expression_node(procedure, expr)
+        return ()
+
     def _expr_candidate_facts(
         self, procedure: cfg_graph.Code, expr: object
     ) -> tuple[frozenset[object], tuple[object, ...]]:
@@ -510,8 +610,61 @@ class InterproceduralNullnessProblem(
                 return
             if isinstance(current, py_ast.Code):
                 return
+            if isinstance(current, py_ast.ConditionalExpr):
+                visit(getattr(current, "then_expr", None))
+                visit(getattr(current, "else_expr", None))
+                return
+            if isinstance(current, py_ast.ShortCircutOr):
+                terms = getattr(current, "terms", ())
+                if terms:
+                    # Earlier falsy terms (including None) fall through; only the
+                    # final term can produce None as the value of ``a or b``.
+                    visit(terms[-1])
+                return
+            if isinstance(current, py_ast.ShortCircutAnd):
+                for term in getattr(current, "terms", ()):
+                    visit(term)
+                return
+            if isinstance(
+                current,
+                (
+                    py_ast.DirectCall,
+                    py_ast.Call,
+                    py_ast.MethodCall,
+                    py_ast.Local,
+                    py_ast.GetAttr,
+                    py_ast.Load,
+                    py_ast.GetSubscript,
+                    py_ast.GetGlobal,
+                    py_ast.GetCellDeref,
+                ),
+            ):
+                # Do not descend into call arguments/receivers or attribute/subscript
+                # base objects: their nullness does not make the expression evaluate
+                # to None (dereferencing a null base raises AttributeError/TypeError
+                # and is reported separately by _collect_null_risks).
+                collected.extend(self._value_facts_for_expression(procedure, current))
+                return
+            if isinstance(
+                current,
+                (
+                    py_ast.BuildList,
+                    py_ast.BuildTuple,
+                    py_ast.BuildMap,
+                    py_ast.BuildSet,
+                    py_ast.BuildSlice,
+                    py_ast.MakeFunction,
+                    py_ast.FunctionDef,
+                    py_ast.ClassDef,
+                    py_ast.BinaryOp,
+                    py_ast.UnaryPrefixOp,
+                    py_ast.Is,
+                    py_ast.Not,
+                    py_ast.ConvertToBool,
+                ),
+            ):
+                return
             collected.extend(self._facts_for_expression_node(procedure, current))
-            current.visitChildren(visit)
 
         visit(expr)
         candidates = tuple(dict.fromkeys(collected))
@@ -539,33 +692,31 @@ class InterproceduralNullnessProblem(
         cached = cache.get(key)
         if cached is not None:
             return cached
-        result = self._expression_matches(expr, self._is_explicit_null_expression)
+        result = self._evaluates_to_explicit_null(expr)
         cache[key] = result
         return result
 
+    def _evaluates_to_explicit_null(self, expr: object) -> bool:
+        """True only when *expr* itself directly evaluates to literal ``None``."""
+        if expr is None or isinstance(expr, py_ast.leafTypes):
+            return False
+        if self._is_explicit_null_expression(expr):
+            return True
+        if isinstance(expr, py_ast.ConditionalExpr):
+            return self._evaluates_to_explicit_null(
+                getattr(expr, "then_expr", None)
+            ) or self._evaluates_to_explicit_null(getattr(expr, "else_expr", None))
+        if isinstance(expr, py_ast.ShortCircutOr):
+            terms = getattr(expr, "terms", ())
+            return bool(terms) and self._evaluates_to_explicit_null(terms[-1])
+        if isinstance(expr, py_ast.ShortCircutAnd):
+            return any(
+                self._evaluates_to_explicit_null(term) for term in getattr(expr, "terms", ())
+            )
+        return False
+
     def _is_explicit_null_expression(self, expr: object) -> bool:
         return isinstance(expr, py_ast.Existing) and getattr(expr.object, "pyobj", object()) is None
-
-    def _expression_matches(self, expr: object, predicate) -> bool:
-        found = False
-
-        def visit(current) -> None:
-            nonlocal found
-            if found or current is None or isinstance(current, py_ast.leafTypes):
-                return
-            if predicate(current):
-                found = True
-                return
-            if isinstance(current, (list, tuple)):
-                for child in current:
-                    visit(child)
-                return
-            if isinstance(current, py_ast.Code):
-                return
-            current.visitChildren(visit)
-
-        visit(expr)
-        return found
 
     def _condition_outputs(
         self, node: CFGNode, successor: CFGNode, fact: object
@@ -579,34 +730,53 @@ class InterproceduralNullnessProblem(
 
         target_expr = guard_effect.nullable_target
         true_means_null = guard_effect.true_branch_means_null
-        if target_expr is None:
-            return None
+        if target_expr is not None:
+            target_facts = {
+                candidate
+                for candidate in self._value_facts_for_expression(node.procedure, target_expr)
+                if isinstance(candidate, NullFact)
+            }
+            if not target_facts:
+                return None
 
-        locations = tuple(
-            location
-            for candidate in self._facts_for_expression_node(node.procedure, target_expr)
-            for location in (self._location_from_fact(candidate),)
-            if location is not None
-        )
-        if not locations:
-            return None
-
-        branch_means_null = true_means_null if exit_name == "true" else not true_means_null
-        target_facts = {NullFact(location) for location in locations}
-        if branch_means_null:
-            outputs = set()
-            if fact == ZERO_NULLNESS:
-                outputs.add(ZERO_NULLNESS)
-                outputs.update(target_facts)
+            branch_means_null = true_means_null if exit_name == "true" else not true_means_null
+            if branch_means_null:
+                outputs = set()
+                if fact == ZERO_NULLNESS:
+                    outputs.add(ZERO_NULLNESS)
+                    outputs.update(target_facts)
+                    return tuple(outputs)
+                outputs.add(fact)
                 return tuple(outputs)
-            outputs.add(fact)
-            return tuple(outputs)
 
-        if fact == ZERO_NULLNESS:
-            return (ZERO_NULLNESS,)
-        if fact in target_facts:
-            return ()
-        return (fact,)
+            if fact == ZERO_NULLNESS:
+                return (ZERO_NULLNESS,)
+            if fact in target_facts:
+                return ()
+            return (fact,)
+
+        non_null_expr = guard_effect.non_null_target
+        true_means_non_null = guard_effect.true_branch_means_non_null
+        if non_null_expr is not None and true_means_non_null is not None:
+            target_facts = {
+                candidate
+                for candidate in self._value_facts_for_expression(node.procedure, non_null_expr)
+                if isinstance(candidate, NullFact)
+            }
+            if not target_facts:
+                return None
+            branch_means_non_null = (
+                true_means_non_null if exit_name == "true" else not true_means_non_null
+            )
+            if branch_means_non_null:
+                if fact == ZERO_NULLNESS:
+                    return (ZERO_NULLNESS,)
+                if fact in target_facts:
+                    return ()
+                return (fact,)
+            return (fact,)
+
+        return None
 
     def _nullable_condition_target(self, expr: object):
         if isinstance(expr, py_ast.ConvertToBool):
@@ -687,10 +857,9 @@ class InterproceduralNullnessProblem(
             return True
         return any(
             result.is_reached(node, fact)
-            for fact in self._facts_for_expression_node(
+            for fact in self._value_facts_for_expression(
                 node.procedure,
                 expr,
-                extend_paths=True,
             )
         )
 

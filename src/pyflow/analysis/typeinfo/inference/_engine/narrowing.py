@@ -433,7 +433,7 @@ class NarrowingInference(InferenceComponent):
                 if existing_attr.public_type() is None:
                     result[attr_key] = AbstractTypeValue.unresolved()
                 else:
-                    narrowed_attr = self._without_none(existing_attr)
+                    narrowed_attr = self.engine._value_rules._remove_none(existing_attr)
                     if narrowed_attr.types or narrowed_attr.unknown:
                         result[attr_key] = narrowed_attr
         if (

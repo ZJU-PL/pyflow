@@ -88,7 +88,7 @@ def test_nullness_propagates_nullable_arguments_and_returns():
         [],
         [
             ast.Assign(ast.Existing(ast.program.Object(None)), [value]),
-            ast.Assign(ast.Call(ast.Local("helper"), [value], [], None, None), [out]),
+            ast.Assign(ast.DirectCall(helper_code, None, [value], [], None, None), [out]),
             ast.Discard(ast.GetAttr(out, payload)),
             ast.Return([]),
         ],

@@ -55,6 +55,7 @@ def run_taint_analysis(
         root_function=function,
         entry_file=entry_file,
         callgraph_max_iterations=callgraph_max_iterations,
+        callgraph_max_seconds=(solver_options.max_seconds if solver_options is not None else None),
     )
     resolved_entry_options = entry_point_options
     if resolved_entry_options is None and entry_point_defaults is not None:

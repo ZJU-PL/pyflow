@@ -41,6 +41,8 @@ from pyflow.analysis.typeinfo.resolution.typeshed_resolver import (
 )
 from pyflow.language.modules.project_resolution import ProjectContext
 
+_MISSING = object()
+
 
 class ProjectTypeInferenceEngine:
     """Infer an import closure, including cycles, to a project fixed point."""
@@ -65,6 +67,16 @@ class ProjectTypeInferenceEngine:
         self.options = options or load_inference_options(project_context.path)
         self.call_model_providers = tuple(call_model_providers)
         self.max_project_iterations = max_project_iterations
+        self._find_module_cache: dict[str, object] = {}
+        self._project_roots: tuple[Path, ...] | None = None
+
+    def _find_module_cached(self, module_name: str):
+        cached = self._find_module_cache.get(module_name, _MISSING)
+        if cached is not _MISSING:
+            return cached
+        resolution = self.project_context.find_module(module_name)
+        self._find_module_cache[module_name] = resolution
+        return resolution
 
     def infer_project(
         self,
@@ -73,7 +85,7 @@ class ProjectTypeInferenceEngine:
         discover_imports: bool = True,
     ) -> ProjectInferenceResult:
         """Infer entry modules and, by default, their project import closure."""
-        sources, paths, diagnostics = self._load_modules(
+        sources, paths, diagnostics, discovered_imports = self._load_modules(
             entry_modules, discover_imports=discover_imports
         )
         results: dict[str, ModuleInferenceResult] = {}
@@ -83,7 +95,12 @@ class ProjectTypeInferenceEngine:
         importers: dict[str, set[str]] = {}
         imports: dict[str, set[str]] = {}
         for module_name, source in sources.items():
-            dependencies = set(self._project_imports(module_name, source, paths[module_name] or ""))
+            cached_deps = discovered_imports.get(module_name)
+            dependencies = (
+                set(cached_deps)
+                if cached_deps is not None
+                else set(self._project_imports(module_name, source, paths[module_name] or ""))
+            )
             imports[module_name] = dependencies
             for dependency in dependencies:
                 importers.setdefault(dependency, set()).add(module_name)
@@ -101,18 +118,38 @@ class ProjectTypeInferenceEngine:
                 if cached is not None:
                     results[module_name] = cached
                     cached_modules.add(module_name)
-        previous: dict[str, tuple[object, ...]] = {}
+        source_set = set(sources)
+        current_fingerprints: dict[str, tuple[object, ...]] = {
+            module_name: self._module_fingerprint(result) for module_name, result in results.items()
+        }
+        seen_dep_fingerprints: dict[str, dict[str, tuple[object, ...] | None]] = {}
+        observed_deps: dict[str, set[str]] = {module_name: set() for module_name in sources}
         targets = set(sources) - cached_modules
+        if not targets:
+            converged = True
         for iterations in range(1, self.max_project_iterations + 1):
+            if not targets:
+                converged = True
+                break
             for module_name in [name for name in analysis_order if name in targets]:
                 if module_name in failed_modules:
                     continue
+                queried_modules: set[str] = set()
+                snapshot_before = {
+                    dep: current_fingerprints.get(dep)
+                    for dep in (imports.get(module_name, set()) | observed_deps[module_name])
+                    if dep in source_set and dep != module_name
+                }
                 engine = StaticTypeInferenceEngine(
                     self.project_context,
                     type_system=self.type_system,
-                    external_symbol_resolver=lambda name: self._external_type(name, results),
-                    external_declared_return=lambda name: self._external_declared_return(
-                        name, results
+                    external_symbol_resolver=lambda name, q=queried_modules: self._external_type(
+                        name, results, queried=q, source_set=source_set
+                    ),
+                    external_declared_return=lambda name, q=queried_modules: (
+                        self._external_declared_return(
+                            name, results, queried=q, source_set=source_set
+                        )
                     ),
                     call_model_providers=self.call_model_providers,
                     options=self.options,
@@ -135,22 +172,34 @@ class ProjectTypeInferenceEngine:
                         diagnostics=[diagnostic],
                         converged=False,
                     )
-            current = {
-                module_name: self._module_fingerprint(result)
-                for module_name, result in results.items()
-            }
-            if current == previous:
+                observed_deps[module_name].update(queried_modules)
+                for dep in queried_modules:
+                    if dep != module_name and dep in source_set and dep not in snapshot_before:
+                        snapshot_before[dep] = current_fingerprints.get(dep)
+                seen_dep_fingerprints[module_name] = snapshot_before
+                current_fingerprints[module_name] = self._module_fingerprint(results[module_name])
+
+            next_targets: set[str] = set()
+            for module_name in source_set:
+                if module_name in failed_modules or module_name in cached_modules:
+                    continue
+                seen = seen_dep_fingerprints.get(module_name)
+                if seen is None:
+                    next_targets.add(module_name)
+                    continue
+                all_deps = (
+                    imports.get(module_name, set()) | observed_deps[module_name]
+                ) & source_set
+                for dep in all_deps:
+                    if dep == module_name:
+                        continue
+                    if current_fingerprints.get(dep) != seen.get(dep):
+                        next_targets.add(module_name)
+                        break
+            if not next_targets:
                 converged = True
                 break
-            changed = {
-                module_name
-                for module_name, fingerprint in current.items()
-                if previous.get(module_name) != fingerprint
-            }
-            previous = current
-            # Only changed modules and their transitive importers can observe
-            # different external facts on the next pass.
-            targets = self._dependent_modules(changed, importers)
+            targets = next_targets
 
         if self.cache is not None:
             for module_name, result in results.items():
@@ -190,16 +239,17 @@ class ProjectTypeInferenceEngine:
         entry_modules: Iterable[str],
         *,
         discover_imports: bool,
-    ) -> tuple[dict[str, str], dict[str, str], list[InferenceDiagnostic]]:
+    ) -> tuple[dict[str, str], dict[str, str], list[InferenceDiagnostic], dict[str, list[str]]]:
         sources: dict[str, str] = {}
         paths: dict[str, str] = {}
         diagnostics: list[InferenceDiagnostic] = []
+        discovered_imports: dict[str, list[str]] = {}
         pending = list(dict.fromkeys(entry_modules))
         while pending:
             module_name = pending.pop(0)
             if module_name in sources:
                 continue
-            resolution = self.project_context.find_module(module_name)
+            resolution = self._find_module_cached(module_name)
             if resolution is None:
                 diagnostics.append(
                     InferenceDiagnostic(
@@ -216,6 +266,7 @@ class ProjectTypeInferenceEngine:
                     # package as an empty module and analyze its children.
                     sources[module_name] = ""
                     paths[module_name] = ""
+                    discovered_imports[module_name] = []
                     for namespace_path in resolution.namespace_paths:
                         for child in Path(namespace_path).rglob("*.py"):
                             if "__pycache__" in child.parts:
@@ -258,12 +309,10 @@ class ProjectTypeInferenceEngine:
             sources[module_name] = source
             paths[module_name] = path
             if discover_imports:
-                pending.extend(
-                    imported
-                    for imported in self._project_imports(module_name, source, path)
-                    if imported not in sources
-                )
-        return sources, paths, diagnostics
+                deps = self._project_imports(module_name, source, path)
+                discovered_imports[module_name] = deps
+                pending.extend(imported for imported in deps if imported not in sources)
+        return sources, paths, diagnostics, discovered_imports
 
     def _project_imports(
         self,
@@ -289,11 +338,17 @@ class ProjectTypeInferenceEngine:
                 )
                 if imported:
                     imports.append(imported)
-        roots = (self.project_context.path, *self.project_context.module_identity.workspace_roots)
-        roots = tuple(Path(root).resolve() for root in roots)
+        roots = self._project_roots
+        if roots is None:
+            raw_roots = (
+                self.project_context.path,
+                *self.project_context.module_identity.workspace_roots,
+            )
+            roots = tuple(Path(root).resolve() for root in raw_roots)
+            self._project_roots = roots
         discovered = []
         for name in dict.fromkeys(imports):
-            resolution = self.project_context.find_module(name)
+            resolution = self._find_module_cached(name)
             if resolution is None or resolution.path is None:
                 continue
             resolved_path = Path(resolution.path).resolve()
@@ -305,11 +360,16 @@ class ProjectTypeInferenceEngine:
         self,
         qualified_name: str,
         results: dict[str, ModuleInferenceResult],
+        *,
+        queried: set[str] | None = None,
+        source_set: set[str] | None = None,
     ) -> bool | None:
         """Whether an external callable's return type comes from an annotation."""
         parts = qualified_name.split(".")
         for index in range(len(parts) - 1, 0, -1):
             module_name = ".".join(parts[:index])
+            if queried is not None and source_set is not None and module_name in source_set:
+                queried.add(module_name)
             result = results.get(module_name)
             if result is None:
                 continue
@@ -323,10 +383,15 @@ class ProjectTypeInferenceEngine:
         self,
         qualified_name: str,
         results: dict[str, ModuleInferenceResult],
+        *,
+        queried: set[str] | None = None,
+        source_set: set[str] | None = None,
     ) -> ProperType | None:
         parts = qualified_name.split(".")
         for index in range(len(parts) - 1, 0, -1):
             module_name = ".".join(parts[:index])
+            if queried is not None and source_set is not None and module_name in source_set:
+                queried.add(module_name)
             result = results.get(module_name)
             if result is not None:
                 remainder = ".".join(parts[index:])

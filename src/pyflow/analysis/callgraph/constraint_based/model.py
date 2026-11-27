@@ -217,6 +217,8 @@ class ConstraintCallSite:
     ordinal: int
     source_path: Optional[str] = None
     is_module_scope: bool = False
+    end_line: int = -1
+    end_column: int = -1
 
 
 CallSiteEdgeIndex: TypeAlias = Mapping[ConstraintCallSite, FrozenSet[str]]

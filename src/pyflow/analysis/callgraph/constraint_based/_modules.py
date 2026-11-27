@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import os
 import sys
+import time
 import tokenize
 from collections import defaultdict, deque
 from functools import lru_cache
@@ -227,21 +228,51 @@ class _ModuleAnalysisMixin:
             return
 
         queue: deque[str] = deque(self.modules)
+        initial_modules = set(self.modules)
         visited: Set[str] = set()
+        load_deadline = getattr(self, "_load_deadline", None)
+        entry_direct_imports = getattr(self, "_entry_direct_import_modules", None)
+        if entry_direct_imports is None:
+            entry_direct_imports = set()
+            self._entry_direct_import_modules = entry_direct_imports
 
         while queue:
             module_name = queue.popleft()
             if module_name in visited:
                 continue
             visited.add(module_name)
+            if (
+                load_deadline is not None
+                and module_name not in initial_modules
+                and time.monotonic() >= load_deadline
+            ):
+                self.diagnostics.append(
+                    f"Stopped transitive module loading at time budget ({len(self.modules)} modules)"
+                )
+                break
 
             module_info = self.modules.get(module_name)
             if not module_info:
                 continue
 
+            is_entry_module = module_name == self.entry_module_name
             for imported in self._iter_imported_modules(module_info):
+                if (
+                    load_deadline is not None
+                    and module_name not in initial_modules
+                    and time.monotonic() >= load_deadline
+                ):
+                    self.diagnostics.append(
+                        f"Stopped transitive module loading at time budget ({len(self.modules)} modules)"
+                    )
+                    return
                 if imported in self.modules or imported in self.module_aliases:
+                    if is_entry_module:
+                        resolved_target = self.module_aliases.get(imported, imported)
+                        entry_direct_imports.add(resolved_target)
                     continue
+                if is_entry_module:
+                    entry_direct_imports.add(imported)
                 resolution = self.project_context.find_module(
                     imported,
                     script_path=module_info.path,

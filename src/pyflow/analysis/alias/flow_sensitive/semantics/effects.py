@@ -741,6 +741,24 @@ class HeapEffectBuilder:
             subscripts,
         )
 
+    @staticmethod
+    def _method_receiver_and_name(call: object, call_name: str | None):
+        if isinstance(call, py_ast.MethodCall):
+            return call.expr, call_name
+        if isinstance(call, py_ast.Call) and isinstance(call.expr, (py_ast.GetAttr, py_ast.Load)):
+            attr: str | None = None
+            name_node = getattr(call.expr, "name", None)
+            if isinstance(name_node, py_ast.Existing):
+                val = getattr(name_node.object, "pyobj", None)
+                if isinstance(val, str):
+                    attr = val
+            elif isinstance(name_node, py_ast.Local) and name_node.name:
+                attr = name_node.name
+            if attr is None and call_name:
+                attr = call_name.rsplit(".", 1)[-1]
+            return call.expr.expr, attr
+        return None, call_name
+
     def collection_mutation(
         self,
         procedure: object,
@@ -748,7 +766,12 @@ class HeapEffectBuilder:
         mutator_names: frozenset[str],
     ) -> tuple[tuple[HeapLocation, ...], tuple[object, ...]]:
         call = self._call_from_expression_or_statement(operation)
-        call_name = resolve_call_name(call) if call is not None else None
+        raw_call_name = resolve_call_name(call) if call is not None else None
+        receiver, call_name = (
+            self._method_receiver_and_name(call, raw_call_name)
+            if call is not None
+            else (None, None)
+        )
         model = self.intrinsics.collection_mutator(call_name)
         if call is None or call_name not in mutator_names:
             return (), ()
@@ -756,8 +779,8 @@ class HeapEffectBuilder:
             return (), ()
 
         actuals = actual_argument_expressions(call)
-        if isinstance(call, py_ast.MethodCall):
-            container = call.expr
+        if receiver is not None:
+            container = receiver
             values = (
                 model.value_args(actuals)
                 if model is not None
@@ -788,7 +811,12 @@ class HeapEffectBuilder:
         mutator_names: frozenset[str],
     ) -> tuple[HeapLocation, ...]:
         call = self._call_from_expression_or_statement(operation)
-        call_name = resolve_call_name(call) if call is not None else None
+        raw_call_name = resolve_call_name(call) if call is not None else None
+        receiver, call_name = (
+            self._method_receiver_and_name(call, raw_call_name)
+            if call is not None
+            else (None, None)
+        )
         model = self.intrinsics.collection_mutator(call_name)
         if call is None or call_name not in mutator_names:
             return ()
@@ -796,8 +824,8 @@ class HeapEffectBuilder:
             return ()
 
         actuals = actual_argument_expressions(call)
-        if isinstance(call, py_ast.MethodCall):
-            container = call.expr
+        if receiver is not None:
+            container = receiver
             args = actuals
         else:
             if len(actuals) < 1:

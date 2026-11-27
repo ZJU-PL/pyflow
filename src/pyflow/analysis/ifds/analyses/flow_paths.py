@@ -6,7 +6,7 @@ from typing import FrozenSet, Mapping, Sequence
 from pyflow.ir.cfg import graph as cfg_graph
 
 from ..frontend.cfg_adapter import CFGNode, CFGSupergraphAdapter
-from ..core.problem import IDEProblem, IdentityEdgeFunction, ValueTransition
+from ..core.problem import EdgeFunction, IDEProblem, IdentityEdgeFunction, ValueTransition
 from ..core.solver import IDESolver
 from .base import AnnotatedFactProblemBase
 
@@ -23,7 +23,7 @@ class CollectorResult:
     labels_by_node: Mapping[CFGNode, FrozenSet[str]]
 
 
-class _AccumulateLabels(IdentityEdgeFunction[frozenset[str]]):
+class _AccumulateLabels(EdgeFunction[frozenset[str]]):
     def __init__(self, labels: frozenset[str]) -> None:
         self.labels = labels
 
@@ -139,6 +139,7 @@ class InterproceduralFlowPathAnalysis:
         adapter: CFGSupergraphAdapter,
         entry_nodes: Sequence[CFGNode],
     ) -> None:
+        self.adapter = adapter
         self.problem = InterproceduralFlowPathProblem(adapter, entry_nodes)
 
     def solve(self) -> CollectorResult:

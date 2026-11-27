@@ -66,7 +66,7 @@ def _source_filename(catalog, code) -> str | None:
     return os.path.realpath(filename) if filename else None
 
 
-def _source_location(catalog, code, operation) -> tuple[int, int] | None:
+def _source_location(catalog, code, operation) -> tuple[int, int, int, int] | None:
     try:
         origin = catalog.source_of(operation, code=code)
     except KeyError:
@@ -76,7 +76,14 @@ def _source_location(catalog, code, operation) -> tuple[int, int] | None:
     start_column = getattr(span, "start_column", None)
     if start_line is None or start_column is None:
         return None
-    return (int(start_line), int(start_column))
+    end_line = getattr(span, "end_line", None)
+    end_column = getattr(span, "end_column", None)
+    return (
+        int(start_line),
+        int(start_column),
+        int(end_line) if end_line is not None else -1,
+        int(end_column) if end_column is not None else -1,
+    )
 
 
 def _is_interpreter_helper_call(operation) -> bool:
@@ -123,6 +130,7 @@ def extract_constraint_callgraph_edges(
     entry_path: str | Path | None = None,
     analyze_reachable_only: bool = False,
     max_iterations: int = 256,
+    max_seconds: float | None = None,
     follow_imports: bool = True,
 ):
     """Compute source-level constraint edges without mutating the IR catalog."""
@@ -131,6 +139,7 @@ def extract_constraint_callgraph_edges(
         entry_path=entry_path,
         analyze_reachable_only=analyze_reachable_only,
         max_iterations=max_iterations,
+        max_seconds=max_seconds,
         follow_imports=follow_imports,
     ).edges
 
@@ -141,6 +150,7 @@ def analyze_constraint_callgraph_edges(
     entry_path: str | Path | None = None,
     analyze_reachable_only: bool = False,
     max_iterations: int = 256,
+    max_seconds: float | None = None,
     follow_imports: bool = True,
 ) -> ConstraintCallgraphAnalysis:
     """Compute constraint edges and expose whether the bounded pass converged."""
@@ -190,6 +200,7 @@ def analyze_constraint_callgraph_edges(
             # not the IFDS fixpoint itself. Bound the scope states so a large
             # vendored tree cannot consume the whole project timeout first.
             fixpoint_max_iterations=max(1, int(max_iterations)),
+            fixpoint_max_seconds=(max_seconds if max_seconds is not None else 60.0),
             allow_fixture_graph_loading=False,
             skip_external_modules=True,
             follow_imports=follow_imports,
@@ -228,6 +239,8 @@ def publish_constraint_callgraph_facts(
     catalog = program.ir
     edges = defaultdict(set)
     edges_by_location = defaultdict(set)
+    edges_by_span = defaultdict(set)
+    spans_at_start: dict[tuple[str, str, int, int], bool] = {}
     module_edges = defaultdict(set)
     scopes_by_source = defaultdict(set)
     source_paths = tuple(Path(path).resolve() for path in paths)
@@ -254,6 +267,13 @@ def publish_constraint_callgraph_facts(
             edges_by_location[(site_source, site.caller_scope, site.line, site.column)].update(
                 targets
             )
+            end_line = getattr(site, "end_line", -1)
+            end_column = getattr(site, "end_column", -1)
+            if end_line > 0 and end_column >= 0:
+                edges_by_span[
+                    (site_source, site.caller_scope, site.line, site.column, end_line, end_column)
+                ].update(targets)
+                spans_at_start[(site_source, site.caller_scope, site.line, site.column)] = True
         if site.is_module_scope:
             module_edges[(site_source, site.line)].update(targets)
 
@@ -280,12 +300,31 @@ def publish_constraint_callgraph_facts(
             location = _source_location(catalog, code, operation)
             target_names = set()
             if location is not None:
-                line, column = location
+                line, column, end_line, end_column = location
+                has_end = end_line > 0 and end_column >= 0
                 for scope in caller_scopes:
-                    target_names.update(
-                        edges_by_location.get((source_filename, scope, line, column), ())
+                    start_key = (source_filename, scope, line, column)
+                    if has_end and spans_at_start.get(start_key):
+                        target_names.update(
+                            edges_by_span.get(
+                                (source_filename, scope, line, column, end_line, end_column),
+                                (),
+                            )
+                        )
+                    else:
+                        target_names.update(edges_by_location.get(start_key, ()))
+                if (
+                    is_module
+                    and not target_names
+                    and not _is_interpreter_helper_call(operation)
+                    and not (
+                        has_end
+                        and any(
+                            spans_at_start.get((source_filename, scope, line, column))
+                            for scope in caller_scopes
+                        )
                     )
-                if is_module and not target_names and not _is_interpreter_helper_call(operation):
+                ):
                     target_names.update(module_edges.get((source_filename, line), ()))
             elif is_module:
                 target_names.update(module_edges.get((source_filename, None), ()))

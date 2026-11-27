@@ -614,6 +614,7 @@ class InterproceduralTypestateProblem(
                                 state=fact.state,
                             )
 
+        seen_exit_obligations: set[tuple[cfg_graph.Code, str, str, str]] = set()
         for procedure in self.adapter.supergraph.ordered_procedures():
             for exit_node in self.adapter.supergraph.ordered_exits_of(procedure):
                 for fact in result.facts_at(exit_node):
@@ -624,11 +625,16 @@ class InterproceduralTypestateProblem(
                             procedure, fact
                         ):
                             continue
+                        resource_label = self.describe_location(fact.location)
+                        exit_key = (procedure, obligation.kind, fact.protocol, resource_label)
+                        if exit_key in seen_exit_obligations:
+                            continue
+                        seen_exit_obligations.add(exit_key)
                         record(
                             exit_node,
                             obligation.kind,
                             getattr(procedure.code, "name", "<proc>"),
-                            self.describe_location(fact.location),
+                            resource_label,
                             protocol=fact.protocol,
                             state=fact.state,
                         )
@@ -866,7 +872,9 @@ class InterproceduralTypestateProblem(
         call: object,
         receiver_types: frozenset[str],
     ) -> bool:
-        receiver = getattr(call, "expr", None)
+        receiver, _attr = self._call_receiver_and_attr(call)
+        if receiver is None:
+            receiver = getattr(call, "expr", None)
         if receiver is None:
             return False
         return any(
@@ -925,7 +933,28 @@ class InterproceduralTypestateProblem(
     def _fact_transfers_ownership(self, procedure: cfg_graph.Code, fact: ResourceStateFact) -> bool:
         if self._location_escaped(fact.location):
             return True
-        return self._return_fact_index(procedure, fact) is not None
+        if self._return_fact_index(procedure, fact) is not None:
+            return True
+        # A resource stored onto an attribute/subscript of a formal parameter
+        # (such as ``self.text_file = open(...)`` in ``__init__``) or a global /
+        # closure cell outlives this procedure and transfers ownership.
+        loc = fact.location
+        is_nested = getattr(loc, "is_nested", None)
+        if callable(is_nested) and is_nested():
+            root_loc = loc.root_location()
+            if (
+                self._formal_for_fact(procedure, ResourceStateFact(root_loc, fact.state))
+                is not None
+            ):
+                return True
+            root = getattr(loc, "root", None)
+            if getattr(root, "kind", None) in {"parameter", "global", "cell"}:
+                return True
+        else:
+            root = getattr(loc, "root", None)
+            if getattr(root, "kind", None) in {"global", "cell"}:
+                return True
+        return False
 
     def _identity_outputs(self, fact: object, killed: Sequence[object]):
         if fact == ZERO_TYPESTATE:
@@ -1418,8 +1447,9 @@ class InterproceduralTypestateProblem(
             else self.configuration.resource_arg_positions
         )
 
-        if isinstance(call, py_ast.MethodCall) and track_method_receiver:
-            extend_locations(call.expr)
+        receiver_expr, _attr = self._call_receiver_and_attr(call)
+        if receiver_expr is not None and track_method_receiver:
+            extend_locations(receiver_expr)
         for index, actual in enumerate(actual_argument_expressions(call)):
             if index in resource_arg_positions:
                 extend_locations(actual)

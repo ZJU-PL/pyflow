@@ -127,6 +127,8 @@ class GuardEffect:
     false_successors: tuple[CFGNode, ...]
     nullable_target: object | None = None
     true_branch_means_null: bool | None = None
+    non_null_target: object | None = None
+    true_branch_means_non_null: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -819,6 +821,64 @@ class CFGSupergraphAdapter:
                 return target, not true_means_null
         return None, None
 
+    def _type_spec_may_include_none(self, spec: object) -> bool:
+        if spec is None or self._is_explicit_null_expression(spec):
+            return True
+        if isinstance(spec, py_ast.Local):
+            return spec.name in {"object", "NoneType", "None"}
+        if isinstance(spec, py_ast.GetGlobal):
+            obj = getattr(getattr(spec, "name", None), "object", None)
+            return getattr(obj, "pyobj", None) in {"object", "NoneType", "None"}
+        if isinstance(spec, py_ast.Existing):
+            val = getattr(spec.object, "pyobj", None)
+            return val is None or val is object or val is type(None)
+        if isinstance(spec, py_ast.BuildTuple):
+            return any(self._type_spec_may_include_none(item) for item in spec.args)
+        if isinstance(spec, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
+            # Conservative for dynamic type expressions such as ``type(None)``.
+            return True
+        return False
+
+    def _is_non_none_scalar_constant(self, expr: object) -> bool:
+        if not isinstance(expr, py_ast.Existing):
+            return False
+        value = getattr(expr.object, "pyobj", None)
+        return isinstance(value, (bool, int, float, str, bytes))
+
+    def _guard_non_null_target(self, expr: object):
+        if isinstance(expr, py_ast.ConvertToBool):
+            return self._guard_non_null_target(expr.expr)
+        if isinstance(expr, py_ast.Not):
+            target, true_means_non_null = self._guard_non_null_target(expr.expr)
+            if target is not None:
+                return target, not true_means_non_null
+            return None, None
+        if isinstance(
+            expr,
+            (
+                py_ast.Local,
+                py_ast.GetAttr,
+                py_ast.GetSubscript,
+                py_ast.GetGlobal,
+                py_ast.GetCellDeref,
+                py_ast.Load,
+            ),
+        ):
+            return expr, True
+        if isinstance(expr, (py_ast.Call, py_ast.DirectCall, py_ast.MethodCall)):
+            call_name = self.call_name(expr)
+            actuals = actual_argument_expressions(expr)
+            if call_name in {"isinstance", "builtins.isinstance"} and len(actuals) >= 2:
+                if not self._type_spec_may_include_none(actuals[1]):
+                    return actuals[0], True
+            if call_name in {"interpreter__eq__", "interpreter__ne__"} and len(actuals) == 2:
+                left, right = actuals
+                if self._is_non_none_scalar_constant(right):
+                    return left, call_name == "interpreter__eq__"
+                if self._is_non_none_scalar_constant(left):
+                    return right, call_name == "interpreter__eq__"
+        return None, None
+
     def _is_explicit_null_expression(self, expr: object) -> bool:
         return isinstance(expr, py_ast.Existing) and getattr(expr.object, "pyobj", object()) is None
 
@@ -910,6 +970,11 @@ class CFGSupergraphAdapter:
                 operation.conditional if isinstance(operation, py_ast.Condition) else operation
             )
             nullable_target, true_branch_means_null = self._guard_nullable_target(condition)
+            non_null_target, true_branch_means_non_null = (
+                (None, None)
+                if nullable_target is not None
+                else self._guard_non_null_target(condition)
+            )
             return GuardEffect(
                 node=node,
                 operation=operation,
@@ -918,6 +983,8 @@ class CFGSupergraphAdapter:
                 false_successors=tuple(false_successors),
                 nullable_target=nullable_target,
                 true_branch_means_null=true_branch_means_null,
+                non_null_target=non_null_target,
+                true_branch_means_non_null=true_branch_means_non_null,
             )
 
         normal_successors: list[CFGNode] = []

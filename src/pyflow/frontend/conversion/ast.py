@@ -1388,6 +1388,28 @@ class ASTConverter:
             self._child_codes_stack[-1].append(code)
 
         origin_tags: list[Any] = [f"converted_function({node.name})"]
+        enclosing_scope = self._current_scope()
+        if enclosing_scope is not None and enclosing_scope.get("kind") == "class":
+            decorator_names = set()
+            for decorator in getattr(node, "decorator_list", ()):
+                if isinstance(decorator, python_ast.Name):
+                    decorator_names.add(decorator.id)
+                elif isinstance(decorator, python_ast.Attribute):
+                    decorator_names.add(decorator.attr)
+            if "staticmethod" in decorator_names:
+                method_kind = "staticmethod"
+            elif "classmethod" in decorator_names or node.name in {
+                "__init_subclass__",
+                "__class_getitem__",
+                "__new__",
+            }:
+                method_kind = "classmethod"
+            else:
+                method_kind = "instance"
+            origin_tags.append(f"method_kind({method_kind})")
+            owner_class = enclosing_scope.get("class_name")
+            if isinstance(owner_class, str) and owner_class:
+                origin_tags.append(f"owner_class({owner_class})")
         if isinstance(node, python_ast.AsyncFunctionDef):
             origin_tags.append("converted_async_function")
         if function_analysis.has_yield:

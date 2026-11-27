@@ -434,18 +434,44 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         self._bind_constructor_self_formal(call_node, callee, bound_formals)
         self._site_counter = heap.next_site
 
-    def _bind_call_arguments_for_callee(
-        self,
-        call_node: CFGNode,
-        callee: cfg_graph.Code,
-    ) -> tuple[tuple[object, py_ast.Local], ...]:
-        call_effect = self._call_effect(call_node)
-        call = call_effect.call_expression if call_effect is not None else None
-        if call is None:
-            return ()
+    @staticmethod
+    def _callee_method_metadata(callee: cfg_graph.Code) -> tuple[str | None, str | None]:
+        """Return ``(method_kind, owner_class)`` recorded on *callee*, if any."""
+        code = getattr(callee, "code", None)
+        annotation = getattr(code, "annotation", None)
+        origins = getattr(annotation, "origin", ()) or ()
+        if not isinstance(origins, (list, tuple)):
+            origins = (origins,)
+        method_kind: str | None = None
+        owner_class: str | None = None
+        for tag in origins:
+            if not isinstance(tag, str):
+                continue
+            if tag.startswith("method_kind(") and tag.endswith(")"):
+                method_kind = tag[len("method_kind(") : -1]
+            elif tag.startswith("owner_class(") and tag.endswith(")"):
+                owner_class = tag[len("owner_class(") : -1]
+        params = getattr(code, "codeparameters", None)
+        if method_kind is None and isinstance(getattr(params, "selfparam", None), py_ast.Local):
+            method_kind = "instance"
+        if method_kind is None and code is not None:
+            code_name = code.codeName() if callable(getattr(code, "codeName", None)) else ""
+            if isinstance(code_name, str) and (
+                code_name == "__init__" or code_name.endswith(".__init__")
+            ):
+                method_kind = "instance"
+                if owner_class is None and "." in code_name:
+                    owner_class = code_name.rsplit(".", 2)[-2]
+        return method_kind, owner_class
+
+    @classmethod
+    def _callee_receiver_and_stripped_params(
+        cls, callee: cfg_graph.Code
+    ) -> tuple[py_ast.Local | None, py_ast.CodeParameters]:
+        """Split a method's implicit receiver formal (``self``/``cls``) from remaining params."""
         params = callee.code.codeparameters
-        if self._should_bind_constructor_self_to_result(call_node, callee):
-            params = py_ast.CodeParameters(
+        if isinstance(params.selfparam, py_ast.Local):
+            stripped = py_ast.CodeParameters(
                 selfparam=None,
                 posonlyparams=params.posonlyparams,
                 posonlynames=params.posonlynames,
@@ -457,6 +483,145 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 returnparams=params.returnparams,
                 type_params=getattr(params, "type_params", None),
             )
+            return params.selfparam, stripped
+        method_kind, _owner = cls._callee_method_metadata(callee)
+        if method_kind not in {"instance", "classmethod"}:
+            return None, params
+        posonlyparams = list(params.posonlyparams)
+        posonlynames = list(params.posonlynames)
+        regular_params = list(params.params)
+        regular_names = list(params.paramnames)
+        receiver: py_ast.Local | None = None
+        if posonlyparams and isinstance(posonlyparams[0], py_ast.Local):
+            receiver = posonlyparams.pop(0)
+            if posonlynames:
+                posonlynames.pop(0)
+        elif (
+            regular_params
+            and isinstance(regular_params[0], py_ast.Local)
+            and not (
+                regular_names
+                and isinstance(regular_names[0], str)
+                and regular_names[0].startswith("kwonly:")
+            )
+        ):
+            receiver = regular_params.pop(0)
+            if regular_names:
+                regular_names.pop(0)
+        if receiver is None:
+            return None, params
+        remaining_defaultable = sum(
+            1 for p in (*posonlyparams, *regular_params) if isinstance(p, py_ast.Local)
+        )
+        defaults = tuple(getattr(params, "defaults", ()))
+        if len(defaults) > remaining_defaultable:
+            defaults = defaults[len(defaults) - remaining_defaultable :]
+        stripped = py_ast.CodeParameters(
+            selfparam=None,
+            posonlyparams=posonlyparams,
+            posonlynames=posonlynames,
+            params=regular_params,
+            paramnames=regular_names,
+            defaults=defaults,
+            vparam=params.vparam,
+            kparam=params.kparam,
+            returnparams=params.returnparams,
+            type_params=getattr(params, "type_params", None),
+        )
+        return receiver, stripped
+
+    @staticmethod
+    def _is_super_call_expr(expr: object) -> bool:
+        if not isinstance(expr, py_ast.Call):
+            return False
+        target = getattr(expr, "expr", None)
+        if isinstance(target, py_ast.Local) and target.name == "super":
+            return True
+        if isinstance(target, py_ast.GetGlobal):
+            obj = getattr(getattr(target, "name", None), "object", None)
+            if getattr(obj, "pyobj", None) == "super":
+                return True
+        return False
+
+    def _call_receiver_and_attr(self, call: object) -> tuple[object | None, str | None]:
+        """Return ``(receiver_expr, attr_name)`` when *call* invokes an attribute/method."""
+        if isinstance(call, py_ast.MethodCall):
+            return call.expr, self._path_component(call.name)
+        if isinstance(call, py_ast.Call) and isinstance(call.expr, (py_ast.GetAttr, py_ast.Load)):
+            return call.expr.expr, self._path_component(call.expr.name)
+        return None, None
+
+    def _is_unbound_class_method_call(
+        self,
+        receiver_expr: object,
+        method_kind: str | None,
+        owner_class: str | None,
+    ) -> bool:
+        if method_kind != "instance" or not owner_class:
+            return False
+        sym = self._symbolic_expression_name(receiver_expr)
+        if sym is None:
+            return False
+        return sym == owner_class or sym.endswith(f".{owner_class}")
+
+    def _bind_call_arguments_for_callee(
+        self,
+        call_node: CFGNode,
+        callee: cfg_graph.Code,
+    ) -> tuple[tuple[object, py_ast.Local], ...]:
+        call_effect = self._call_effect(call_node)
+        call = call_effect.call_expression if call_effect is not None else None
+        if call is None:
+            return ()
+        params = callee.code.codeparameters
+        receiver_formal, stripped_params = self._callee_receiver_and_stripped_params(callee)
+        if receiver_formal is None:
+            return bind_call_arguments(call, params)
+
+        if self._should_bind_constructor_self_to_result(call_node, callee):
+            return bind_call_arguments(call, stripped_params)
+
+        if getattr(call, "selfarg", None) is not None:
+            return bind_call_arguments(call, params)
+
+        method_kind, owner_class = self._callee_method_metadata(callee)
+        receiver_expr, _attr_name = self._call_receiver_and_attr(call)
+        if receiver_expr is not None:
+            if self._is_super_call_expr(receiver_expr):
+                caller_receiver, _ = self._callee_receiver_and_stripped_params(call_node.procedure)
+                rest = bind_call_arguments(call, stripped_params)
+                if caller_receiver is not None:
+                    return ((caller_receiver, receiver_formal), *rest)
+                return rest
+            if method_kind == "classmethod" or not self._is_unbound_class_method_call(
+                receiver_expr, method_kind, owner_class
+            ):
+                rest = bind_call_arguments(call, stripped_params)
+                return ((receiver_expr, receiver_formal), *rest)
+            return bind_call_arguments(call, params)
+
+        # Indirect bound-method call (e.g. ``cb = obj.method; cb(arg)``): avoid
+        # shifting positional arguments onto ``self``/``cls`` when the receiver
+        # is not passed explicitly.
+        if method_kind in {"instance", "classmethod"} and not isinstance(
+            params.selfparam, py_ast.Local
+        ):
+            explicit_kwds = {
+                name
+                for kw in getattr(call, "kwds", ())
+                if isinstance(kw, tuple) and len(kw) == 2
+                for name in (kw[0],)
+            }
+            positional_count = len(params.posonlyparams) + sum(
+                1
+                for name in params.paramnames
+                if not (isinstance(name, str) and name.startswith("kwonly:"))
+            )
+            if (
+                receiver_formal.name not in explicit_kwds
+                and len(getattr(call, "args", ())) < positional_count
+            ):
+                return bind_call_arguments(call, stripped_params)
         return bind_call_arguments(call, params)
 
     def _should_bind_constructor_self_to_result(
@@ -468,10 +633,20 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         call = call_effect.call_expression if call_effect is not None else None
         if call is None:
             return False
-        selfparam = getattr(callee.code.codeparameters, "selfparam", None)
-        if not isinstance(selfparam, py_ast.Local):
-            return False
         if getattr(call, "selfarg", None) is not None:
+            return False
+        receiver_formal, _ = self._callee_receiver_and_stripped_params(callee)
+        if receiver_formal is None:
+            return False
+        code = getattr(callee, "code", None)
+        code_name = code.codeName() if callable(getattr(code, "codeName", None)) else ""
+        is_init = isinstance(code_name, str) and (
+            code_name == "__init__" or code_name.endswith(".__init__")
+        )
+        _receiver_expr, attr_name = self._call_receiver_and_attr(call)
+        if is_init and attr_name != "__init__":
+            return True
+        if not isinstance(getattr(callee.code.codeparameters, "selfparam", None), py_ast.Local):
             return False
         return self._heap_effect_builder().call_return_kind(call) in {
             CALL_RETURN_FRESH,
@@ -489,8 +664,8 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         call = call_effect.call_expression if call_effect is not None else None
         if call is None:
             return
-        selfparam = getattr(callee.code.codeparameters, "selfparam", None)
-        if not isinstance(selfparam, py_ast.Local) or selfparam in bound_formals:
+        receiver_formal, _ = self._callee_receiver_and_stripped_params(callee)
+        if not isinstance(receiver_formal, py_ast.Local) or receiver_formal in bound_formals:
             return
         builder = self._heap_effect_builder()
         if not self._should_bind_constructor_self_to_result(call_node, callee):
@@ -502,7 +677,7 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         )
         self._heap().bind_local_to_object(
             callee,
-            selfparam,
+            receiver_formal,
             obj,
             include_provider_storage=True,
         )
@@ -1297,15 +1472,17 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         mutator_names: frozenset[str],
     ) -> tuple[tuple[HeapLocation, ...], tuple[HeapLocation, ...]]:
         call = self._call_from_expression_or_statement(operation)
-        call_name = self.adapter.call_name(call, procedure) if call is not None else None
-        if call is None or call_name not in mutator_names:
+        if call is None:
             return (), ()
-        if call_name not in {"extend", "update"}:
+        receiver_expr, attr_name = self._call_receiver_and_attr(call)
+        call_name = self.adapter.call_name(call, procedure)
+        method_name = attr_name if receiver_expr is not None else call_name
+        if method_name not in mutator_names or method_name not in {"extend", "update"}:
             return (), ()
 
         actuals = actual_argument_expressions(call)
-        if isinstance(call, py_ast.MethodCall):
-            container = call.expr
+        if receiver_expr is not None:
+            container = receiver_expr
             sources = actuals
         else:
             if len(actuals) < 2:
@@ -1339,7 +1516,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             expr = operation.expr
         elif isinstance(operation, py_ast.AnnAssign):
             expr = operation.value
-        if not isinstance(
+        if isinstance(expr, py_ast.Existing):
+            pyobj = getattr(getattr(expr, "object", None), "pyobj", None)
+            if not isinstance(pyobj, (dict, list, tuple, set)):
+                return ()
+        elif not isinstance(
             expr,
             (py_ast.BuildTuple, py_ast.BuildList, py_ast.BuildSet, py_ast.BuildMap),
         ):
@@ -1354,6 +1535,44 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             return ()
 
         writes: list[tuple[tuple[HeapLocation, ...], object]] = []
+        if isinstance(expr, py_ast.Existing):
+            pyobj = expr.object.pyobj
+            if isinstance(pyobj, dict):
+                for key, val in pyobj.items():
+                    if val is None:
+                        subscripts = (f"[{key!r}]", DYNAMIC_SUBSCRIPT_WILDCARD)
+                        writes.append(
+                            (
+                                self._collection_constructor_locations(
+                                    target_locations, subscripts
+                                ),
+                                py_ast.Existing(py_ast.program.Object(None)),
+                            )
+                        )
+            elif isinstance(pyobj, tuple):
+                for index, val in enumerate(pyobj):
+                    if val is None:
+                        writes.append(
+                            (
+                                self._collection_constructor_locations(
+                                    target_locations,
+                                    (f"[{index!r}]", DYNAMIC_SUBSCRIPT_WILDCARD),
+                                ),
+                                py_ast.Existing(py_ast.program.Object(None)),
+                            )
+                        )
+            elif isinstance(pyobj, (list, set)):
+                if any(val is None for val in pyobj):
+                    writes.append(
+                        (
+                            self._collection_constructor_locations(
+                                target_locations,
+                                (DYNAMIC_SUBSCRIPT_WILDCARD,),
+                            ),
+                            py_ast.Existing(py_ast.program.Object(None)),
+                        )
+                    )
+            return tuple(writes)
         if isinstance(expr, py_ast.BuildTuple):
             for index, value in enumerate(expr.args):
                 writes.append(
@@ -1471,10 +1690,11 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         call = self._call_from_expression_or_statement(expr)
         if call is None:
             return ()
+        receiver_expr, attr_name = self._call_receiver_and_attr(call)
         call_name = self.adapter.call_name(call, procedure)
         actuals = actual_argument_expressions(call)
-        if isinstance(call, py_ast.MethodCall) and call_name == "copy":
-            return (call.expr,)
+        if receiver_expr is not None and attr_name == "copy":
+            return (receiver_expr,)
         if call_name in {"copy", "list", "tuple", "set", "dict"} and actuals:
             return (actuals[0],)
         return ()
@@ -1494,12 +1714,17 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         accessor_names: frozenset[str],
     ) -> tuple[HeapLocation, ...]:
         call = self._call_from_expression_or_statement(expr)
-        if call is None or self.adapter.call_name(call, procedure) not in accessor_names:
+        if call is None:
+            return ()
+        receiver_expr, attr_name = self._call_receiver_and_attr(call)
+        call_name = self.adapter.call_name(call, procedure)
+        method_name = attr_name if receiver_expr is not None else call_name
+        if method_name not in accessor_names:
             return ()
 
         actuals = actual_argument_expressions(call)
-        if isinstance(call, py_ast.MethodCall):
-            container = call.expr
+        if receiver_expr is not None:
+            container = receiver_expr
             key = actuals[0] if actuals else None
         else:
             if len(actuals) < 1:

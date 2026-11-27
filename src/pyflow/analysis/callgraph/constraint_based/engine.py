@@ -254,16 +254,29 @@ class ConstraintCallGraphBuilder(
             if fixture_graph is not None:
                 return fixture_graph
 
+        self._load_deadline: Optional[float] = None
+        self._entry_direct_import_modules: Set[str] = set()
+        if self.options.fixpoint_max_seconds is not None:
+            now = time.monotonic()
+            self._fixpoint_deadline = now + self.options.fixpoint_max_seconds
+            self._load_deadline = now + self.options.fixpoint_max_seconds * 0.15
         self._load_modules()
         self._collect_symbols()
         self._resolve_import_bindings()
         self._resolve_class_bases()
         self._initialize_scopes()
         self._index_call_sites()
-        if self.options.fixpoint_max_seconds is not None:
-            self._fixpoint_deadline = time.monotonic() + self.options.fixpoint_max_seconds
         semi_naive_stats = (0, 0, 0)
-        if self.options.semi_naive_presolve and not self.options.context_sensitive:
+        if (
+            self.options.semi_naive_presolve
+            and not self.options.context_sensitive
+            and not self._fixpoint_time_exhausted()
+            and (
+                self._fixpoint_deadline is None
+                or (self._fixpoint_deadline - time.monotonic())
+                >= (self.options.fixpoint_max_seconds or 0.0) * 0.35
+            )
+        ):
             from ._semi_naive import run_semi_naive_presolve
 
             semi_naive = run_semi_naive_presolve(self)
@@ -336,6 +349,8 @@ class ConstraintCallGraphBuilder(
             ordinal=self._callsite_ordinal(caller_scope, call_node),
             source_path=self._scope_source_path(caller_scope),
             is_module_scope=caller_scope.name in self.modules,
+            end_line=int(getattr(call_node, "end_lineno", -1) or -1),
+            end_column=int(getattr(call_node, "end_col_offset", -1) or -1),
         )
         self.callsite_callees[site].add(callee_name)
         if callee_name.startswith("<dynamic>."):
@@ -361,6 +376,8 @@ class ConstraintCallGraphBuilder(
             ordinal=self._callsite_ordinal(caller_scope, call_node),
             source_path=self._scope_source_path(caller_scope),
             is_module_scope=caller_scope.name in self.modules,
+            end_line=int(getattr(call_node, "end_lineno", -1) or -1),
+            end_column=int(getattr(call_node, "end_col_offset", -1) or -1),
         )
         callees = self.callsite_callees.get(site)
         if callees is None:
@@ -437,10 +454,21 @@ class ConstraintCallGraphBuilder(
         reason_weight: int = 1,
     ) -> Tuple[int, int, int, str, str]:
         scope_name, context = scope_ctx
-        is_module_scope = 0 if scope_name in self.modules else 1
+        scope = self.scopes.get(scope_name)
+        is_module_scope = scope_name in self.modules
+        if is_module_scope and scope_name == self.entry_module_name:
+            tier = 0
+        elif is_module_scope and scope_name in getattr(self, "_entry_direct_import_modules", ()):
+            tier = 1
+        elif scope is not None and scope.module == self.entry_module_name:
+            tier = 2
+        elif is_module_scope:
+            tier = 3
+        else:
+            tier = 4
         fanout = len(self.call_dependents.get(scope_ctx, set()))
         return (
-            is_module_scope,
+            tier,
             -reason_weight,
             -fanout,
             scope_name,
