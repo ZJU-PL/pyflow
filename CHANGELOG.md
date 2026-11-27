@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed an $O(N^3)$ performance cliff in `TypeInfoService` when collecting large
+  transitive dependency graphs with partial modules (discovered during
+  real-world profiling of `MiroFish`): replaced linear list scans over
+  `_collection_diagnostics` with $O(1)$ set/per-module indexing, memoized
+  `_summary_type` and `collect_missing=False` re-export lookups, and made
+  `_refresh_import_facts` cache shared targets and skip unchanged resolved
+  imports across passes.
+
 ### Added
 
 - Unified user-friendly bug report rendering across `ifds`, `ast-dataflow`, and

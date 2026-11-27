@@ -105,6 +105,10 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._refreshing_import_facts = False
         self._needs_refresh = False
         self._collection_diagnostics: list[StubDiagnostic] = []
+        self._collection_diagnostics_seen: set[StubDiagnostic] = set()
+        self._collection_diagnostics_by_module: dict[str, list[StubDiagnostic]] = {}
+        self._summary_type_cache: dict[str, tuple[object, CallableType]] = {}
+        self._reexport_cache: dict[tuple[str, str], tuple[str, str] | None] = {}
         self._failed_modules: set[str] = set()
         self._third_party_kind: dict[str, str | None] = {}
         self._should_collect_cache: dict[str, bool] = {}
@@ -163,6 +167,7 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
 
             self._collected_modules.add(module_name)
             self._external_symbol_cache.clear()
+            self._reexport_cache.clear()
             completed = True
         finally:
             self._collecting_modules.discard(module_name)
@@ -175,25 +180,38 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
             if completed and not self._collecting_modules:
                 self.type_system.invalidate_subtype_caches()
                 self._known_class_cache.clear()
+                self._reexport_cache.clear()
                 if self._refresh_import_facts() and self.enable_static_inference:
                     cached = self._module_sources.get(module_name)
                     if cached is not None:
                         self._collect_inferred_source_facts(module_name, *cached)
             if completed:
-                for diagnostic in self._collection_diagnostics:
-                    if diagnostic.module_name != module_name:
-                        continue
+                module_diags = self._collection_diagnostics_by_module.get(module_name, ())
+                if module_diags:
                     result = self._inference_results.setdefault(
                         module_name, ModuleInferenceResult(module_name, converged=False)
                     )
-                    item = InferenceDiagnostic(
-                        diagnostic.code,
-                        diagnostic.message,
-                        severity=diagnostic.severity,
-                        affects_completeness=True,
-                    )
-                    if item not in result.diagnostics:
-                        result.diagnostics.append(item)
+                    existing_diags = set(result.diagnostics)
+                    for diagnostic in module_diags:
+                        item = InferenceDiagnostic(
+                            diagnostic.code,
+                            diagnostic.message,
+                            severity=diagnostic.severity,
+                            affects_completeness=True,
+                        )
+                        if item not in existing_diags:
+                            existing_diags.add(item)
+                            result.diagnostics.append(item)
+
+    def _add_collection_diagnostic(self, diagnostic: StubDiagnostic) -> None:
+        """Record *diagnostic* once in O(1) time."""
+        if diagnostic in self._collection_diagnostics_seen:
+            return
+        self._collection_diagnostics_seen.add(diagnostic)
+        self._collection_diagnostics.append(diagnostic)
+        self._collection_diagnostics_by_module.setdefault(diagnostic.module_name, []).append(
+            diagnostic
+        )
 
     def _record_collection_failure(
         self, module_name: str, code: str, exc: Exception, path: str | None
@@ -207,8 +225,7 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
             path=path,
             severity="error",
         )
-        if diagnostic not in self._collection_diagnostics:
-            self._collection_diagnostics.append(diagnostic)
+        self._add_collection_diagnostic(diagnostic)
 
     def type_of(self, module_name: str, name: str) -> ProperType | None:
         """Return the best known type for ``module.name``."""

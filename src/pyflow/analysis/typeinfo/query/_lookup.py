@@ -49,8 +49,11 @@ class _TypeLookupMixin:
         collect_missing: bool = True,
     ) -> tuple[str, str] | None:
         """Follow ``from x import y`` aliases to the defining module member."""
-        seen = set() if seen is None else seen
         key = (module_name, name)
+        use_cache = seen is None and not collect_missing
+        if use_cache and key in self._reexport_cache:
+            return self._reexport_cache[key]
+        seen = set() if seen is None else seen
         if key in seen:
             return None
         seen.add(key)
@@ -63,6 +66,8 @@ class _TypeLookupMixin:
             ):
                 self.collect_module(module_name)
         elif module_name not in self._collected_modules:
+            if use_cache:
+                self._reexport_cache[key] = None
             return None
         target = self._module_imports.get(module_name, {}).get(name)
         if target is None:
@@ -76,12 +81,17 @@ class _TypeLookupMixin:
             ):
                 target = fact.raw_annotation
         if not target or "." not in target:
+            if use_cache:
+                self._reexport_cache[key] = None
             return None
         target_module, _, target_name = target.rpartition(".")
         nested = self._resolve_reexported_member(
             target_module, target_name, seen, collect_missing=collect_missing
         )
-        return nested or (target_module, target_name)
+        resolved = nested or (target_module, target_name)
+        if use_cache:
+            self._reexport_cache[key] = resolved
+        return resolved
 
     def _ensure_class_loaded(self, class_name: str) -> ClassTypeInfo | None:
         info = self._classes.get(class_name)
@@ -293,8 +303,13 @@ class _TypeLookupMixin:
         summary = self._function_summaries.get(qualified_name)
         if summary is None:
             return None
+        cached = self._summary_type_cache.get(qualified_name)
+        if cached is not None and cached[0] is summary:
+            return cached[1]
         parameters = tuple(value.public_type() or ANY for value in summary.parameters.values())
-        return CallableType(parameters, summary.return_type or ANY)
+        callable_type = CallableType(parameters, summary.return_type or ANY)
+        self._summary_type_cache[qualified_name] = (summary, callable_type)
+        return callable_type
 
     def _replace_self_type(self, typ: ProperType | None, class_type: Instance) -> ProperType | None:
         """Recursively replace ``Self`` inside a stub type."""
@@ -470,7 +485,7 @@ class _TypeLookupMixin:
                 if len(self._collection_stack) >= self._max_collection_depth:
                     if not self._depth_limit_warning_emitted:
                         self._depth_limit_warning_emitted = True
-                        self._collection_diagnostics.append(
+                        self._add_collection_diagnostic(
                             StubDiagnostic(
                                 code="type_collection_depth_exceeded",
                                 category="type_inference",
@@ -540,15 +555,15 @@ class _TypeLookupMixin:
         if partial:
             dependents = [name for name in self._collection_stack[-1:] if name != module_name]
             for dependent in dependents:
-                diagnostic = StubDiagnostic(
-                    code="type_dependency_partial",
-                    category="type_inference",
-                    module_name=dependent,
-                    message=f"Type information for dependency {module_name!r} is partial",
-                    severity="warning",
+                self._add_collection_diagnostic(
+                    StubDiagnostic(
+                        code="type_dependency_partial",
+                        category="type_inference",
+                        module_name=dependent,
+                        message=f"Type information for dependency {module_name!r} is partial",
+                        severity="warning",
+                    )
                 )
-                if diagnostic not in self._collection_diagnostics:
-                    self._collection_diagnostics.append(diagnostic)
 
         fact = self._module_facts.get(module_name, {}).get(attr)
         if (

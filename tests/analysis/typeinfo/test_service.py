@@ -458,3 +458,60 @@ def test_typeinfo_package_exports_service_api() -> None:
     assert typeinfo.TypeFact is TypeFact
     assert typeinfo.FunctionTypeInfo is FunctionTypeInfo
     assert typeinfo.ClassTypeInfo is ClassTypeInfo
+
+
+def test_service_collection_diagnostics_and_import_refresh_scale_linearly() -> None:
+    import time
+    from pyflow.analysis.typeinfo.core.typesystem import ANY
+    from pyflow.language.modules.type_stubs import StubDiagnostic
+
+    service = TypeInfoService(ProjectContext(None), enable_static_inference=True)
+    # Pre-populate thousands of collection diagnostics and verify O(1) dedup
+    for idx in range(3000):
+        service._add_collection_diagnostic(
+            StubDiagnostic(
+                code="type_dependency_partial",
+                category="type_inference",
+                module_name=f"dep_{idx}",
+                message=f"Type information for dependency 'dep_{idx}' is partial",
+                severity="warning",
+            )
+        )
+    service._failed_modules.add("broken_dep")
+    service._collected_modules.add("broken_dep")
+    service._collection_stack.append("caller_mod")
+
+    start = time.monotonic()
+    for _ in range(5000):
+        service._lookup_project_type(
+            "broken_dep.missing_symbol",
+            allow_synthetic=False,
+            collect_missing=False,
+        )
+    elapsed = time.monotonic() - start
+    service._collection_stack.pop()
+    assert elapsed < 1.0, f"Expected O(1) diagnostic dedup, took {elapsed:.2f}s"
+    assert len(service._collection_diagnostics) == 3001
+
+    # Verify _summary_type caches CallableType by summary identity
+    service.collect_module("util", source="def helper(x: int) -> str:\n    return str(x)\n")
+    first = service._summary_type("util.helper")
+    second = service._summary_type("util.helper")
+    assert first is not None and first is second
+
+    # Verify _refresh_import_facts memoizes shared import targets across modules
+    for idx in range(200):
+        mod = f"consumer_{idx}"
+        service._collected_modules.add(mod)
+        service._module_facts[mod] = {
+            "helper": TypeFact(
+                name="helper",
+                typ=ANY,
+                raw_annotation="util.helper",
+                source="import",
+                kind="import",
+            )
+        }
+    assert service._refresh_import_facts() is True
+    assert service._module_facts["consumer_0"]["helper"].typ is first
+    assert service._module_facts["consumer_199"]["helper"].typ is first

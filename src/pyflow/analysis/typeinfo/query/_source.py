@@ -67,8 +67,11 @@ class _SourceCollectionMixin:
         self._refreshing_import_facts = True
         changed_any = False
         try:
-            for _ in range(3):
+            changed_modules: set[str] | None = None
+            for pass_index in range(3):
                 changed = False
+                next_changed_modules: set[str] = set()
+                lookup_cache: dict[str, ProperType | None] = {}
                 if module_name is not None:
                     items = (
                         [(module_name, self._module_facts[module_name])]
@@ -83,24 +86,43 @@ class _SourceCollectionMixin:
                     for name, fact in list(facts.items()):
                         if fact.source != "import" or not fact.raw_annotation:
                             continue
-                        resolved = self._lookup_project_type(
-                            fact.raw_annotation,
-                            allow_synthetic=False,
-                            collect_missing=False,
-                        )
+                        raw_target = fact.raw_annotation
+                        if raw_target == f"{mod_name}.{name}":
+                            continue
+                        # On subsequent fixpoint passes, only re-check still-unresolved
+                        # imports or aliases targeting a module updated in the prior pass.
+                        if pass_index > 0 and changed_modules is not None:
+                            target_mod = raw_target.rpartition(".")[0]
+                            if fact.typ is not ANY and target_mod not in changed_modules:
+                                continue
+                        # Fast path: already resolved to its exact ClassTypeInfo.
+                        existing_cls = self._classes.get(raw_target)
+                        if existing_cls is not None and fact.typ == existing_cls.typ:
+                            continue
+                        if raw_target in lookup_cache:
+                            resolved = lookup_cache[raw_target]
+                        else:
+                            resolved = self._lookup_project_type(
+                                raw_target,
+                                allow_synthetic=False,
+                                collect_missing=False,
+                            )
+                            lookup_cache[raw_target] = resolved
                         if resolved is not None and resolved != fact.typ:
                             self._lazy_stub_imports.discard((mod_name, name))
                             facts[name] = TypeFact(
                                 name=fact.name,
                                 typ=resolved,
-                                raw_annotation=fact.raw_annotation,
+                                raw_annotation=raw_target,
                                 source=fact.source,
                                 kind=fact.kind,
                             )
                             changed = True
                             changed_any = True
+                            next_changed_modules.add(mod_name)
                 if not changed:
                     break
+                changed_modules = next_changed_modules
         finally:
             self._refreshing_import_facts = False
         return changed_any
