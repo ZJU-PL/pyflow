@@ -183,7 +183,6 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 <code class="docutils literal notranslate"><span class="pre">--entry</span></code>.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">output</span> <span class="n">callgraph</span><span class="o">.</span><span class="n">txt</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">constraint</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">sensitive</span> <span class="o">--</span><span class="n">context</span><span class="o">-</span><span class="n">depth</span> <span class="mi">2</span>
-<span class="n">pyflow</span> <span class="n">callgraph</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">algorithm</span> <span class="n">pycg</span><span class="o">-</span><span class="n">mir</span>               <span class="c1"># native MIR analysis</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span>                            <span class="c1"># auto-detect entry</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">entry</span> <span class="n">src</span><span class="o">/</span><span class="n">app</span><span class="o">.</span><span class="n">py</span>         <span class="c1"># explicit entry</span>
 <span class="n">pyflow</span> <span class="n">callgraph</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">project</span><span class="o">/</span> <span class="o">--</span><span class="n">dry</span><span class="o">-</span><span class="n">run</span>                  <span class="c1"># print entry only</span>
@@ -200,7 +199,7 @@ metadata, a main guard, or an explicit <code class="docutils literal notranslate
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--entry</span></code>: Entry point file relative to project root (directory input only; auto-detected when omitted)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code>: Print detected entry point without running analysis</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, <code class="docutils literal notranslate"><span class="pre">pycg</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code>; default: <code class="docutils literal notranslate"><span class="pre">constraint</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--algorithm,</span> <span class="pre">-a</span></code>: Algorithm (<code class="docutils literal notranslate"><span class="pre">simple</span></code>, <code class="docutils literal notranslate"><span class="pre">constraint</span></code>, or <code class="docutils literal notranslate"><span class="pre">pycg</span></code>; default: <code class="docutils literal notranslate"><span class="pre">constraint</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--recursive,</span> <span class="pre">-r</span></code>: Analyze all project source files with constraint analysis, including libraries without a unique entry</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--include-external</span></code>: Include third-party dependency source (default: project sources only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">{text,json}</span></code>: Text is the default; JSON maps caller names to sorted callee lists, with empty lists for leaf nodes</p></li>
@@ -210,17 +209,12 @@ metadata, a main guard, or an explicit <code class="docutils literal notranslate
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-skip-stdlib</span></code>: Include standard library modules in constraint analysis</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code>: Enable call-site context sensitivity (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--context-depth</span></code>: Call-string depth when <code class="docutils literal notranslate"><span class="pre">--context-sensitive</span></code> is enabled (default: 1)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--max-import-depth</span></code>: Maximum local import hops for the <code class="docutils literal notranslate"><span class="pre">pycg</span></code> and <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> algorithms (default: 3; <code class="docutils literal notranslate"><span class="pre">0</span></code> inspects only the entry)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-import-depth</span></code>: Maximum local import hops for the <code class="docutils literal notranslate"><span class="pre">pycg</span></code> algorithm (default: 3; <code class="docutils literal notranslate"><span class="pre">0</span></code> inspects only the entry)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--fixpoint-max-iterations</span></code>: Cap fixpoint iterations (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--no-fixpoint-warning</span></code>: Disable warning when fixpoint cap is hit (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--allocation-site-sensitive-instances</span></code>: Track per-allocation instance identities (constraint algorithm only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--as-graph-output</span></code>: Write constraint value-flow assignment graph JSON (constraint algorithm only)</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> runs native flow-, path-, and context-insensitive PyCG-style
-analysis over MIR and does not require the optional upstream <code class="docutils literal notranslate"><span class="pre">pycg</span></code> package.
-The stdlib flags affect only constraint analysis and do not extend MIR’s
-supported import graph.
-See <a class="reference internal" href="ir/mir.html"><span class="doc">Minimal Intermediate Representation (MIR)</span></a> for its APIs and supported scope.</p>
 </section>
 <section id="pyflow-ir">
 <h3><strong>pyflow ir</strong><a class="headerlink" href="#pyflow-ir" title="Link to this heading"></a></h3>
@@ -229,16 +223,10 @@ See <a class="reference internal" href="ir/mir.html"><span class="doc">Minimal I
 <span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">ssa</span> <span class="n">main</span>
 <span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">cdg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">text</span>
 <span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">ddg</span> <span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">text</span>
-<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">mir</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">json</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">output</span> <span class="n">out</span><span class="o">/</span>
-<span class="n">pyflow</span> <span class="n">ir</span> <span class="nb">input</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="n">mir</span> <span class="nb">input</span><span class="o">.</span><span class="n">main</span> <span class="o">--</span><span class="n">dump</span><span class="o">-</span><span class="nb">format</span> <span class="n">text</span>
 </pre></div>
 </div>
 <p>Options:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">--dump-mir</span> <span class="pre">[SCOPE]</span></code>: Dump MIR or an unambiguous scope; short names prefer source definitions over runtime helpers</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--mir-view</span> <span class="pre">{source,full}</span></code>: Hide runtime CFGs for inspection or include the complete program. Text/DOT default to <code class="docutils literal notranslate"><span class="pre">source</span></code>; JSON defaults to <code class="docutils literal notranslate"><span class="pre">full</span></code> for compatibility. Explicit <code class="docutils literal notranslate"><span class="pre">source</span></code> JSON is an inspection view with <code class="docutils literal notranslate"><span class="pre">view</span></code> and <code class="docutils literal notranslate"><span class="pre">omitted_runtime_cfgs</span></code> metadata, not a standalone executable MIR program</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--mir-follow-imports</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-mir-follow-imports</span></code>: Force or suppress following local imports when dumping MIR. The default follows imports only for <code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">strict</span></code>, which requires them</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">{strict,opaque}</span></code>: All dump formats default to opaque imports/unmodeled expressions, with partial-coverage diagnostics. Default dumps inspect only the requested files; explicit <code class="docutils literal notranslate"><span class="pre">--mir-view</span> <span class="pre">full</span></code> follows local imports, and <code class="docutils literal notranslate"><span class="pre">strict</span></code> follows imports while rejecting unmodeled semantics</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dump-ast</span> <span class="pre">FUNCTION</span></code>: Dump AST for a named function</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dump-cfg</span> <span class="pre">FUNCTION</span></code>: Dump CFG using a qualified name or a unique short name (for example <code class="docutils literal notranslate"><span class="pre">Class.method</span></code>). Ambiguous or missing names report candidates</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--dump-ssa</span> <span class="pre">FUNCTION</span></code>: Dump SSA for a named function</p></li>
@@ -262,9 +250,6 @@ artifacts form a single filename-to-document map. Progress goes to stderr</p></l
 <li><p><code class="docutils literal notranslate"><span class="pre">--include</span></code> / <code class="docutils literal notranslate"><span class="pre">--exclude</span></code>: File patterns to include/exclude</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--verbose,</span> <span class="pre">-v</span></code>: Enable verbose output</p></li>
 </ul>
-<p>MIR dumps lower source directly without importing or executing analyzed
-modules. They support text, JSON, and DOT output. With directory input,
-the output directory preserves the source directory structure.</p>
 <p>Both <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">pyflow</span></code> and <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">pyflow.cli</span></code> support the same CLI
 arguments and exit codes as the installed <code class="docutils literal notranslate"><span class="pre">pyflow</span></code> command.</p>
 </section>
@@ -790,10 +775,7 @@ module execution, including output buffered until shutdown.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">simple</span></code> callgraph algorithm uses the input filename as its module name,
 keeps function and class scopes distinct, and includes all same-named local
 methods for attribute calls. It does not resolve callbacks or imported functions;
-use <code class="docutils literal notranslate"><span class="pre">constraint</span></code> for those cases. <code class="docutils literal notranslate"><span class="pre">pycg-mir</span></code> now defaults to opaque import
-boundaries and emits partial-analysis diagnostics on stderr while preserving
-JSON adjacency output. Pass <code class="docutils literal notranslate"><span class="pre">--mir-import-policy</span> <span class="pre">strict</span></code> to reject unmodeled
-imports.</p>
+use <code class="docutils literal notranslate"><span class="pre">constraint</span></code> for those cases.</p>
 <p>Security findings and traces from AST dataflow retain original file line numbers,
 including nested methods and multiline expressions. Repeated diagnostic messages
 are grouped in text output; JSON and SARIF retain individual source locations.
@@ -812,11 +794,7 @@ bindings still warn.</p>
 <p>DDG exports accept docstrings, constant statements, and constant-valued branch
 merges. SSA inspection uses freshly extracted source symbols; exception-aware
 SSA for <code class="docutils literal notranslate"><span class="pre">try/except/finally</span></code> is still unsupported and reports an actionable
-error. Use CFG or MIR inspection for those functions.</p>
-<p>Directory MIR inspection preserves package prefixes for relative imports.
-Opaque mode retains unsupported statements, including async definitions,
-<code class="docutils literal notranslate"><span class="pre">match</span></code>, type aliases, and slice assignments, with partial-analysis diagnostics.
-Strict mode continues to reject unsupported semantics.</p>
+error. Use CFG inspection for those functions.</p>
 <p><code class="docutils literal notranslate"><span class="pre">query</span> <span class="pre">--get-aliases</span></code> runs the heap pass in every mode and resolves source
 variables through published symbol facts. Query function lists and call graphs
 use canonical module-qualified names, accepted by CFG and call queries. Unknown
@@ -842,15 +820,8 @@ coverage and retain findings accumulated before interruption.</p>
 <code class="docutils literal notranslate"><span class="pre">--verbose</span></code> to expand them or JSON/SARIF to retain structured details. Alias
 text output hides generated interpreter helper entries unless verbose mode is
 requested. Optimization dump commands refresh invalidated analysis facts before
-rendering all function and heap reports.</p>
-<p>MIR lowering avoids allocating unused docstring characters and shares repeated
-character materialization within string literals. <code class="docutils literal notranslate"><span class="pre">callgraph</span> <span class="pre">--engine</span></code> is an
-alias for <code class="docutils literal notranslate"><span class="pre">--algorithm</span></code>. Strict MIR imports reject missing source/models with
-an actionable error; opaque imports report partial coverage while retaining
-available local-module call edges.</p>
-<p>Native MIR callgraph scans default to a 30-second analysis budget; adjust it
-with <code class="docutils literal notranslate"><span class="pre">--mir-max-seconds</span></code>. Exhaustion returns the discovered graph with an
-explicit incomplete-analysis diagnostic instead of reporting convergence.</p>
+rendering all function and heap reports. <code class="docutils literal notranslate"><span class="pre">callgraph</span> <span class="pre">--engine</span></code> is an alias for
+<code class="docutils literal notranslate"><span class="pre">--algorithm</span></code>.</p>
 </section>
 </section>
 

@@ -29,7 +29,6 @@ unambiguous; otherwise the candidates are reported and can be resolved with
 
   pyflow callgraph input.py --algorithm constraint --output callgraph.txt
   pyflow callgraph input.py --algorithm constraint --context-sensitive --context-depth 2
-  pyflow callgraph input.py --algorithm pycg-mir               # native MIR analysis
   pyflow callgraph /path/to/project/                            # auto-detect entry
   pyflow callgraph /path/to/project/ --entry src/app.py         # explicit entry
   pyflow callgraph /path/to/project/ --dry-run                  # print entry only
@@ -46,7 +45,7 @@ Options:
 
 - ``--entry``: Entry point file relative to project root (directory input only; auto-detected when omitted)
 - ``--dry-run``: Print detected entry point without running analysis
-- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, ``pycg``, or ``pycg-mir``; default: ``constraint``)
+- ``--algorithm, -a``: Algorithm (``simple``, ``constraint``, or ``pycg``; default: ``constraint``)
 - ``--recursive, -r``: Analyze all project source files with constraint analysis, including libraries without a unique entry
 - ``--include-external``: Include third-party dependency source (default: project sources only)
 - ``--format {text,json}``: Text is the default; JSON maps caller names to sorted callee lists, with empty lists for leaf nodes
@@ -56,17 +55,11 @@ Options:
 - ``--no-skip-stdlib``: Include standard library modules in constraint analysis
 - ``--context-sensitive``: Enable call-site context sensitivity (constraint algorithm only)
 - ``--context-depth``: Call-string depth when ``--context-sensitive`` is enabled (default: 1)
-- ``--max-import-depth``: Maximum local import hops for the ``pycg`` and ``pycg-mir`` algorithms (default: 3; ``0`` inspects only the entry)
+- ``--max-import-depth``: Maximum local import hops for the ``pycg`` algorithm (default: 3; ``0`` inspects only the entry)
 - ``--fixpoint-max-iterations``: Cap fixpoint iterations (constraint algorithm only)
 - ``--no-fixpoint-warning``: Disable warning when fixpoint cap is hit (constraint algorithm only)
 - ``--allocation-site-sensitive-instances``: Track per-allocation instance identities (constraint algorithm only)
 - ``--as-graph-output``: Write constraint value-flow assignment graph JSON (constraint algorithm only)
-
-``pycg-mir`` runs native flow-, path-, and context-insensitive PyCG-style
-analysis over MIR and does not require the optional upstream ``pycg`` package.
-The stdlib flags affect only constraint analysis and do not extend MIR's
-supported import graph.
-See :doc:`ir/mir` for its APIs and supported scope.
 
 **pyflow ir**
 ~~~~~~~~~~~~~
@@ -79,15 +72,9 @@ Visualize intermediate representations and analysis results.
   pyflow ir input.py --dump-ssa main
   pyflow ir input.py --dump-cdg main --dump-format text
   pyflow ir input.py --dump-ddg main --dump-format text
-  pyflow ir input.py --dump-mir --dump-format json --dump-output out/
-  pyflow ir input.py --dump-mir input.main --dump-format text
 
 Options:
 
-- ``--dump-mir [SCOPE]``: Dump MIR or an unambiguous scope; short names prefer source definitions over runtime helpers
-- ``--mir-view {source,full}``: Hide runtime CFGs for inspection or include the complete program. Text/DOT default to ``source``; JSON defaults to ``full`` for compatibility. Explicit ``source`` JSON is an inspection view with ``view`` and ``omitted_runtime_cfgs`` metadata, not a standalone executable MIR program
-- ``--mir-follow-imports`` / ``--no-mir-follow-imports``: Force or suppress following local imports when dumping MIR. The default follows imports only for ``--mir-import-policy strict``, which requires them
-- ``--mir-import-policy {strict,opaque}``: All dump formats default to opaque imports/unmodeled expressions, with partial-coverage diagnostics. Default dumps inspect only the requested files; explicit ``--mir-view full`` follows local imports, and ``strict`` follows imports while rejecting unmodeled semantics
 - ``--dump-ast FUNCTION``: Dump AST for a named function
 - ``--dump-cfg FUNCTION``: Dump CFG using a qualified name or a unique short name (for example ``Class.method``). Ambiguous or missing names report candidates
 - ``--dump-ssa FUNCTION``: Dump SSA for a named function
@@ -110,10 +97,6 @@ Options:
 - ``--recursive, -r``: Recursively analyze subdirectories
 - ``--include`` / ``--exclude``: File patterns to include/exclude
 - ``--verbose, -v``: Enable verbose output
-
-MIR dumps lower source directly without importing or executing analyzed
-modules. They support text, JSON, and DOT output. With directory input,
-the output directory preserves the source directory structure.
 
 Both ``python -m pyflow`` and ``python -m pyflow.cli`` support the same CLI
 arguments and exit codes as the installed ``pyflow`` command.
@@ -682,10 +665,7 @@ User trial fixes
 The ``simple`` callgraph algorithm uses the input filename as its module name,
 keeps function and class scopes distinct, and includes all same-named local
 methods for attribute calls. It does not resolve callbacks or imported functions;
-use ``constraint`` for those cases. ``pycg-mir`` now defaults to opaque import
-boundaries and emits partial-analysis diagnostics on stderr while preserving
-JSON adjacency output. Pass ``--mir-import-policy strict`` to reject unmodeled
-imports.
+use ``constraint`` for those cases.
 
 Security findings and traces from AST dataflow retain original file line numbers,
 including nested methods and multiline expressions. Repeated diagnostic messages
@@ -708,12 +688,7 @@ Additional inspection and query fixes
 DDG exports accept docstrings, constant statements, and constant-valued branch
 merges. SSA inspection uses freshly extracted source symbols; exception-aware
 SSA for ``try/except/finally`` is still unsupported and reports an actionable
-error. Use CFG or MIR inspection for those functions.
-
-Directory MIR inspection preserves package prefixes for relative imports.
-Opaque mode retains unsupported statements, including async definitions,
-``match``, type aliases, and slice assignments, with partial-analysis diagnostics.
-Strict mode continues to reject unsupported semantics.
+error. Use CFG inspection for those functions.
 
 ``query --get-aliases`` runs the heap pass in every mode and resolves source
 variables through published symbol facts. Query function lists and call graphs
@@ -744,14 +719,5 @@ Capability text reports summarize unresolved-operation diagnostics. Use
 ``--verbose`` to expand them or JSON/SARIF to retain structured details. Alias
 text output hides generated interpreter helper entries unless verbose mode is
 requested. Optimization dump commands refresh invalidated analysis facts before
-rendering all function and heap reports.
-
-MIR lowering avoids allocating unused docstring characters and shares repeated
-character materialization within string literals. ``callgraph --engine`` is an
-alias for ``--algorithm``. Strict MIR imports reject missing source/models with
-an actionable error; opaque imports report partial coverage while retaining
-available local-module call edges.
-
-Native MIR callgraph scans default to a 30-second analysis budget; adjust it
-with ``--mir-max-seconds``. Exhaustion returns the discovered graph with an
-explicit incomplete-analysis diagnostic instead of reporting convergence.
+rendering all function and heap reports. ``callgraph --engine`` is an alias for
+``--algorithm``.
