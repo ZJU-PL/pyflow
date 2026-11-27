@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed TypeInfo precision, annotation resolution, and CallGraph/TypeInfo
+  project-scale performance issues uncovered across all 100 `top100`
+  repositories (`Comfy-Org--ComfyUI`, `pytorch--pytorch`, `fastapi--fastapi`,
+  `ansible--ansible`, `unclecode--crawl4ai`, `yt-dlp--yt-dlp`, `django--django`,
+  `pandas`, Wave 5):
+  - Resolved `os.environ.copy()`, `urllib.parse.parse_qs`, `re.Match.group`
+    multi-key calls, `array.array` creation/indexing/slicing/iteration, and
+    `collections.defaultdict(list)` subscripting/iteration without leaking
+    unbound `AnyStr` or `_T` TypeVars.
+  - Handled `@classmethod` `cls: type[Self]` calls, `@classproperty`
+    descriptors, aliased `Self`/`TypeAlias` definitions in class bodies,
+    module-level bare type aliases and `TypeVar(...)`/`ParamSpec(...)`
+    declarations in `TypeInfoService`, qualified builtin class objects
+    (`builtins.int`/`float`/`tuple`), lowercase `any`/`list` annotations, and
+    uninstalled external container element annotations without false positives.
+  - Added `%`-formatting support for `NotImplementedError`, `NamedTuple`, and
+    numeric `%d`/`%f` float coercions; tolerated untyped overrides and
+    zero-arg `BaseSettings` subclasses cleanly.
+  - Eliminated TypeInfo cache/re-refresh ping-pong bottlenecks (`_facts_epoch`
+    now bumps only on actual signature/fact changes with bounded 3-pass refresh
+    and safe nested `_external_project_type_cache` caching; `ProjectContext`
+    directory cache invalidates via directory mtime), and replaced the full-AST
+    walk in constraint-based CallGraph `_shadowed_class_names_in_module` with
+    a statement-block walk, bringing all 10 previously timing-out repos under
+    budget with zero crashes across all 100 `top100` repositories.
+
 - Fixed false-positive TypeInfo diagnostics, missing cross-module subtype
   edges, union method TypeVar leaks, model subclass field inheritance, and CLI
   directory-scan resilience across `top100` repositories (`pallets--flask`,

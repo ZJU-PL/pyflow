@@ -319,6 +319,8 @@ class CallInference(InferenceComponent):
         # than the engine's internal instance-plus-class-target value.
         types = set(callee.types)
         classes = set(callee.class_targets)
+        had_explicit_class_targets = bool(classes)
+        self_typevars: list[TypeVarType] = []
         for typ in callee.types:
             if isinstance(typ, TypeType):
                 alternatives = typ.item.items if isinstance(typ.item, UnionType) else (typ.item,)
@@ -326,19 +328,38 @@ class CallInference(InferenceComponent):
                     if isinstance(item, Instance):
                         types.add(item)
                         classes.add(item.type.full_name)
+                    elif isinstance(item, TypeVarType):
+                        bound = item.bound
+                        if isinstance(bound, Instance):
+                            classes.add(bound.type.full_name)
+                        elif isinstance(bound, UnionType):
+                            for alt in bound.items:
+                                if isinstance(alt, Instance):
+                                    classes.add(alt.type.full_name)
+                        if item.name == "Self":
+                            self_typevars.append(item)
         if classes:
             callee = replace(callee, types=frozenset(types), class_targets=frozenset(classes))
         results: list[AbstractTypeValue] = []
         for class_target in callee.class_targets:
-            results.append(
-                self.engine._member_rules._instantiate_class_target(
-                    class_target,
-                    callee.types,
-                    arguments,
-                    keywords,
-                    node,
-                )
+            instantiated = self.engine._member_rules._instantiate_class_target(
+                class_target,
+                callee.types,
+                arguments,
+                keywords,
+                node,
             )
+            if not had_explicit_class_targets and self_typevars:
+                # Calling ``cls(...)`` inside ``def f(cls: type[Self])`` builds a ``Self`` instance.
+                results.append(
+                    join_all(
+                        [AbstractTypeValue.from_type(tv) for tv in self_typevars],
+                        self.engine.type_system,
+                        max_union_size=self.engine.options.max_union_size,
+                    )
+                )
+            else:
+                results.append(instantiated)
         self.engine._last_argument_mutations = []
         for target in callee.callable_targets:
             results.append(self._apply_function(target, arguments, keywords, node=node))
@@ -1434,15 +1455,33 @@ class CallInference(InferenceComponent):
         if function.owner and function.method_kind != "static" and function.parameter_names:
             receiver = actuals.get(function.parameter_names[0])
             if receiver is not None:
-                substitutions["Self"] = (
+                receiver_self = (
                     receiver.public_type() or self.engine._classes[function.owner].instance
                 )
+                if function.method_kind == "class":
+                    if isinstance(receiver_self, TypeType):
+                        receiver_self = receiver_self.item
+                    elif isinstance(receiver_self, UnionType):
+                        receiver_self = UnionType(
+                            tuple(
+                                item.item if isinstance(item, TypeType) else item
+                                for item in receiver_self.items
+                            )
+                        )
+                substitutions["Self"] = receiver_self
                 for typ in receiver.types:
-                    if isinstance(typ, Instance):
-                        receiver_info = self.engine._classes.get(typ.type.full_name)
+                    candidate = (
+                        typ.item
+                        if (function.method_kind == "class" and isinstance(typ, TypeType))
+                        else typ
+                    )
+                    if isinstance(candidate, TypeVarType) and isinstance(candidate.bound, Instance):
+                        candidate = candidate.bound
+                    if isinstance(candidate, Instance):
+                        receiver_info = self.engine._classes.get(candidate.type.full_name)
                         if receiver_info is not None:
                             if (
-                                function.owner != typ.type.full_name
+                                function.owner != candidate.type.full_name
                                 and getattr(function.node, "name", "") != "__init__"
                             ):
                                 substitutions.update(receiver_info.type_var_bindings)
@@ -1450,7 +1489,9 @@ class CallInference(InferenceComponent):
                                 if not isinstance(v, TypeVarType):
                                     substitutions[k] = v
                                     fixed.add(k)
-                        for parameter, argument in zip(typ.type.type_parameters, typ.args):
+                        for parameter, argument in zip(
+                            candidate.type.type_parameters, candidate.args
+                        ):
                             self._match_type_variables(parameter, argument, substitutions, fixed)
         vararg_name = (
             function.node.args.vararg.arg if function.node.args.vararg is not None else None
@@ -1501,7 +1542,11 @@ class CallInference(InferenceComponent):
         if substitutions:
             chained = {}
             for k, v in substitutions.items():
-                chained[k] = substitute_type_vars(v, substitutions)
+                if isinstance(v, TypeVarType) and v.name == k:
+                    chained[k] = v
+                else:
+                    other_subs = {sk: sv for sk, sv in substitutions.items() if sk != k}
+                    chained[k] = substitute_type_vars(v, other_subs) if other_subs else v
             return chained
         return substitutions
 

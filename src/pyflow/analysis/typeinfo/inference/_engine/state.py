@@ -71,6 +71,7 @@ class _ClassInfo:
     field_defaults: set[str] = field(default_factory=set)
     keyword_only_fields: set[str] = field(default_factory=set)
     is_model_class: bool = False
+    is_settings_class: bool = False
     # ``NewType("TaskId", int)`` creates a distinct nominal type whose values
     # are still instances of the wrapped class.
     newtype_base: ProperType | None = None

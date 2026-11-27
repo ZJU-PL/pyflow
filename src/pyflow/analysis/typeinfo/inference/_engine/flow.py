@@ -656,61 +656,96 @@ class FlowInference(InferenceComponent):
                 class_environment = dict(result)
                 class_environment.update(class_info.attributes)
                 enum_class = self.engine._member_rules._is_enum_class_info(class_info)
-                for item in node.body:
-                    if isinstance(item, ast.Assign):
-                        value = self.engine._expression_rules._evaluate_expression(
-                            item.value,
-                            class_environment,
-                            scope=qualified,
-                            current_function=current_function,
-                        )
-                        for target in item.targets:
-                            self._assign_target(target, value, class_environment, current_function)
-                            for name in ast.walk(target):
-                                if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store):
-                                    if enum_class and not name.id.startswith("_"):
-                                        class_info.enum_values[name.id] = value
-                                        member = AbstractTypeValue.from_type(class_info.instance)
-                                    else:
-                                        member = class_environment[name.id]
-                                    class_info.attributes[name.id] = member
-                                    class_info.instance.type.members[name.id] = (
-                                        member.public_type() or ANY
-                                    )
-                    elif (
-                        isinstance(item, ast.AnnAssign)
-                        and isinstance(item.target, ast.Name)
-                        and item.value is not None
-                        and not self.engine._declaration_rules._is_dataclass_pseudo_annotation(
-                            item.annotation
-                        )
-                    ):
-                        value = self.engine._expression_rules._evaluate_expression(
-                            item.value,
-                            class_environment,
-                            scope=qualified,
-                            current_function=current_function,
-                        )
-                        annotated = self.engine._declaration_rules._annotation_value(
-                            item.annotation
-                        )
-                        self.engine._compatibility_rules._check_annotation_compatibility(
-                            value,
-                            annotated,
-                            item,
-                            context="annotated assignment",
-                        )
-                        member = annotated if not annotated.unknown and annotated.types else value
-                        self._assign_target(
-                            item.target,
-                            member,
-                            class_environment,
-                            current_function,
-                        )
-                        class_info.attributes[item.target.id] = member
-                        class_info.instance.type.members[item.target.id] = (
-                            member.public_type() or ANY
-                        )
+                previous_owner = self.engine._annotation_owner
+                previous_vars = dict(self.engine._type_vars)
+                self.engine._annotation_owner = qualified
+                self.engine._type_vars = {**previous_vars, **class_info.type_variables}
+                try:
+                    for item in node.body:
+                        if isinstance(item, ast.Assign):
+                            value = self.engine._expression_rules._evaluate_expression(
+                                item.value,
+                                class_environment,
+                                scope=qualified,
+                                current_function=current_function,
+                            )
+                            for target in item.targets:
+                                self._assign_target(
+                                    target, value, class_environment, current_function
+                                )
+                                for name in ast.walk(target):
+                                    if isinstance(name, ast.Name) and isinstance(
+                                        name.ctx, ast.Store
+                                    ):
+                                        if enum_class and not name.id.startswith("_"):
+                                            class_info.enum_values[name.id] = value
+                                            member = AbstractTypeValue.from_type(
+                                                class_info.instance
+                                            )
+                                        else:
+                                            member = class_environment[name.id]
+                                        class_info.attributes[name.id] = member
+                                        class_info.instance.type.members[name.id] = (
+                                            member.public_type() or ANY
+                                        )
+                        elif (
+                            isinstance(item, ast.AnnAssign)
+                            and isinstance(item.target, ast.Name)
+                            and item.value is not None
+                            and not self.engine._declaration_rules._is_dataclass_pseudo_annotation(
+                                item.annotation
+                            )
+                        ):
+                            if (
+                                item.target.id in self.engine._type_aliases
+                                and self.engine._value_rules._qualified_callee_name(item.annotation)
+                                in {"typing.TypeAlias", "typing_extensions.TypeAlias"}
+                            ):
+                                alias_value = self.engine._declaration_rules._annotation_value(
+                                    item.value
+                                )
+                                self._assign_target(
+                                    item.target,
+                                    alias_value,
+                                    class_environment,
+                                    current_function,
+                                )
+                                class_info.attributes[item.target.id] = alias_value
+                                class_info.instance.type.members[item.target.id] = (
+                                    alias_value.public_type() or ANY
+                                )
+                                continue
+                            value = self.engine._expression_rules._evaluate_expression(
+                                item.value,
+                                class_environment,
+                                scope=qualified,
+                                current_function=current_function,
+                            )
+                            annotated = self.engine._declaration_rules._annotation_value(
+                                item.annotation
+                            )
+                            self.engine._compatibility_rules._check_annotation_compatibility(
+                                value,
+                                annotated,
+                                item,
+                                context="annotated assignment",
+                            )
+                            member = (
+                                annotated if not annotated.unknown and annotated.types else value
+                            )
+                            self._assign_target(
+                                item.target,
+                                member,
+                                class_environment,
+                                current_function,
+                            )
+                            class_info.attributes[item.target.id] = member
+                            class_info.instance.type.members[item.target.id] = (
+                                member.public_type() or ANY
+                            )
+                finally:
+                    self.engine._annotation_owner = previous_owner
+                    self.engine._type_vars = previous_vars
                 value = AbstractTypeValue.from_type(class_info.instance, class_target=qualified)
                 for decorator, callee in reversed(decorators):
                     value = self.engine._call_rules._invoke_value(
@@ -1247,6 +1282,7 @@ class FlowInference(InferenceComponent):
             code = "list-item"
         else:
             return
+        expected = self.engine._declaration_rules._replace_missing_external(expected)
         if isinstance(expected, (AnyType, TypeVarType)):
             return
         if self.engine.type_system.is_subtype(actual, expected):

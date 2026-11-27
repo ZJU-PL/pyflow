@@ -662,25 +662,43 @@ class _SymbolAnalysisMixin:
                     pending.add(dependent)
 
     def _shadowed_class_names_in_module(self, module_name: str) -> Set[str]:
-        """Return class short names in *module_name* that also have an import or prior class binding."""
+        """Return class short names in *module_name* with an import or prior class binding."""
         module_info = self.modules.get(module_name)
         if module_info is None:
             return set()
         imported_or_redefined: Set[str] = set()
         seen_classes: Set[str] = set()
-        for stmt in ast.walk(module_info.tree):
+        stack: list[ast.stmt] = list(module_info.tree.body)
+        while stack:
+            stmt = stack.pop()
             if isinstance(stmt, ast.Import):
                 for alias in stmt.names:
                     imported_or_redefined.add(alias.asname or alias.name.split(".", 1)[0])
-            elif isinstance(stmt, ast.ImportFrom):
+                continue
+            if isinstance(stmt, ast.ImportFrom):
                 for alias in stmt.names:
                     if alias.name != "*":
                         imported_or_redefined.add(alias.asname or alias.name)
-            elif isinstance(stmt, ast.ClassDef):
+                continue
+            if isinstance(stmt, ast.ClassDef):
                 if stmt.name in seen_classes:
                     imported_or_redefined.add(stmt.name)
                 else:
                     seen_classes.add(stmt.name)
+            for attr in ("body", "orelse", "finalbody"):
+                nested = getattr(stmt, attr, None)
+                if nested:
+                    stack.extend(nested)
+            handlers = getattr(stmt, "handlers", None)
+            if handlers:
+                for handler in handlers:
+                    if handler.body:
+                        stack.extend(handler.body)
+            cases = getattr(stmt, "cases", None)
+            if cases:
+                for case in cases:
+                    if case.body:
+                        stack.extend(case.body)
         return imported_or_redefined
 
     def _resolve_class_bases(self) -> None:
@@ -761,7 +779,7 @@ class _SymbolAnalysisMixin:
         return any(self._base_inherits_generic(base, seen) for base in class_info.bases)
 
     def _prune_redundant_generic_bases(self, class_names: Optional[Iterable[str]] = None) -> None:
-        """Drop ``Generic`` when another resolved base already inherits ``Generic``/``Protocol`` (PEP 560)."""
+        """Drop ``Generic`` when another base inherits ``Generic``/``Protocol`` (PEP 560)."""
         targets = (
             [self.classes[name] for name in class_names if name in self.classes]
             if class_names is not None

@@ -118,16 +118,25 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._imports_dirty = False
         self._last_refreshed_import_modules: frozenset[str] = frozenset()
         self._needs_refresh = False
+        self._facts_epoch = 0
+        self._module_checked_epoch: dict[str, int] = {}
+        self._module_facts_epoch: dict[str, int] = {}
+        self._module_dependency_epochs: dict[str, dict[str, int]] = {}
+        self._recorded_deps_stack: list[dict[str, int]] = []
         self._collection_diagnostics: list[StubDiagnostic] = []
         self._collection_diagnostics_seen: set[StubDiagnostic] = set()
         self._collection_diagnostics_by_module: dict[str, list[StubDiagnostic]] = {}
         self._summary_type_cache: dict[str, tuple[object, CallableType]] = {}
         self._reexport_cache: dict[tuple[str, str], tuple[str, str] | None] = {}
+        self._stub_annotation_cache: dict[tuple[str, str, bool], ProperType | None] = {}
+        self._external_project_type_cache: dict[tuple[str, bool, bool], ProperType | None] = {}
         self._failed_modules: set[str] = set()
         self._third_party_kind: dict[str, str | None] = {}
         self._should_collect_cache: dict[str, bool] = {}
         self._known_class_cache: dict[str, bool] = {}
         self._external_symbol_cache: dict[str, ProperType | None] = {}
+        self._may_be_project_cache: dict[str, bool] = {}
+        self._may_be_project_cache_key: tuple[object, ...] | None = None
         self._find_module_cache: dict[str, object] = {}
         self._find_module_cache_key: tuple[object, ...] | None = None
         self._lazy_stub_imports: set[tuple[str, str]] = set()
@@ -225,6 +234,11 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                 self._record_collection_failure(module_name, "type_stub_failed", exc, path)
 
             self._collected_modules.add(module_name)
+            self._facts_epoch += 1
+            self._module_facts_epoch[module_name] = self._facts_epoch
+            if module_name in self._module_checked_epoch:
+                self._module_checked_epoch[module_name] = self._facts_epoch
+            self._needs_refresh = True
             self._invalidate_external_symbol_cache(module_name)
             completed = True
         finally:
@@ -235,6 +249,8 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                 self._collection_stack = [
                     name for name in self._collection_stack if name != module_name
                 ]
+            if not is_transitive:
+                self._transitive_inference_deadline = None
             if completed and not self._collecting_modules:
                 self.type_system.invalidate_subtype_caches()
                 self._known_class_cache.clear()
@@ -268,9 +284,32 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
 
     def _invalidate_external_symbol_cache(self, module_name: str) -> None:
         """Evict only cache entries affected by *module_name* (preserving stdlib/other caches)."""
+        prefix = f"{module_name}."
+        top_root = module_name.split(".", 1)[0]
+        if self._external_project_type_cache:
+            stale_project = [
+                key
+                for key, value in self._external_project_type_cache.items()
+                if (
+                    key[0] == module_name
+                    or key[0].startswith(prefix)
+                    or (
+                        value is None
+                        and (
+                            key[0].split(".", 1)[0] == top_root
+                            or self._module_may_be_project(key[0].rpartition(".")[0])
+                        )
+                    )
+                )
+            ]
+            for key in stale_project:
+                self._external_project_type_cache.pop(key, None)
+        if self._stub_annotation_cache:
+            stale_annot = [key for key in self._stub_annotation_cache if key[0] == module_name]
+            for key in stale_annot:
+                self._stub_annotation_cache.pop(key, None)
         if not self._external_symbol_cache:
             return
-        prefix = f"{module_name}."
         stale = [
             key
             for key, value in self._external_symbol_cache.items()

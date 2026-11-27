@@ -8,6 +8,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
     AnyType,
     Instance,
+    NeverType,
     ProperType,
     TupleType,
     TypeSystem,
@@ -52,7 +53,11 @@ def _accepts(spec: str, typ: ProperType) -> bool:
         return True
     if isinstance(typ, Instance) and typ.type.raw_type is object:
         return True
-    if spec in {"d", "i", "o", "u", "x", "X"}:
+    if spec in {"d", "i", "u"}:
+        # CPython truncates floats via int() for decimal conversions, whereas
+        # %o/%x/%X strictly require an integer.
+        return _is_numeric(typ)
+    if spec in {"o", "x", "X"}:
         return _is_int(typ)
     if spec in {"e", "E", "f", "F", "g", "G"}:
         return _is_numeric(typ)
@@ -138,7 +143,7 @@ def check_str_format(
 
 
 def _is_dynamic_tuple_or_gradual(typ: ProperType) -> bool:
-    if isinstance(typ, AnyType) or typ == ANY:
+    if isinstance(typ, (AnyType, NeverType)) or typ == ANY:
         return True
     if isinstance(typ, TupleType) and typ.unknown_size:
         return True
@@ -163,8 +168,12 @@ def check_percent_format(
     if "*" in format_string:
         # Star widths consume extra arguments; leave those to runtime.
         return []
-    if isinstance(argument, AnyType):
+    if isinstance(argument, (AnyType, NeverType)):
         return []
+    if isinstance(argument, Instance) and argument.type.tuple_fields is not None:
+        argument = TupleType(
+            tuple(argument.type.members.get(name, ANY) for name in argument.type.tuple_fields)
+        )
     if isinstance(argument, TupleType) and not argument.unknown_size:
         arguments = list(argument.args)
     elif len(conversions) > 1 and _is_dynamic_tuple_or_gradual(argument):
@@ -181,9 +190,9 @@ def check_percent_format(
         )
     for spec, actual in zip(conversions, arguments):
         if isinstance(actual, UnionType):
-            if any(isinstance(item, AnyType) or item == ANY for item in actual.items) or all(
-                _accepts(spec, item) for item in actual.items
-            ):
+            if any(
+                isinstance(item, (AnyType, NeverType)) or item == ANY for item in actual.items
+            ) or all(_accepts(spec, item) for item in actual.items):
                 continue
         elif _accepts(spec, actual):
             continue

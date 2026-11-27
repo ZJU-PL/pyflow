@@ -3191,6 +3191,44 @@ class TestCallGraphRecursion(unittest.TestCase):
 
         self.assertIn("main.loop", graph["main.loop"])
 
+    def test_shadowed_class_names_inside_try_except_blocks(self):
+        source = textwrap.dedent("""
+            def fallback_fn():
+                return 1
+
+            try:
+                from missing_pkg import Base
+            except ImportError:
+                class Base:
+                    def run(self):
+                        return fallback_fn()
+
+            def helper(flag):
+                if flag:
+                    class Alt:
+                        pass
+                else:
+                    class Alt:
+                        pass
+                return Alt
+
+            class Child(Base):
+                def call(self):
+                    return self.run()
+
+            def driver():
+                return Child().call()
+
+            driver()
+            """)
+
+        builder = ConstraintCallGraphBuilder(source)
+        graph = builder.build().get()
+        shadowed = builder._shadowed_class_names_in_module("main")
+        self.assertIn("Base", shadowed)
+        self.assertIn("Alt", shadowed)
+        self.assertIn("main.Child.call", graph.get("main.driver", set()))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -301,11 +301,27 @@ class FunctionInference(InferenceComponent):
                 for statement in node.body
             )
         )
-        # An ellipsis body is the conventional in-source stub form.  It is
-        # common outside protocols and overloads (generic classes, interfaces
-        # awaiting implementation), and must not be treated as ``return None``.
+        has_not_implemented = bool(
+            function.owner
+            and node.body
+            and any(
+                isinstance(statement, ast.Raise)
+                and isinstance(
+                    statement.exc.func if isinstance(statement.exc, ast.Call) else statement.exc,
+                    ast.Name,
+                )
+                and (
+                    statement.exc.func if isinstance(statement.exc, ast.Call) else statement.exc
+                ).id
+                == "NotImplementedError"
+                for statement in node.body
+            )
+        )
+        # An ellipsis / NotImplementedError stub body is the conventional
+        # in-source interface form and must not be treated as ``return None``
+        # or poison callers as ``Never``.
         return all(empty(statement) for statement in node.body) and (
-            marked or has_ellipsis or is_stub_file or has_docstring_only
+            marked or has_ellipsis or has_not_implemented or is_stub_file or has_docstring_only
         )
 
     def _class_is_metaclass(self, class_info: _ClassInfo) -> bool:
@@ -470,7 +486,7 @@ class FunctionInference(InferenceComponent):
                     # annotation mismatches; leave the result unknown instead.
                     if not interface_stub:
                         returns.append(AbstractTypeValue.from_type(NONE_TYPE))
-                elif not returns:
+                elif not returns and not interface_stub:
                     returns.append(AbstractTypeValue.from_type(NEVER))
                 return_value = join_all(
                     returns,

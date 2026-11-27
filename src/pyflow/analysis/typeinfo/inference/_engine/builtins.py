@@ -1082,6 +1082,10 @@ class BuiltinInference(InferenceComponent):
                     AbstractTypeValue.from_type(NONE_TYPE),
                 )
                 if node.attr == "group":
+                    if len(arguments) > 1:
+                        return AbstractTypeValue.from_type(
+                            TupleType((match_or_none.public_type() or ANY,), unknown_size=True)
+                        )
                     return AbstractTypeValue.from_type(text)
                 if node.attr == "expand":
                     return AbstractTypeValue.from_type(text)

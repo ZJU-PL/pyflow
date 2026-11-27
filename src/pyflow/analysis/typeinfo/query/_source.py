@@ -14,9 +14,14 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     Instance,
     ProperType,
     TupleType,
+    TypeVarType,
     UnionType,
+    Variance,
 )
-from pyflow.analysis.typeinfo.inference.engine import StaticTypeInferenceEngine
+from pyflow.analysis.typeinfo.inference.engine import (
+    InferenceOptions,
+    StaticTypeInferenceEngine,
+)
 from pyflow.analysis.typeinfo.query.models import (
     ClassTypeInfo,
     FunctionTypeInfo,
@@ -261,10 +266,12 @@ class _SourceCollectionMixin:
                     source="annotation",
                     kind="class",
                 )
-        # Collect module-level type aliases (PEP 695 ``type X = ...`` and
-        # ``X: TypeAlias = ...``) before functions and annotated variables so
-        # forward references within the same module resolve immediately even
-        # when static inference is disabled.
+        # Collect module-level type aliases (PEP 695 ``type X = ...``,
+        # ``X: TypeAlias = ...``, and bare typing-expression aliases such as
+        # ``X = Callable[...] | None``) before functions and annotated variables
+        # so forward/chained references within the same module resolve
+        # immediately even for typed third-party modules without full inference.
+        type_alias_names: set[str] = set()
         for node in statements:
             if (
                 hasattr(ast, "TypeAlias")
@@ -285,6 +292,7 @@ class _SourceCollectionMixin:
                     source="annotation",
                     kind="variable",
                 )
+                type_alias_names.add(node.name.id)
             elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 raw_annotation = _annotation_to_str(node.annotation)
                 head = raw_annotation.split("[", 1)[0].rsplit(".", 1)[-1]
@@ -303,6 +311,57 @@ class _SourceCollectionMixin:
                         source="annotation",
                         kind="variable",
                     )
+                    type_alias_names.add(node.target.id)
+            elif (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id not in facts
+                and self._is_source_type_alias_expr(
+                    node.value,
+                    local_classes=local_classes,
+                    imports=imports,
+                    type_alias_names=type_alias_names,
+                )
+            ):
+                raw_value = _annotation_to_str(node.value)
+                alias_type = self._resolve_annotation(
+                    raw_value,
+                    module_name=module_name,
+                    imports=imports,
+                    collect_missing=collect_missing,
+                )
+                if alias_type is not None:
+                    facts[node.targets[0].id] = TypeFact(
+                        name=node.targets[0].id,
+                        typ=alias_type,
+                        raw_annotation=raw_value,
+                        source="annotation",
+                        kind="variable",
+                    )
+                    type_alias_names.add(node.targets[0].id)
+            elif (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Call)
+            ):
+                type_var = self._source_type_variable(
+                    node.targets[0].id,
+                    node.value,
+                    module_name=module_name,
+                    imports=imports,
+                    collect_missing=collect_missing,
+                )
+                if type_var is not None:
+                    facts[node.targets[0].id] = TypeFact(
+                        name=node.targets[0].id,
+                        typ=type_var,
+                        raw_annotation=_annotation_to_str(node.value),
+                        source="annotation",
+                        kind="variable",
+                    )
+                    type_alias_names.add(node.targets[0].id)
         for node in statements:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 grouped_functions.setdefault(node.name, []).append(
@@ -391,7 +450,7 @@ class _SourceCollectionMixin:
                 if inferred is None:
                     continue
                 for target in node.targets:
-                    if isinstance(target, ast.Name):
+                    if isinstance(target, ast.Name) and target.id not in type_alias_names:
                         facts[target.id] = TypeFact(
                             name=target.id,
                             typ=inferred,
@@ -460,6 +519,14 @@ class _SourceCollectionMixin:
         if pushed:
             self._collecting_modules.add(module_name)
             self._collection_stack.append(module_name)
+        recorded_deps: dict[str, int] = {}
+        for target in self._module_imports.get(module_name, {}).values():
+            target_mod = target.rpartition(".")[0] or target
+            if target_mod and target_mod != module_name and target_mod not in recorded_deps:
+                recorded_deps[target_mod] = self._module_facts_epoch.get(target_mod, 0)
+            if target and target != module_name and target in self._collected_modules:
+                recorded_deps.setdefault(target, self._module_facts_epoch.get(target, 0))
+        self._recorded_deps_stack.append(recorded_deps)
         try:
             engine = StaticTypeInferenceEngine(
                 self.project_context,
@@ -470,6 +537,7 @@ class _SourceCollectionMixin:
             )
             result = engine.infer_source(module_name, source, filename=path)
         finally:
+            self._recorded_deps_stack.pop()
             if pushed:
                 self._collecting_modules.discard(module_name)
                 if self._collection_stack and self._collection_stack[-1] == module_name:
@@ -478,14 +546,29 @@ class _SourceCollectionMixin:
                     self._collection_stack = [
                         name for name in self._collection_stack if name != module_name
                     ]
-        self._inference_results[module_name] = result
-        for qualified_name, summary in result.functions.items():
-            self._function_summaries[qualified_name] = summary
-        if not self._refreshing_inference:
-            self._needs_refresh = True
-        self._invalidate_external_symbol_cache(module_name)
         facts = self._module_facts.setdefault(module_name, {})
         prefix = f"{module_name}."
+        previous_result = self._inference_results.get(module_name)
+        previous_facts_snapshot = (
+            {name: (fact.typ, fact.kind) for name, fact in facts.items()}
+            if module_name in self._module_facts_epoch
+            else None
+        )
+        previous_summaries_snapshot = (
+            {
+                qname: (
+                    summary.return_type,
+                    tuple(value.public_type() for value in summary.parameters.values()),
+                )
+                for qname, summary in previous_result.functions.items()
+            }
+            if previous_result is not None
+            else None
+        )
+        self._inference_results[module_name] = result
+        self._module_dependency_epochs[module_name] = recorded_deps
+        for qualified_name, summary in result.functions.items():
+            self._function_summaries[qualified_name] = summary
         for qualified_name, symbol in result.symbols.items():
             local_name = qualified_name.removeprefix(prefix)
             if "." in local_name or symbol.typ is None:
@@ -559,24 +642,57 @@ class _SourceCollectionMixin:
                 kind="function" if old_fact is None else old_fact.kind,
             )
 
+        current_facts_snapshot = {name: (fact.typ, fact.kind) for name, fact in facts.items()}
+        current_summaries_snapshot = {
+            qname: (
+                summary.return_type,
+                tuple(value.public_type() for value in summary.parameters.values()),
+            )
+            for qname, summary in result.functions.items()
+        }
+        if (
+            previous_facts_snapshot is None
+            or previous_summaries_snapshot is None
+            or current_facts_snapshot != previous_facts_snapshot
+            or current_summaries_snapshot != previous_summaries_snapshot
+        ):
+            self._facts_epoch += 1
+            self._module_facts_epoch[module_name] = self._facts_epoch
+            if not self._refreshing_inference:
+                self._needs_refresh = True
+            self._invalidate_external_symbol_cache(module_name)
+        self._module_checked_epoch[module_name] = self._facts_epoch
+
     def _refresh_stale_annotation_checks(self) -> None:
         """Re-run modules whose annotation checks may predate their dependencies."""
         if self._refreshing_inference or not self._needs_refresh:
             return
         self._needs_refresh = False
-        stale = [
-            name
-            for name, result in self._inference_results.items()
-            if name in self._module_sources
-            and any(item.code == "annotation-mismatch" for item in result.diagnostics)
-        ]
-        if not stale:
-            return
         self._refreshing_inference = True
         try:
-            for module_name in stale:
-                source, path = self._module_sources[module_name]
-                self._collect_inferred_source_facts(module_name, source, path)
+            for _ in range(3):
+                stale: list[str] = []
+                for name, result in self._inference_results.items():
+                    if name not in self._module_sources:
+                        continue
+                    if self._module_checked_epoch.get(name, -1) >= self._facts_epoch:
+                        continue
+                    if not any(item.code == "annotation-mismatch" for item in result.diagnostics):
+                        continue
+                    deps = self._module_dependency_epochs.get(name)
+                    if deps is None or any(
+                        self._module_facts_epoch.get(dep, 0) > recorded_epoch
+                        for dep, recorded_epoch in deps.items()
+                    ):
+                        stale.append(name)
+                if not stale:
+                    break
+                epoch_before = self._facts_epoch
+                for module_name in stale:
+                    source, path = self._module_sources[module_name]
+                    self._collect_inferred_source_facts(module_name, source, path)
+                if self._facts_epoch == epoch_before:
+                    break
         finally:
             self._refreshing_inference = False
 
@@ -592,6 +708,10 @@ class _SourceCollectionMixin:
         module_name, separator, name = qualified_name.rpartition(".")
         if not separator:
             return None
+        if self._recorded_deps_stack:
+            deps = self._recorded_deps_stack[-1]
+            if module_name not in deps:
+                deps[module_name] = self._module_facts_epoch.get(module_name, 0)
         if module_name in self._collecting_modules:
             fact = self._module_facts.get(module_name, {}).get(name)
             return None if fact is None else fact.typ
@@ -852,7 +972,7 @@ class _SourceCollectionMixin:
             raw_params=raw_params,
             raw_returns=raw_returns,
             source="docstring" if used_documentation else source,
-            is_property=bool(decorators & {"property", "cached_property"}),
+            is_property=bool(decorators & {"property", "cached_property", "classproperty"}),
             is_overload="overload" in decorators,
             method_kind=(
                 "static"
@@ -860,6 +980,147 @@ class _SourceCollectionMixin:
                 else "class" if "classmethod" in decorators else "instance"
             ),
         )
+
+    def _is_source_type_alias_expr(
+        self,
+        node: ast.expr,
+        *,
+        local_classes: set[str],
+        imports: dict[str, str],
+        type_alias_names: set[str],
+    ) -> bool:
+        """Recognize bare module-level type alias expressions safely."""
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            left_none = isinstance(node.left, ast.Constant) and node.left.value is None
+            right_none = isinstance(node.right, ast.Constant) and node.right.value is None
+            if left_none and right_none:
+                return False
+            return (
+                left_none
+                or self._is_source_type_alias_expr(
+                    node.left,
+                    local_classes=local_classes,
+                    imports=imports,
+                    type_alias_names=type_alias_names,
+                )
+                or self._is_source_type_name(
+                    node.left,
+                    local_classes=local_classes,
+                    imports=imports,
+                    type_alias_names=type_alias_names,
+                )
+            ) and (
+                right_none
+                or self._is_source_type_alias_expr(
+                    node.right,
+                    local_classes=local_classes,
+                    imports=imports,
+                    type_alias_names=type_alias_names,
+                )
+                or self._is_source_type_name(
+                    node.right,
+                    local_classes=local_classes,
+                    imports=imports,
+                    type_alias_names=type_alias_names,
+                )
+            )
+        if isinstance(node, ast.Name):
+            return node.id in type_alias_names
+        if not isinstance(node, ast.Subscript):
+            return False
+        base_name = _expr_name(node.value)
+        if not base_name:
+            return False
+        imported = self._resolve_imported_type_name(base_name, imports) or base_name
+        if imported.startswith(("typing.", "typing_extensions.", "collections.abc.")):
+            return True
+        if base_name in local_classes or base_name in type_alias_names:
+            return True
+        if BuiltinTypeLookup()(imported) is not None:
+            return True
+        return self._is_known_class_name(imported)
+
+    def _is_source_type_name(
+        self,
+        node: ast.expr,
+        *,
+        local_classes: set[str],
+        imports: dict[str, str],
+        type_alias_names: set[str],
+    ) -> bool:
+        name = _expr_name(node)
+        if not name:
+            return False
+        if name in local_classes or name in type_alias_names:
+            return True
+        imported = self._resolve_imported_type_name(name, imports) or name
+        if imported.startswith(("typing.", "typing_extensions.", "collections.abc.")):
+            return True
+        if BuiltinTypeLookup()(imported) is not None:
+            return True
+        return self._is_known_class_name(imported)
+
+    def _source_type_variable(
+        self,
+        name: str,
+        call: ast.Call,
+        *,
+        module_name: str,
+        imports: dict[str, str],
+        collect_missing: bool,
+    ) -> TypeVarType | None:
+        callee_name = _expr_name(call.func)
+        if not callee_name:
+            return None
+        resolved_callee = self._resolve_imported_type_name(callee_name, imports) or callee_name
+        if resolved_callee in {
+            "ParamSpec",
+            "typing.ParamSpec",
+            "typing_extensions.ParamSpec",
+        }:
+            return TypeVarType(name)
+        if resolved_callee not in {
+            "TypeVar",
+            "typing.TypeVar",
+            "typing_extensions.TypeVar",
+        }:
+            return None
+        constraints = tuple(
+            constraint
+            for argument in call.args[1:]
+            if (
+                constraint := self._resolve_annotation(
+                    _annotation_to_str(argument),
+                    module_name=module_name,
+                    imports=imports,
+                    collect_missing=collect_missing,
+                )
+            )
+            is not None
+        )
+        bound = None
+        variance = Variance.INVARIANT
+        for keyword in call.keywords:
+            if keyword.arg == "bound":
+                bound = self._resolve_annotation(
+                    _annotation_to_str(keyword.value),
+                    module_name=module_name,
+                    imports=imports,
+                    collect_missing=collect_missing,
+                )
+            elif (
+                keyword.arg == "covariant"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value
+            ):
+                variance = Variance.COVARIANT
+            elif (
+                keyword.arg == "contravariant"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value
+            ):
+                variance = Variance.CONTRAVARIANT
+        return TypeVarType(name, constraints=constraints, bound=bound, variance=variance)
 
     def _infer_expr_type(
         self,

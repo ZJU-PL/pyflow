@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import array
 import ast
 import asyncio
 import builtins
@@ -294,6 +295,7 @@ class ValueInference(InferenceComponent):
                     str,
                     bytes,
                     bytearray,
+                    array.array,
                     range,
                     memoryview,
                     cabc.Sequence,
@@ -347,13 +349,16 @@ class ValueInference(InferenceComponent):
                 # Builtin container subscripts are element projections; the
                 # generic __getitem__ overloads cannot be disambiguated from
                 # their result type (an ``int`` index may well return a list).
-                if raw in {list, set, frozenset, collections.deque} and typ.args:
+                if raw in {list, set, frozenset, collections.deque, array.array} and typ.args:
                     sliced = index_value is not None and any(
                         isinstance(part, Instance) and part.type.raw_type is slice
                         for part in index_value.types
                         if not isinstance(part, UnionType)
                     )
                     values.append(AbstractTypeValue.from_type(typ if sliced else typ.args[0]))
+                    continue
+                if raw is array.array:
+                    values.append(AbstractTypeValue.from_type(ANY))
                     continue
                 if (
                     raw
@@ -409,6 +414,9 @@ class ValueInference(InferenceComponent):
                         substitute_type_vars(member.return_type, substitutions)
                         if substitutions
                         else member.return_type
+                    )
+                    returned = self.engine._call_rules._default_unsolved_type_vars(
+                        returned, substitutions
                     )
                     values.append(
                         self._filter_subscript_result(
@@ -479,6 +487,7 @@ class ValueInference(InferenceComponent):
             str,
             bytes,
             bytearray,
+            array.array,
             range,
             memoryview,
             collections.deque,
@@ -497,7 +506,10 @@ class ValueInference(InferenceComponent):
         actual = index_value.public_type()
         if actual is None or index_value.unknown:
             return
-        if isinstance(actual, (AnyType, TypeVarType)):
+        if isinstance(actual, (AnyType, TypeVarType)) or (
+            isinstance(actual, UnionType)
+            and any(isinstance(item, (AnyType, TypeVarType)) for item in actual.items)
+        ):
             return
         if isinstance(actual, Instance) and actual.type.raw_type is slice:
             # A slice object stored in a variable is still a valid sequence
@@ -516,6 +528,13 @@ class ValueInference(InferenceComponent):
         if expected is None or isinstance(expected, (AnyType, NeverType)):
             # ``dict[Never, Never]`` is an empty literal: any key is fine.
             return
+        if isinstance(expected, TypeVarType):
+            if expected.constraints:
+                expected = UnionType(tuple(expected.constraints))
+            elif expected.bound is not None:
+                expected = expected.bound
+            else:
+                return
         if self.engine.type_system.is_subtype(actual, expected):
             return
         if index_value.literal_values and index_value.literal_values_complete:
@@ -742,26 +761,28 @@ class ValueInference(InferenceComponent):
                         AbstractTypeValue.from_type(typ.type.members.get(name, ANY))
                         for name in typ.type.tuple_fields
                     )
-                elif (
-                    raw
-                    in {
-                        dict,
-                        collections.defaultdict,
-                        collections.OrderedDict,
-                        collections.ChainMap,
-                        collections.Counter,
-                    }
-                    and typ.args
-                ):
-                    elements.append(AbstractTypeValue.from_type(typ.args[0]))
-                elif raw in {list, set, frozenset, collections.deque} and typ.args:
-                    elements.append(AbstractTypeValue.from_type(typ.args[0]))
+                elif raw in {
+                    dict,
+                    collections.defaultdict,
+                    collections.OrderedDict,
+                    collections.ChainMap,
+                    collections.Counter,
+                }:
+                    elements.append(AbstractTypeValue.from_type(typ.args[0] if typ.args else ANY))
+                elif raw in {list, set, frozenset, collections.deque, array.array}:
+                    elements.append(AbstractTypeValue.from_type(typ.args[0] if typ.args else ANY))
                 elif isinstance(raw, type) and issubclass(raw, io.IOBase):
                     # Iterating a file object yields its lines: text for
                     # ``TextIOBase`` streams, bytes for everything else.
                     elements.append(
                         self._instance(str if issubclass(raw, io.TextIOBase) else bytes)
                     )
+                elif raw is csv.DictReader:
+                    elements.append(
+                        self._instance(dict, self._proper_instance(str), self._proper_instance(str))
+                    )
+                elif raw is csv.reader:
+                    elements.append(self._instance(list, self._proper_instance(str)))
                 elif (
                     raw
                     in {
@@ -776,20 +797,18 @@ class ValueInference(InferenceComponent):
                     }
                     or isinstance(raw, type)
                     and issubclass(raw, cabc.Iterator)
-                ) and typ.args:
-                    elements.append(AbstractTypeValue.from_type(typ.args[0]))
-                elif raw in {cabc.KeysView, cabc.ValuesView} and typ.args:
-                    elements.append(AbstractTypeValue.from_type(typ.args[0]))
-                elif raw is cabc.ItemsView and len(typ.args) >= 2:
+                ):
+                    elements.append(AbstractTypeValue.from_type(typ.args[0] if typ.args else ANY))
+                elif raw in {cabc.KeysView, cabc.ValuesView}:
+                    elements.append(AbstractTypeValue.from_type(typ.args[0] if typ.args else ANY))
+                elif raw is cabc.ItemsView:
                     elements.append(
-                        AbstractTypeValue.from_type(TupleType((typ.args[0], typ.args[1])))
+                        AbstractTypeValue.from_type(
+                            TupleType((typ.args[0], typ.args[1]))
+                            if len(typ.args) >= 2
+                            else TupleType((ANY, ANY))
+                        )
                     )
-                elif raw is csv.DictReader:
-                    elements.append(
-                        self._instance(dict, self._proper_instance(str), self._proper_instance(str))
-                    )
-                elif raw is csv.reader:
-                    elements.append(self._instance(list, self._proper_instance(str)))
                 elif raw is str:
                     elements.append(self._instance(str))
                 elif raw is bytes:
@@ -968,6 +987,9 @@ class ValueInference(InferenceComponent):
                                 else:
                                     returned_type = None
                             if returned_type is not None:
+                                returned_type = self.engine._call_rules._default_unsolved_type_vars(
+                                    returned_type, substitutions
+                                )
                                 returned = AbstractTypeValue.from_type(returned_type)
                                 if not used_next:
                                     returned = self._iterable_element(returned, _depth=_depth + 1)

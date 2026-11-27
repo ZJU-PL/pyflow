@@ -1484,3 +1484,229 @@ def choose(content_type: str | None) -> str:
     return "text/plain"
 """)
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_os_environ_copy_and_parse_qs_do_not_leak_anystr() -> None:
+    result = infer("""
+import os
+from urllib.parse import parse_qs
+
+env = os.environ.copy()
+parsed = parse_qs("a=1&b=2")
+parsed_b = parse_qs(b"a=1")
+""")
+    env_type = result.type_of("env")
+    parsed_type = result.type_of("parsed")
+    parsed_b_type = result.type_of("parsed_b")
+    assert isinstance(env_type, Instance) and env_type.type.raw_type is dict
+    assert [str(arg) for arg in env_type.args] == ["str", "str"]
+    assert "AnyStr" not in str(parsed_type)
+    assert "AnyStr" not in str(parsed_b_type)
+    assert isinstance(parsed_type, Instance) and [str(a) for a in parsed_type.args] == [
+        "str",
+        "list[str]",
+    ]
+    assert isinstance(parsed_b_type, Instance) and [str(a) for a in parsed_b_type.args] == [
+        "bytes",
+        "list[bytes]",
+    ]
+
+
+def test_classmethod_cls_instantiation_specializes_self() -> None:
+    result = infer("""
+from typing_extensions import Self
+
+class Node:
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    @classmethod
+    def build(cls: type[Self]) -> Self:
+        return cls(1)
+""")
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_re_match_group_multiple_keys_and_defaultdict_list() -> None:
+    result = infer("""
+import re
+from collections import defaultdict
+
+m = re.match(r"(a)(b)", "ab")
+assert m is not None
+pair = m.group(1, 2)
+single = m.group(1)
+
+buckets = defaultdict(list)
+buckets["k"].append(1)
+row = buckets["k"]
+keys = list(buckets)
+""")
+    pair_type = result.type_of("pair")
+    assert isinstance(pair_type, TupleType)
+    assert len(pair_type.args) == 1
+    assert str in raw_types(pair_type.args[0])
+    assert raw_types(result.type_of("single")) == {str}
+    assert raw_types(result.type_of("row")) == {list}
+    assert raw_types(result.type_of("keys")) == {list}
+    assert not [d for d in result.diagnostics if d.code in {"attr-defined", "annotation-mismatch"}]
+
+
+def test_percent_format_notimplemented_namedtuple_and_numeric_specifiers() -> None:
+    result = infer("""
+from typing import NamedTuple
+
+class Point(NamedTuple):
+    x: int
+    y: int
+
+def build_msg(p: Point, rate: float) -> tuple[str, str, str]:
+    try:
+        raise NotImplementedError("unsupported: %s" % p)
+    except NotImplementedError as exc:
+        a = "%s" % exc
+    b = "point=%r rate=%.2d" % (p, rate)
+    c = "value=%d" % rate
+    return a, b, c
+""")
+    assert not [
+        d for d in result.diagnostics if d.code in {"format-mismatch", "unsupported-operator"}
+    ]
+
+
+def test_untyped_override_basesettings_zero_arg_and_lowercase_annotations() -> None:
+    result = infer("""
+class BaseSettings:
+    debug: bool = False
+    port: int
+
+class AppSettings(BaseSettings):
+    pass
+
+cfg = AppSettings()
+
+class Base:
+    def run(self, x: int) -> str:
+        return str(x)
+
+class Child(Base):
+    def run(self, x):
+        return x
+
+def accept(items: list, loose: any) -> tuple[list, any]:
+    return items, loose
+""")
+    assert not [
+        d
+        for d in result.diagnostics
+        if d.code
+        in {"override", "call-arity-mismatch", "unresolved-annotation", "annotation-mismatch"}
+    ]
+
+
+def test_typevar_dict_key_and_array_module_operations() -> None:
+    result = infer("""
+import array
+from typing import TypeVar
+
+T = TypeVar("T")
+
+def cache_lookup(cache: dict[str, int], key: T, mapping: dict[T, str]) -> str:
+    return mapping[key]
+
+buf = array.array("I", [1, 2, 3])
+first = buf[0]
+head = buf[:2]
+seen = [item for item in buf]
+""")
+    assert raw_types(result.type_of("first")) == {int}
+    head_type = result.type_of("head")
+    assert isinstance(head_type, Instance) and "array" in head_type.type.full_name
+    assert raw_types(result.type_of("seen")) == {list}
+    seen_type = result.type_of("seen")
+    assert isinstance(seen_type, Instance) and [str(arg) for arg in seen_type.args] == ["int"]
+
+
+def test_aliased_self_class_type_alias_and_classproperty() -> None:
+    result = infer("""
+import typing as t
+from typing_extensions import Self as _Self, TypeAlias as _TypeAlias
+
+class Tree:
+    children: list[t.Self] | None = None
+
+class SymBase:
+    _Like: _TypeAlias = int | _Self
+
+    def __ge__(self, other: _Like) -> bool:
+        return True
+
+    @classproperty
+    def dtype(self) -> int:
+        return self._dtype
+
+    @classproperty
+    def _dtype(self) -> int:
+        return 1
+""")
+    assert not [
+        d for d in result.diagnostics if d.code in {"unresolved-annotation", "annotation-mismatch"}
+    ]
+
+
+def test_qualified_builtins_class_objects_and_missing_external_dict_item(tmp_path: Path) -> None:
+    result = infer("""
+import builtins
+
+single: type = builtins.int
+tup_cls: type = builtins.tuple
+many: tuple[type, ...] = (builtins.int, builtins.float, builtins.tuple)
+""")
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+    (tmp_path / "app.py").write_text(
+        "from typing import Any\n"
+        "from missing_pkg.types import Handler\n"
+        "def register(h: Handler) -> None:\n"
+        "    table: dict[Any, Handler] = {}\n"
+        "    table['k'] = h\n",
+        encoding="utf-8",
+    )
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("app")
+    diags = service._inference_results["app"].diagnostics
+    assert not [d for d in diags if d.code == "dict-item"]
+
+
+def test_bare_module_type_aliases_and_cross_module_typevar(tmp_path: Path) -> None:
+    (tmp_path / "pkg_types.py").write_text(
+        "from collections.abc import Awaitable, Callable\n"
+        "from typing import Any, TypeVar\n"
+        "DecoratedCallable = TypeVar('DecoratedCallable', bound=Callable[..., Any])\n"
+        "SyncHandler = Callable[[str], int]\n"
+        "AsyncHandler = Callable[[str], Awaitable[int]]\n"
+        "AnyHandler = SyncHandler | AsyncHandler\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "app.py").write_text(
+        "from collections.abc import Callable\n"
+        "from typing import Any\n"
+        "from pkg_types import AnyHandler, DecoratedCallable\n"
+        "def register(cb: Callable[..., Any]) -> None:\n"
+        "    pass\n"
+        "def wrap(fn: DecoratedCallable) -> DecoratedCallable:\n"
+        "    register(fn)\n"
+        "    return fn\n"
+        "def store(fn: Callable[[str], int]) -> dict[str, AnyHandler]:\n"
+        "    handlers: dict[str, AnyHandler] = {}\n"
+        "    handlers['ok'] = fn\n"
+        "    return handlers\n",
+        encoding="utf-8",
+    )
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("app")
+    assert not [
+        d
+        for d in service._inference_results["app"].diagnostics
+        if d.code in {"dict-item", "annotation-mismatch", "unresolved-annotation"}
+    ]

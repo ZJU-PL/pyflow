@@ -361,16 +361,21 @@ class ProjectContext:
         self._find_module_cache_order: List[tuple[object, ...]] = []
         self._max_find_module_cache = 8192
         self._realpath_cache: Dict[str, str] = {}
-        self._dir_entries_cache: Dict[str, Optional[frozenset[str]]] = {}
+        self._dir_entries_cache: Dict[str, tuple[int, frozenset[str]]] = {}
         self._resolved_roots_cache: Dict[tuple[str, ...], tuple[str, ...]] = {}
         self._sys_path_mod_cache: Dict[tuple[str, str], tuple[str, ...]] = {}
         self._sys_path_cache: Dict[tuple[object, ...], tuple[str, ...]] = {}
 
     def _dir_has_entry(self, directory: str, name: str) -> bool:
-        """Exact-case directory membership check without stale negative caching."""
+        """Exact-case directory membership check with mtime-validated caching."""
+        try:
+            mtime_ns = os.stat(directory).st_mtime_ns
+        except OSError:
+            self._dir_entries_cache.pop(directory, None)
+            return False
         cached = self._dir_entries_cache.get(directory)
-        if cached is not None and name in cached:
-            return True
+        if cached is not None and cached[0] == mtime_ns:
+            return name in cached[1]
         try:
             entries = frozenset(os.listdir(directory))
         except OSError:
@@ -378,21 +383,27 @@ class ProjectContext:
             return False
         if len(self._dir_entries_cache) >= 8192:
             self._dir_entries_cache.clear()
-        self._dir_entries_cache[directory] = entries
+        self._dir_entries_cache[directory] = (mtime_ns, entries)
         return name in entries
 
     def _dir_entries(self, directory: str) -> Optional[frozenset[str]]:
         """Legacy helper returning directory entry set when readable."""
-        cached = self._dir_entries_cache.get(directory)
-        if cached is not None:
-            return cached
         try:
-            entries: Optional[frozenset[str]] = frozenset(os.listdir(directory))
+            mtime_ns = os.stat(directory).st_mtime_ns
         except OSError:
+            self._dir_entries_cache.pop(directory, None)
+            return None
+        cached = self._dir_entries_cache.get(directory)
+        if cached is not None and cached[0] == mtime_ns:
+            return cached[1]
+        try:
+            entries = frozenset(os.listdir(directory))
+        except OSError:
+            self._dir_entries_cache.pop(directory, None)
             return None
         if len(self._dir_entries_cache) >= 8192:
             self._dir_entries_cache.clear()
-        self._dir_entries_cache[directory] = entries
+        self._dir_entries_cache[directory] = (mtime_ns, entries)
         return entries
 
     def _realpath(self, path_str: str) -> str:

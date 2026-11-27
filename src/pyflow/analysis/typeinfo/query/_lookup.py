@@ -170,6 +170,18 @@ class _TypeLookupMixin:
     ) -> ProperType | None:
         if annotation is None:
             return None
+        cache_key: tuple[str, str, bool] | None = None
+        if (
+            module_name is not None
+            and module_name in self._collected_modules
+            and module_name not in self._collecting_modules
+            and imports is not None
+            and imports is self._module_imports.get(module_name)
+            and not self._module_may_be_project(module_name)
+        ):
+            cache_key = (module_name, annotation, collect_missing)
+            if cache_key in self._stub_annotation_cache:
+                return self._stub_annotation_cache[cache_key]
         lookup = cast(
             TypeLookup,
             lambda name: self._lookup_type(
@@ -179,7 +191,12 @@ class _TypeLookupMixin:
                 collect_missing=collect_missing,
             ),
         )
-        return resolve_annotation(annotation, lookup)
+        resolved = resolve_annotation(annotation, lookup)
+        if cache_key is not None:
+            if len(self._stub_annotation_cache) >= 16384:
+                self._stub_annotation_cache.clear()
+            self._stub_annotation_cache[cache_key] = resolved
+        return resolved
 
     def _lookup_type(
         self,
@@ -337,9 +354,21 @@ class _TypeLookupMixin:
                 else None
             )
             replaced_return = self._replace_self_type(typ.return_type, class_type) or ANY
-            if replaced_arguments == arguments and replaced_return == typ.return_type:
+            replaced_overloads = (
+                tuple(
+                    cast(CallableType, self._replace_self_type(item, class_type) or item)
+                    for item in typ.overloads
+                )
+                if typ.overloads
+                else ()
+            )
+            if (
+                replaced_arguments == arguments
+                and replaced_return == typ.return_type
+                and replaced_overloads == typ.overloads
+            ):
                 return typ
-            return CallableType(replaced_arguments, replaced_return, overloads=typ.overloads)
+            return CallableType(replaced_arguments, replaced_return, overloads=replaced_overloads)
         return typ
 
     def _specialize_self_method(
@@ -439,15 +468,28 @@ class _TypeLookupMixin:
             or len(self._active_project_lookups) >= 32
         ):
             return None
+        cache_key = (qualified_name, allow_synthetic, collect_missing)
+        if cache_key in self._external_project_type_cache:
+            return self._external_project_type_cache[cache_key]
         self._active_project_lookups.add(qualified_name)
         try:
-            return self._lookup_project_type_impl(
+            resolved = self._lookup_project_type_impl(
                 qualified_name,
                 allow_synthetic=allow_synthetic,
                 collect_missing=collect_missing,
             )
         finally:
             self._active_project_lookups.discard(qualified_name)
+        module_name = qualified_name.rpartition(".")[0]
+        module_stable = not module_name or (
+            module_name not in self._collecting_modules
+            and module_name not in self._deferred_inference_modules
+        )
+        if module_stable and (resolved is not None or not self._active_project_lookups):
+            if len(self._external_project_type_cache) >= 16384:
+                self._external_project_type_cache.clear()
+            self._external_project_type_cache[cache_key] = resolved
+        return resolved
 
     def _lookup_project_type_impl(
         self,
@@ -543,6 +585,10 @@ class _TypeLookupMixin:
         stub_fact = self._module_facts.get(module_name, {}).get(attr)
         if stub_fact is not None and stub_fact.source == "stub":
             return stub_fact.typ
+
+        stub_definition = self._resolve_stub_definition(module_name, attr)
+        if stub_definition is not None:
+            return stub_definition
 
         summary = self._summary_type(qualified_name)
         if summary is not None:
@@ -647,6 +693,10 @@ class _TypeLookupMixin:
         if partial:
             return ANY
 
+        builtin = BuiltinTypeLookup()(qualified_name)
+        if builtin is not None:
+            return builtin
+
         if allow_synthetic and self._find_module(module_name) is not None:
             return self._synthetic_instance(qualified_name)
         return None
@@ -709,6 +759,24 @@ class _TypeLookupMixin:
         parts = module_name.split(".")
         if not parts or any(not part for part in parts):
             return False
+        cache_key = (
+            self.project_context.path,
+            len(self.project_context.source_files),
+            tuple(self.project_context.added_sys_path),
+        )
+        if self._may_be_project_cache_key != cache_key:
+            self._may_be_project_cache.clear()
+            self._may_be_project_cache_key = cache_key
+        cached = self._may_be_project_cache.get(module_name)
+        if cached is not None:
+            return cached
+        result = self._compute_module_may_be_project(parts)
+        if len(self._may_be_project_cache) >= 16384:
+            self._may_be_project_cache.clear()
+        self._may_be_project_cache[module_name] = result
+        return result
+
+    def _compute_module_may_be_project(self, parts: list[str]) -> bool:
         if self.project_context.source_files:
             rel = "/".join(parts)
             suffixes = (f"/{rel}.py", f"/{rel}.pyi", f"/{rel}/__init__.py", f"/{rel}/__init__.pyi")

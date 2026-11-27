@@ -315,6 +315,8 @@ class MemberInference(InferenceComponent):
         builtin_class: bool = False,
     ) -> str | None:
         """Return the defining class name when an external symbol is a class."""
+        if isinstance(external, TupleType):
+            return "builtins.tuple" if builtin_class and name == "tuple" else None
         if not isinstance(external, Instance):
             return None
         raw = external.type.raw_type
@@ -962,13 +964,21 @@ class MemberInference(InferenceComponent):
             return value
         arguments = signature.arg_types
         returned = signature.return_type
-        if isinstance(returned, TypeVarType) and returned.name == "Self":
-            receiver = next(
-                (item for item in base.types if isinstance(item, Instance)),
-                None,
-            )
-            if receiver is not None:
-                returned = receiver
+        receiver = next(
+            (
+                (
+                    item.item
+                    if (function.method_kind == "class" and isinstance(item, TypeType))
+                    else item
+                )
+                for item in base.types
+                if isinstance(item, Instance)
+                or (function.method_kind == "class" and isinstance(item, TypeType))
+            ),
+            None,
+        )
+        if receiver is not None and returned is not None:
+            returned = substitute_type_vars(returned, {"Self": receiver})
         return AbstractTypeValue.from_type(
             CallableType(
                 arguments[1:] if arguments else (),
@@ -1275,6 +1285,7 @@ class MemberInference(InferenceComponent):
         {
             "property",
             "cached_property",
+            "classproperty",
             "staticmethod",
             "classmethod",
             "abstractmethod",
@@ -1392,6 +1403,12 @@ class MemberInference(InferenceComponent):
             base_signature, CallableType
         ):
             return
+        has_explicit_signature = any(
+            bool(fn.explicit_parameters or fn.explicit_return is not None)
+            for fn in (base, override)
+        )
+        if not has_explicit_signature:
+            return
         if override_signature.arg_types is None or base_signature.arg_types is None:
             return
         override_args = (
@@ -1482,7 +1499,7 @@ class MemberInference(InferenceComponent):
             return False
         if descriptor.is_protocol or descriptor.has_unresolved_bases:
             return False
-        if descriptor.full_name == "types.SimpleNamespace":
+        if descriptor.full_name in {"types.SimpleNamespace", "argparse.Namespace"}:
             return False
         # ``has_unresolved_bases`` is per-descriptor bookkeeping that can be
         # reset by a later re-analysis; walk the observed hierarchy as well.
@@ -1498,7 +1515,7 @@ class MemberInference(InferenceComponent):
             if (
                 ancestor.is_protocol
                 or ancestor.has_unresolved_bases
-                or ancestor.full_name == "types.SimpleNamespace"
+                or ancestor.full_name in {"types.SimpleNamespace", "argparse.Namespace"}
                 or "__getattr__" in ancestor.members
             ):
                 return False
@@ -1510,15 +1527,33 @@ class MemberInference(InferenceComponent):
             if (module_root in stdlib or module_root == "builtins") and isinstance(
                 raw_ancestor, type
             ):
-                if (
-                    ancestor.full_name != "builtins.object"
-                    and self._external_type(f"{ancestor.full_name}.__getattr__") is not None
+                if ancestor.full_name != "builtins.object" and (
+                    self._external_type(f"{ancestor.full_name}.__getattr__") is not None
+                    or (
+                        module_root != "builtins"
+                        and not ancestor.members
+                        and self._external_type(f"{ancestor.full_name}.__init__") is None
+                    )
                 ):
                     return False
                 continue
             return False
         class_info = self.engine._classes.get(descriptor.full_name)
         if class_info is None and not descriptor.members and not isinstance(raw, type):
+            return False
+        if (
+            class_info is None
+            and descriptor.full_name != "builtins.object"
+            and self._external_type(f"{descriptor.full_name}.__getattr__") is not None
+        ):
+            return False
+        if (
+            class_info is None
+            and getattr(raw, "__module__", "").split(".", 1)[0] not in {"", "builtins"}
+            and self._external_type(f"{descriptor.full_name}.{attribute}") is None
+            and self._external_type(f"{descriptor.full_name}.__init__") is None
+        ):
+            # External/stdlib stub was not loaded (e.g. collection budget reached).
             return False
         declared: set[str] = set(descriptor.members)
         if class_info is not None:

@@ -419,7 +419,7 @@ class _StubCollectionMixin:
             raw_params=raw_params,
             raw_returns=function.returns,
             source="stub",
-            is_property=bool(decorators & {"property", "cached_property"}),
+            is_property=bool(decorators & {"property", "cached_property", "classproperty"}),
             method_kind=(
                 "static"
                 if "staticmethod" in decorators
@@ -464,7 +464,15 @@ class _StubCollectionMixin:
                 _split_annotation_arguments(rest.rsplit("]", 1)[0]) if rest.endswith("]") else []
             )
             for parameter in parameters:
-                resolved = self._resolve_stub_definition(module_name, parameter.strip())
+                param_name = parameter.strip()
+                resolved = self._resolve_stub_definition(module_name, param_name)
+                if resolved is None:
+                    resolved = self._resolve_annotation(
+                        param_name,
+                        module_name=module_name,
+                        imports=imports,
+                        collect_missing=collect_missing,
+                    )
                 if isinstance(resolved, TypeVarType) and resolved not in type_parameters:
                     type_parameters.append(resolved)
             if generic_base:

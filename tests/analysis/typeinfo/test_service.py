@@ -611,3 +611,52 @@ def test_call_inference_caches_return_dependencies():
     second = engine._call_rules._return_dependencies(fn_info)
     assert first == frozenset({"x"})
     assert first is second
+
+
+def test_project_context_dir_entries_cache_invalidates_on_new_file(tmp_path: Path) -> None:
+    ctx = ProjectContext(tmp_path)
+    assert ctx.find_module("later_mod") is None
+    (tmp_path / "later_mod.py").write_text("VALUE = 1\n", encoding="utf-8")
+    resolved = ctx.find_module("later_mod")
+    assert resolved is not None
+    assert resolved.module_name == "later_mod"
+
+
+def test_service_caches_nested_lookup_and_bounds_refresh_passes(tmp_path: Path) -> None:
+    (tmp_path / "dep.py").write_text("class Box:\n    x: int = 1\n", encoding="utf-8")
+    (tmp_path / "consumer.py").write_text(
+        "from dep import Box\n" "def make() -> Box:\n" "    return Box()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "unrelated.py").write_text(
+        "def id_fn(v: int) -> int:\n    return v\n", encoding="utf-8"
+    )
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service._active_project_lookups.add("consumer.make")
+    try:
+        looked = service._lookup_project_type(
+            "dep.Box",
+            allow_synthetic=False,
+            collect_missing=True,
+        )
+        assert looked is not None
+        assert ("dep.Box", False, True) in service._external_project_type_cache
+    finally:
+        service._active_project_lookups.clear()
+
+    service.collect_module("consumer")
+    service.collect_module("unrelated")
+    epoch_before = service._facts_epoch
+    # Collecting an unrelated leaf module must not trigger re-inference of consumer.
+    re_runs: list[str] = []
+    original = service._collect_inferred_source_facts
+
+    def spy_collect(mod_name: str, src: str, path: str | None, *, options=None):
+        re_runs.append(mod_name)
+        return original(mod_name, src, path, options=options)
+
+    service._collect_inferred_source_facts = spy_collect  # type: ignore[method-assign]
+    service._refresh_stale_annotation_checks()
+    assert re_runs == []
+    assert service._facts_epoch == epoch_before

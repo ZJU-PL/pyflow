@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import re
 from typing import Iterable, cast
 
@@ -169,20 +170,35 @@ class DeclarationInference(InferenceComponent):
                     for text in decorator_texts
                 )
                 base_names = {base.rsplit(".", 1)[-1] for base in class_info.bases}
-                is_model_class = bool(base_names & {"BaseModel", "BaseSettings", "Struct"}) or any(
+                is_settings_class = "BaseSettings" in base_names or any(
                     (base_info := self.engine._classes.get(base)) is not None
-                    and base_info.is_model_class
+                    and base_info.is_settings_class
                     for base in class_info.bases
                 )
-                if not is_model_class:
+                if not is_settings_class:
+                    is_settings_class = any(
+                        ancestor.full_name.rsplit(".", 1)[-1] == "BaseSettings"
+                        for ancestor in self.engine.type_system.get_superclasses(
+                            class_info.instance.type
+                        )
+                    )
+                is_model_class = not is_settings_class and (
+                    bool(base_names & {"BaseModel", "Struct"})
+                    or any(
+                        (base_info := self.engine._classes.get(base)) is not None
+                        and base_info.is_model_class
+                        for base in class_info.bases
+                    )
+                )
+                if not is_model_class and not is_settings_class:
                     is_model_class = any(
-                        ancestor.full_name.rsplit(".", 1)[-1]
-                        in {"BaseModel", "BaseSettings", "Struct"}
+                        ancestor.full_name.rsplit(".", 1)[-1] in {"BaseModel", "Struct"}
                         for ancestor in self.engine.type_system.get_superclasses(
                             class_info.instance.type
                         )
                     )
                 class_info.is_model_class = is_model_class
+                class_info.is_settings_class = is_settings_class
                 all_keyword_only = any(
                     keyword.arg == "kw_only"
                     and isinstance(keyword.value, ast.Constant)
@@ -201,6 +217,11 @@ class DeclarationInference(InferenceComponent):
                     if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
                         if self._is_dataclass_pseudo_annotation(item.annotation):
                             continue
+                        if self.engine._value_rules._qualified_callee_name(item.annotation) in {
+                            "typing.TypeAlias",
+                            "typing_extensions.TypeAlias",
+                        }:
+                            continue
                         val_annotation = self._annotation_value(item.annotation)
                         is_bare = (
                             isinstance(item.annotation, ast.Name)
@@ -215,10 +236,10 @@ class DeclarationInference(InferenceComponent):
                             )
                         class_info.attributes[item.target.id] = val_annotation
                         if (
-                            is_dataclass or is_attrs or is_model_class
+                            is_dataclass or is_attrs or is_model_class or is_settings_class
                         ) and not self._is_class_var_annotation(item.annotation):
                             field_name = item.target.id
-                            has_default = item.value is not None
+                            has_default = item.value is not None or is_settings_class
                             init_field = True
                             field_kw_only = all_keyword_only
                             if isinstance(item.value, ast.Call):
@@ -322,7 +343,7 @@ class DeclarationInference(InferenceComponent):
                     (self.engine._value_rules._qualified_callee_name(decorator) or "").rsplit(
                         ".", 1
                     )[-1]
-                    in {"property", "cached_property"}
+                    in {"property", "cached_property", "classproperty"}
                     for decorator in node.decorator_list
                     if not isinstance(decorator, ast.Call)
                 )
@@ -890,6 +911,7 @@ class DeclarationInference(InferenceComponent):
             if (
                 re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", text)
                 and not text.endswith((".args", ".kwargs"))
+                and not ("." not in text and getattr(builtins, text, None) is not None)
                 and not self._name_is_bound(text)
             ):
                 self.engine._add_diagnostic(
@@ -1151,6 +1173,14 @@ class DeclarationInference(InferenceComponent):
 
         imported = self.engine._value_rules._resolve_import_name(name)
         if imported is not None:
+            if (
+                imported in {"typing.Self", "typing_extensions.Self"}
+                and self.engine._annotation_owner
+            ):
+                return TypeVarType(
+                    "Self",
+                    bound=self.engine._classes[self.engine._annotation_owner].instance,
+                )
             external = self.engine._member_rules._external_type(imported)
             if external is not None:
                 if isinstance(external, TypeType):

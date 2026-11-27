@@ -234,6 +234,7 @@ def find_stub_packages(sys_path: list[str], import_name: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 _stub_map_cache: dict[tuple[object, ...], dict[str, str]] = {}
+_parsed_stub_process_cache: dict[tuple[str, tuple[int, int]], tuple[int, StubInfo]] = {}
 
 
 def get_cached_stub_map(
@@ -471,8 +472,31 @@ class StubResolver:
         if path in self._info_cache:
             return None
 
+        source_text = self.project_context.source_files.get(path)
+        mtime_ns: int | None = None
+        if source_text is None and self._enable_cache:
+            try:
+                mtime_ns = Path(path).stat().st_mtime_ns
+            except OSError:
+                mtime_ns = None
+            if mtime_ns is not None:
+                proc_cached = _parsed_stub_process_cache.get((path, self.python_version))
+                if proc_cached is not None and proc_cached[0] == mtime_ns:
+                    resolved = ResolvedStub(
+                        module_name=module_name,
+                        path=path,
+                        info=proc_cached[1],
+                        source=source,
+                    )
+                    self._info_cache[path] = resolved
+                    return resolved
+
         cached_info = self._stub_cache.get(path, self.python_version)
         if cached_info is not None:
+            if source_text is None and self._enable_cache and mtime_ns is not None:
+                if len(_parsed_stub_process_cache) >= 1024:
+                    _parsed_stub_process_cache.clear()
+                _parsed_stub_process_cache[(path, self.python_version)] = (mtime_ns, cached_info)
             resolved = ResolvedStub(
                 module_name=module_name,
                 path=path,
@@ -483,7 +507,6 @@ class StubResolver:
             return resolved
 
         try:
-            source_text = self.project_context.source_files.get(path)
             if source_text is not None:
                 info = parse_stub_source(
                     source_text,
@@ -508,6 +531,10 @@ class StubResolver:
             return None
 
         self._stub_cache.put(path, self.python_version, info)
+        if source_text is None and self._enable_cache and mtime_ns is not None:
+            if len(_parsed_stub_process_cache) >= 1024:
+                _parsed_stub_process_cache.clear()
+            _parsed_stub_process_cache[(path, self.python_version)] = (mtime_ns, info)
         resolved = ResolvedStub(
             module_name=module_name,
             path=path,

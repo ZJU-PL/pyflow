@@ -383,7 +383,7 @@ class ExpressionInference(InferenceComponent):
                 imported = self.engine._value_rules._resolve_import_name(qualified)
                 if imported is not None and root in self.engine._imports:
                     external = self.engine._member_rules._external_member_type(imported)
-                    builtin_class = False
+                    builtin_class = isinstance(external, TypeType)
                     if external is None and "." in imported:
                         # Stdlib class members are resolved without importing
                         # analysed code (``datetime.date``, ``uuid.UUID``).
@@ -392,6 +392,13 @@ class ExpressionInference(InferenceComponent):
                         # handled by the type-alias path.
                         external = BuiltinTypeLookup()(imported)
                         builtin_class = external is not None
+                    elif (
+                        not builtin_class
+                        and imported.startswith("builtins.")
+                        and "." not in imported[len("builtins.") :]
+                        and BuiltinTypeLookup()(imported) is not None
+                    ):
+                        builtin_class = True
                     if external is not None:
                         if isinstance(external, TypeType):
                             external = external.item

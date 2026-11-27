@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import array
 import ast
 import asyncio
 import builtins
@@ -129,6 +130,34 @@ class StdlibInference(InferenceComponent):
             return self.engine._builtin_rules._call_builtin(
                 "open", arguments, keywords, call_node=node
             )
+        if qualified_name == "array.array":
+            typecodes = (
+                {code for code in arguments[0].literal_values if isinstance(code, str)}
+                if arguments and arguments[0].literal_values
+                else set()
+            )
+            elem_parts: list[AbstractTypeValue] = []
+            for code in sorted(typecodes):
+                if code in {"f", "d"}:
+                    elem_parts.append(self.engine._value_rules._instance(float))
+                elif code in {"u", "w"}:
+                    elem_parts.append(self.engine._value_rules._instance(str))
+                elif code in {"b", "B", "h", "H", "i", "I", "l", "L", "q", "Q"}:
+                    elem_parts.append(self.engine._value_rules._instance(int))
+            if elem_parts:
+                elem_type = (
+                    join_all(
+                        elem_parts,
+                        self.engine.type_system,
+                        max_union_size=self.engine.options.max_union_size,
+                    ).public_type()
+                    or ANY
+                )
+            elif len(arguments) > 1:
+                elem_type = element(arguments[1])
+            else:
+                elem_type = ANY
+            return self.engine._value_rules._instance(array.array, elem_type)
         if qualified_name == "collections.deque":
             return self.engine._value_rules._instance(
                 collections.deque, element(arguments[0]) if arguments else ANY
