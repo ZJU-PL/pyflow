@@ -13,20 +13,27 @@ This module provides call graph analysis for Python code with multiple algorithm
 ```
 callgraph/
 ├── __init__.py          # Main module exports
+├── callgraph.py         # CallGraph data structure and query helpers
 ├── constraint_based/    # Constraint-style value-flow implementation
 │   ├── __init__.py      # Public API
-│   ├── api.py           # Wrapper helpers
-│   ├── engine.py        # Solver/worklist engine (mixins composition)
-│   ├── model.py         # Abstract values + data model
-│   ├── _loader.py       # Module loading and import resolution
-│   ├── _collector.py    # Symbol collection and scope initialization
-│   ├── _analyzer.py     # Fixpoint loop and block/scope analysis
-│   ├── _evaluator.py    # Expression evaluation
-│   ├── _resolver.py     # Target invocation, MRO, and attribute resolution
-│   └── DESIGN_NOTE.md   # Algorithm design/tradeoffs
+│   ├── api.py           # Wrapper helpers and file/directory entry points
+│   ├── engine.py        # ConstraintCallGraphBuilder (9-mixin composition)
+│   ├── model.py         # Abstract values, options, stats, and call-site index
+│   ├── _modules.py      # Module loading, monorepo layout, and import resolution
+│   ├── _symbols.py      # Symbol collection and scope initialization
+│   ├── _solver.py       # Worklist fixpoint loop, priority scheduling, and budgets
+│   ├── _semi_naive.py   # Semi-naive delta tracking and dependency invalidation
+│   ├── _statements.py   # Statement/block analysis (match, try/except*, async)
+│   ├── _expressions.py  # Expression evaluation (calls, attrs, containers, slices)
+│   ├── _types.py        # Annotations, guards, protocols, and TypeInfo fallback
+│   ├── _call_binding.py # Argument binding, defaults, and descriptors
+│   ├── _state.py        # Scope/context joins, widening, and field/container state
+│   ├── _call_targets.py # Target invocation, MRO, dynamic summaries, builtins
+│   └── DESIGN_NOTE.md   # Algorithm design and tradeoffs
 ├── ast_based.py         # AST-based algorithm
-├── pycg_based.py        # PyCG-based algorithm
-├── formats.py           # Output format generators
+├── pycg_based.py        # Optional upstream PyCG adapter
+├── publication.py       # Shared IRCatalog call-target fact publisher
+├── formats.py           # Text, DOT, legacy JSON, and unified JSON renderers
 └── README.md            # This file
 ```
 
@@ -82,8 +89,11 @@ json_output = generate_json_output(graph, None)
 ## CLI Usage
 
 ```bash
-# CLI default (simple; the Python API defaults to constraint_based)
+# CLI default (constraint; the Python API also defaults to constraint_based)
 pyflow callgraph example.py
+
+# Lightweight AST-based algorithm
+pyflow callgraph --algorithm simple example.py
 
 # Optional upstream PyCG algorithm
 pyflow callgraph --algorithm pycg example.py

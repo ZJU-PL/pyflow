@@ -1671,6 +1671,12 @@ class _CallTransferMixin:
                     call_expression,
                     result_locations,
                 )
+            self._attach_published_return_type_facts(
+                procedure,
+                call_expression,
+                result_locations,
+                attach_weak_class=not constructed,
+            )
             if bind:
                 if result_locations:
                     self._bind_runtime_local(

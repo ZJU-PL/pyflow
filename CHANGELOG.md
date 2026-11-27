@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added engine-agnostic `PublishedTypeFact` / `PublishedProcedureTypes` records
+  and `Capabilities.TYPE_SYMBOL_TYPES`, `TYPE_CALL_RETURNS`, and
+  `TYPE_PROCEDURE_SUMMARIES` in `pyflow.ir.core`, backed by
+  `pyflow.analysis.typeinfo.publication` (`TypeFactBridge` and
+  `publish_typeinfo_facts`).  Downstream analyses now consume published
+  TypeInfo facts in a closed loop:
+  - Constraint-based CallGraph (`AnalysisOptions.use_typeinfo_facts=True`) uses
+    lazy TypeInfo fallbacks for `TypeAlias` / `TYPE_CHECKING` annotations,
+    opaque factory returns, and annotated class attributes, and resolves
+    post-import module-level `AnnAssign` bindings.
+  - IFDS (`load_analysis_session`, `CFGSupergraphAdapter`, and
+    `InterproceduralNullnessProblem`) publishes TypeInfo facts into `IRCatalog`
+    to qualify typed receivers and chained factory calls and detect nullable
+    `Optional[T]` external returns.
+  - Flow-sensitive Alias (`HeapAnalysis` / `PointsToGraph`) projects published
+    `inferred_types` metadata onto `PointsToEntry` (`inferred_types_for(...)`)
+    and weakly attaches known local classes to typed opaque call returns while
+    preserving conservative parameter may-alias soundness.
+- Refactored `pyflow.analysis.typeinfo.core.typesystem` into cohesive
+  `types.py`, `descriptors.py`, `visitors.py`, `signatures.py`, and
+  `typesystem.py` modules (with variance-aware generic subtyping, canonical
+  `make_union` / `normalize_generic_args`, consistent `ClassDescriptor.refresh`,
+  and `Annotated`/`Final`/`ClassVar`/`Literal` conversion) and decomposed
+  `pyflow.analysis.typeinfo.query.service` into `_helpers.py`, `_stubs.py`,
+  `_source.py`, `_lookup.py`, and `service.py` while keeping all existing
+  imports and APIs compatible.
+- Synchronized CallGraph architecture and usage documentation
+  (`constraint_based/DESIGN_NOTE.md`, `callgraph/README.md`, and
+  `docs/source/analysis/callgraph.rst`) with the 9-mixin constraint-based
+  architecture, semi-naive presolver, budgets, publication bridge, and TypeInfo
+  enrichment.
+
 - Added a standalone `pyflow typeinfo` command.  It runs `TypeInfoService`
   directly with `--mode signatures` (default), `types`, `summary`, and
   `diagnostics`, plus symbol lookup, expression lookup by 1-based line /

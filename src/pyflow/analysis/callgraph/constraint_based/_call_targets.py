@@ -931,6 +931,21 @@ class _CallTargetMixin:
                     if last_segment and last_segment[0].isupper():
                         out.add(make_instance(callee_name))
                         continue
+                    bridge = self._get_typeinfo_bridge()
+                    if bridge is not None:
+                        callee_module, sep, _ = callee_name.rpartition(".")
+                        query_module = callee_module if sep else caller_scope.module
+                        if query_module:
+                            fact = bridge.return_type(query_module, callee_name)
+                            if fact is not None:
+                                matched_classes = self._resolve_typeinfo_class_names(
+                                    fact.type_names,
+                                    module_name=query_module,
+                                )
+                                if matched_classes:
+                                    for cls_name in matched_classes:
+                                        out.add(make_instance(cls_name))
+                                    continue
                     out.add(UNKNOWN_VALUE)
 
             elif target.kind == CLASS_KIND:

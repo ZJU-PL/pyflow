@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import FrozenSet, Mapping, Sequence
 
 from pyflow.ir.cfg import graph as cfg_graph
+from pyflow.ir.core import Capabilities
 from pyflow.language.python import ast as py_ast
 
 from ..modeling.calls import CallModelRegistry
@@ -455,6 +456,28 @@ class InterproceduralNullnessProblem(
                 default_expr = kwds["fallback"]
         return default_expr is not None and self._is_definitely_non_null_expression(default_expr)
 
+    def _published_call_return_is_optional(
+        self,
+        procedure: cfg_graph.Code,
+        call: py_ast.PythonASTNode | None,
+    ) -> bool:
+        """True when published TypeInfo facts mark *call* as returning ``Optional[T]``."""
+        if call is None:
+            return False
+        catalog = self.adapter.catalog_by_procedure.get(procedure)
+        if catalog is None or not catalog.facts.has(Capabilities.TYPE_CALL_RETURNS):
+            return False
+        if not catalog.has_node(call, procedure.code):
+            return False
+        fact_result = catalog.facts.query(
+            Capabilities.TYPE_CALL_RETURNS,
+            catalog.node_id(call, procedure.code),
+        )
+        if not fact_result.values:
+            return False
+        fact = next(iter(fact_result.values))
+        return bool(fact.is_optional and not fact.is_gradual and fact.type_names)
+
     def _local_call_outputs(self, node: CFGNode, fact: object):
         call_effect = self._call_effect(node)
         if call_effect is None or call_effect.callees:
@@ -462,12 +485,18 @@ class InterproceduralNullnessProblem(
 
         outputs = set(self._identity_outputs(fact, self._killed_locations_for_node(node)))
         model = self._call_model_for_node(node)
-        if (
-            fact == ZERO_NULLNESS
-            and model is not None
+        nullable_from_model = (
+            model is not None
             and model.nullness_nullable_return
             and not self._call_has_non_null_default(call_effect.call_expression, model.name)
-        ):
+        )
+        call_name = model.name if model is not None else (call_effect.call_name or "")
+        nullable_from_typeinfo = (
+            not nullable_from_model
+            and self._published_call_return_is_optional(node.procedure, call_effect.call_expression)
+            and not self._call_has_non_null_default(call_effect.call_expression, call_name)
+        )
+        if fact == ZERO_NULLNESS and (nullable_from_model or nullable_from_typeinfo):
             outputs.update(
                 self._facts_for_nested_call_result(
                     node.procedure,

@@ -20,6 +20,7 @@ from .model import (
     ScopeInfo,
     UNKNOWN_KIND,
     instance_class_name,
+    make_class,
     make_string,
 )
 
@@ -174,7 +175,27 @@ class _TypeAnalysisMixin:
         if resolved:
             return resolved
         if lookup_env is not self.module_bindings.get(module_name, {}):
-            return self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
+            resolved = self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
+            if resolved:
+                return resolved
+        bridge = self._get_typeinfo_bridge()
+        if bridge is not None:
+            try:
+                annotation_text = ast.unparse(expr)
+            except Exception:
+                annotation_text = ""
+            if annotation_text:
+                fact = bridge.resolve_type_expression(module_name, annotation_text)
+                if fact is not None:
+                    matched_classes = self._resolve_typeinfo_class_names(
+                        fact.type_names,
+                        module_name=module_name,
+                    )
+                    if matched_classes:
+                        out = {make_class(cls_name) for cls_name in matched_classes}
+                        if fact.is_optional:
+                            out.add(NONE_VALUE)
+                        return out
         return set()
 
     def _type_guard_refinement(

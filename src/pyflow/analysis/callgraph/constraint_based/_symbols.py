@@ -474,6 +474,38 @@ class _SymbolAnalysisMixin:
                 name: set(values) for name, values in exports.items()
             }
 
+    def _resolve_module_annotated_bindings(self) -> None:
+        """Resolve module-level ``AnnAssign`` targets after imports and classes are collected."""
+        if not self.options.use_type_hints:
+            return
+        for module_name, module_info in self.modules.items():
+            bindings = self.module_bindings.setdefault(module_name, {})
+            for node in module_info.tree.body:
+                if (
+                    not isinstance(node, ast.AnnAssign)
+                    or not isinstance(node.target, ast.Name)
+                    or node.target.id.startswith("_")
+                ):
+                    continue
+                if bindings.get(node.target.id):
+                    continue
+                annotated_values = self._resolve_type_expression_values(
+                    node.annotation,
+                    module_name,
+                    env=bindings,
+                )
+                if not annotated_values:
+                    continue
+                target_values = bindings.setdefault(node.target.id, set())
+                if self._return_annotation_is_type_object(node.annotation):
+                    target_values.update(annotated_values)
+                else:
+                    for value in annotated_values:
+                        if value.kind == CLASS_KIND:
+                            target_values.add(make_instance(value.name))
+                        else:
+                            target_values.add(value)
+
     def _collect_lambdas(self, module_name: str, module_tree: ast.Module) -> None:
         """Collect lambda expressions with stable per-scope synthetic names."""
         scope_stack: List[str] = [module_name]

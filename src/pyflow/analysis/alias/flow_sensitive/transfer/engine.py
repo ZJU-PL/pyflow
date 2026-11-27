@@ -89,6 +89,7 @@ class HeapTransferEngine(
         ] = {}
         self._super_dispatch_by_class_root: dict[object, dict[str, py_ast.Code]] = {}
         self._initialized_class_calls: set[tuple[object, object]] = set()
+        self._published_return_types_by_root: dict[object, set[str]] = {}
         self.program_point_states: dict[object, tuple[_FlowState, _FlowState]] = {}
         self.program_point_outcomes: dict[object, dict[str, _FlowState]] = {}
         self.program_point_identities: dict[object, object] = {}

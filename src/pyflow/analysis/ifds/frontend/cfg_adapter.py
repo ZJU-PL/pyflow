@@ -422,6 +422,28 @@ class CFGSupergraphAdapter:
             owner, self._syntactic_call_leaf(call_expression)
         )
 
+    def _published_call_return_type_name(
+        self,
+        procedure: cfg_graph.Code,
+        call: py_ast.PythonASTNode,
+    ) -> str | None:
+        catalog = self.catalog_by_procedure.get(procedure)
+        if catalog is None or not catalog.facts.has(Capabilities.TYPE_CALL_RETURNS):
+            return None
+        if not catalog.has_node(call, procedure.code):
+            return None
+        fact_result = catalog.facts.query(
+            Capabilities.TYPE_CALL_RETURNS,
+            catalog.node_id(call, procedure.code),
+        )
+        if not fact_result.values:
+            return None
+        fact = next(iter(fact_result.values))
+        primary = fact.primary_type_name
+        if not primary or primary.startswith("builtins.") or primary == "collections.abc.Callable":
+            return None
+        return primary
+
     def _structured_call_name(self, procedure, call):
         from pyflow.analysis.taint_policy.call_types import CALL_RETURN_TYPES
 
@@ -437,7 +459,9 @@ class CFGSupergraphAdapter:
                 name = getattr(getattr(expression.name, "object", None), "pyobj", None)
                 return f"{base}.{name}" if base and isinstance(name, str) else None
             if isinstance(expression, py_ast.Call):
-                return CALL_RETURN_TYPES.get(expression_name(expression.expr) or "")
+                return CALL_RETURN_TYPES.get(
+                    expression_name(expression.expr) or ""
+                ) or self._published_call_return_type_name(procedure, expression)
             return None
 
         if isinstance(call, py_ast.Call):
@@ -544,12 +568,49 @@ class CFGSupergraphAdapter:
             aliases.update(temporary_modules.get(self._procedure_filename(procedure), {}))
         return bindings
 
+    @cached_property
+    def _published_symbol_types_by_procedure(self) -> dict[cfg_graph.Code, dict[str, str]]:
+        by_catalog: dict[int, dict[object, dict[str, str]]] = {}
+        result: dict[cfg_graph.Code, dict[str, str]] = {}
+        for procedure, catalog in self.catalog_by_procedure.items():
+            if not catalog.facts.has(Capabilities.TYPE_SYMBOL_TYPES):
+                result[procedure] = {}
+                continue
+            cat_key = id(catalog)
+            if cat_key not in by_catalog:
+                grouped: dict[object, dict[str, str]] = defaultdict(dict)
+                for symbol_id, fact_result in catalog.facts.items(Capabilities.TYPE_SYMBOL_TYPES):
+                    if not fact_result.values:
+                        continue
+                    fact = next(iter(fact_result.values))
+                    primary = fact.primary_type_name
+                    if (
+                        not primary
+                        or primary.startswith("builtins.")
+                        or primary == "collections.abc.Callable"
+                    ):
+                        continue
+                    symbol = catalog.symbols.get(symbol_id)
+                    if symbol is None or not getattr(symbol, "name", None):
+                        continue
+                    grouped[symbol_id.scope.code].setdefault(symbol.name, primary)
+                by_catalog[cat_key] = grouped
+            code_id = catalog.procedure(procedure.code).code_id
+            result[procedure] = dict(by_catalog[cat_key].get(code_id, {}))
+        return result
+
     def _qualify_call_name(self, procedure, name):
         if not name:
             return name
         aliases = self._source_call_bindings.get(procedure, {})
         head, separator, rest = name.partition(".")
-        return aliases.get(head, head) + (separator + rest if separator else "")
+        if head in aliases:
+            return aliases[head] + (separator + rest if separator else "")
+        if separator and head not in {"self", "cls"}:
+            published = self._published_symbol_types_by_procedure.get(procedure, {})
+            if head in published:
+                return f"{published[head]}.{rest}"
+        return head + (separator + rest if separator else "")
 
     @staticmethod
     def _syntactic_call_leaf(call_expression: object) -> str | None:

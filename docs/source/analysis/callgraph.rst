@@ -101,6 +101,7 @@ Constraint-Based Analysis (Public API Default)
 - **Context Sensitivity**: Optional call-site context sensitivity with configurable depth for improved precision
 - **Full MRO Support**: Complete C3 MRO linearization for class method lookup
 - **Rich Semantics**: Handles descriptors, closures, comprehensions, and container tracking
+- **TypeInfo Fact Bridge**: Lazily consults ``TypeInfoService`` facts for type aliases, ``TYPE_CHECKING`` annotations, typed cross-module returns, and class attributes when local AST lookup is insufficient
 - **Dynamic Summaries**: Generates explicit summary nodes for unresolved call targets
 - **Stdlib Filtering**: Standard library modules can be skipped to reduce noise (``--skip-stdlib``)
 

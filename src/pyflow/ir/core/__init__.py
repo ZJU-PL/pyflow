@@ -6,6 +6,8 @@ from .analysis_facts import (
     Capabilities,
     ContextualKey,
     PublishedIPASummary,
+    PublishedProcedureTypes,
+    PublishedTypeFact,
 )
 from .build_semantics import build_program_semantics, build_semantics
 from .facts import FactResult, FactStore, Precision
@@ -92,6 +94,8 @@ __all__ = [
     "OperationSemantics",
     "Precision",
     "PublishedIPASummary",
+    "PublishedProcedureTypes",
+    "PublishedTypeFact",
     "ProcedureIR",
     "RebuildProvenanceSeed",
     "ScopeId",

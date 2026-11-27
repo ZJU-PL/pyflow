@@ -68,6 +68,7 @@ class AnalysisOptions:
     warn_on_fixpoint_truncation: bool = True
     allocation_site_sensitive_instances: bool = False
     use_type_hints: bool = True
+    use_typeinfo_facts: bool = True
     refine_type_guards: bool = True
     allow_fixture_graph_loading: bool = True
     max_values_per_binding: int = 128

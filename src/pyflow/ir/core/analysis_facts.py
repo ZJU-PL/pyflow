@@ -32,6 +32,9 @@ class Capabilities:
     ALIAS_ESCAPED = "alias.escaped"
     ALIAS_REFERENCE_COUNT = "alias.reference_count"
     ALIAS_PRECISION = "alias.operation.precision"
+    TYPE_SYMBOL_TYPES = "typeinfo.symbol.types"
+    TYPE_CALL_RETURNS = "typeinfo.call.returns"
+    TYPE_PROCEDURE_SUMMARIES = "typeinfo.procedure.summaries"
 
     CPA = frozenset(
         {
@@ -76,6 +79,13 @@ class Capabilities:
             ALIAS_PRECISION,
         }
     )
+    TYPEINFO = frozenset(
+        {
+            TYPE_SYMBOL_TYPES,
+            TYPE_CALL_RETURNS,
+            TYPE_PROCEDURE_SUMMARIES,
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -97,3 +107,38 @@ class PublishedIPASummary:
     return_dependencies: tuple[str, ...] = ()
     returns_value: bool = False
     examples: tuple[object, ...] = ()
+
+
+@dataclass(frozen=True)
+class PublishedTypeFact:
+    """Engine-agnostic static type fact published into the shared IR catalog."""
+
+    type_names: tuple[str, ...]
+    display: str
+    is_optional: bool = False
+    is_gradual: bool = False
+    source: str = "typeinfo"
+
+    @property
+    def primary_type_name(self) -> str | None:
+        """Return the sole concrete class/type name when unambiguous."""
+        return self.type_names[0] if len(self.type_names) == 1 else None
+
+    @property
+    def is_definite_non_optional(self) -> bool:
+        """True when concrete non-None types are known without gradual/None alternatives."""
+        return bool(self.type_names) and not self.is_optional and not self.is_gradual
+
+
+@dataclass(frozen=True)
+class PublishedProcedureTypes:
+    """Published parameter and return type facts for one IR procedure."""
+
+    param_types: tuple[tuple[str, PublishedTypeFact], ...] = ()
+    return_type: PublishedTypeFact | None = None
+
+    def param_type(self, name: str) -> PublishedTypeFact | None:
+        for param_name, fact in self.param_types:
+            if param_name == name:
+                return fact
+        return None

@@ -1,6 +1,7 @@
 """Known-class, descriptor, and protocol transfer methods."""
 
 from __future__ import annotations
+from pyflow.ir.core import Capabilities
 from pyflow.language.python.ir_metadata import actual_argument_expressions, resolve_call_name
 from pyflow.language.python import ast as py_ast
 from ..semantics.effects import DYNAMIC_SUBSCRIPT_WILDCARD
@@ -11,6 +12,71 @@ from .state import _FlowState
 
 class _ClassTransferMixin:
     """Internal mixin composed by HeapTransferEngine."""
+
+    def _published_call_return_fact(self, procedure: object, call: object):
+        catalog = getattr(procedure, "ir_catalog", None)
+        if catalog is None or not catalog.facts.has(Capabilities.TYPE_CALL_RETURNS):
+            return None
+        if not catalog.has_node(call, procedure):
+            return None
+        fact_result = catalog.facts.query(
+            Capabilities.TYPE_CALL_RETURNS,
+            catalog.node_id(call, procedure),
+        )
+        if not fact_result.values:
+            return None
+        return next(iter(fact_result.values))
+
+    def _attach_published_return_type_facts(
+        self,
+        procedure: object,
+        call: object,
+        instances: tuple[HeapLocation, ...],
+        *,
+        attach_weak_class: bool = False,
+    ) -> None:
+        """Record TypeInfo call-return types and optionally weakly attach local classes.
+
+        Soundness note: this never narrows parameter may-alias relationships and
+        never synthesizes ``__init__`` calls; it only attaches metadata and, for
+        opaque call results with no existing ``__class__`` slot, writes a weak
+        class edge so downstream method lookups remain sound.
+        """
+        if not instances:
+            return
+        fact = self._published_call_return_fact(procedure, call)
+        if fact is None or not fact.type_names:
+            return
+        for instance in instances:
+            self._published_return_types_by_root.setdefault(instance.root, set()).update(
+                fact.type_names
+            )
+        if not attach_weak_class:
+            return
+        module_owner = self._module_owner(procedure)
+        matched_classes: list[HeapLocation] = []
+        for type_name in fact.type_names:
+            if not type_name or type_name.startswith("builtins."):
+                continue
+            short_name = type_name.rsplit(".", 1)[-1]
+            direct = self._class_definitions.get((module_owner, short_name))
+            if direct is not None:
+                matched_classes.append(direct)
+                continue
+            candidates = [
+                cls_loc
+                for (owner, cls_name), cls_loc in self._class_definitions.items()
+                if cls_name == short_name
+            ]
+            if len(candidates) == 1:
+                matched_classes.append(candidates[0])
+        if not matched_classes:
+            return
+        unique_classes = tuple(dict.fromkeys(matched_classes))
+        for instance in instances:
+            class_slot = self.heap.dynamic_attribute_location(instance, "__class__")
+            if not self.state.read(class_slot, fallback=()):
+                self.state.write(class_slot, unique_classes, UpdatePolicy.WEAK)
 
     def _known_class_locations(
         self,

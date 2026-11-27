@@ -14,6 +14,12 @@ from .query.evidence import (
 )
 from .query.models import ClassTypeInfo, FunctionTypeInfo, TypeFact
 from .query.service import TypeInfoService
+from .publication import (
+    TypeFactBridge,
+    publish_typeinfo_facts,
+    type_fact_from_abstract_value,
+    type_fact_from_proper_type,
+)
 from .inference.engine import InferenceOptions, StaticTypeInferenceEngine
 from .inference.call_models import (
     CallModelProvider,
@@ -84,6 +90,7 @@ __all__ = [
     "TypeEvidence",
     "TypeEvidenceIndex",
     "TypeFact",
+    "TypeFactBridge",
     "TypeInfoService",
     "TypeLookup",
     "build_stub_map",
@@ -92,7 +99,10 @@ __all__ = [
     "config",
     "parse_stub_file",
     "parse_stub_source",
+    "publish_typeinfo_facts",
     "resolve_annotation",
     "resolve_forward_reference",
+    "type_fact_from_abstract_value",
+    "type_fact_from_proper_type",
     "validate_observed_types",
 ]

@@ -467,6 +467,15 @@ def load_analysis_session(
             analyze_reachable_only=entry_file is not None,
             edge_index=callgraph_edges,
         )
+        try:
+            from pyflow.analysis.typeinfo.publication import publish_typeinfo_facts
+
+            publish_typeinfo_facts(
+                prepared.catalog,
+                source_files=all_source_code,
+            )
+        except Exception:
+            pass
     adapter = build_supergraph_from_cfgs(
         prepared.cfgs,
         include_exceptional_edges=include_exceptional_edges,

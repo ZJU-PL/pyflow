@@ -203,8 +203,40 @@ class _CallBindingMixin:
             return out
         self._add_call_dependency(callee_name, callee_context, caller_scope_key)
         out.update(self.scope_returns[(callee_name, callee_context)])
+        self._apply_typeinfo_return_fallback(callee_name, callee_context, function_info, out)
         self._apply_callee_side_effects(callee_name, callee_context, env)
         return out
+
+    def _apply_typeinfo_return_fallback(
+        self,
+        callee_name: str,
+        callee_context: ContextKey,
+        function_info,
+        out: Set[AbstractValue],
+    ) -> None:
+        if (callee_name, callee_context) not in self._analyzed_scope_contexts:
+            return
+        if out and out != {UNKNOWN_VALUE}:
+            return
+        bridge = self._get_typeinfo_bridge()
+        if bridge is None:
+            return
+        callee_module = (
+            function_info.module if function_info is not None else callee_name.rpartition(".")[0]
+        )
+        if not callee_module:
+            return
+        fact = bridge.return_type(callee_module, callee_name)
+        if fact is None:
+            return
+        matched_classes = self._resolve_typeinfo_class_names(
+            fact.type_names,
+            module_name=callee_module,
+        )
+        if matched_classes:
+            out.discard(UNKNOWN_VALUE)
+            for cls_name in matched_classes:
+                out.add(make_instance(cls_name))
 
     def _invoke_named_function(
         self,
@@ -278,6 +310,7 @@ class _CallBindingMixin:
             return out
         self._add_call_dependency(callee_name, callee_context, caller_scope_key)
         out.update(self.scope_returns[(callee_name, callee_context)])
+        self._apply_typeinfo_return_fallback(callee_name, callee_context, callee_function_info, out)
         self._apply_callee_side_effects(callee_name, callee_context, env)
         return out
 

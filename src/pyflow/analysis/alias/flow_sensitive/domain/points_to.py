@@ -96,6 +96,9 @@ class PointsToEntry:
     identity: "HeapObjectIdentity"
     """Whether the abstract root denotes one stable symbolic identity."""
 
+    inferred_types: tuple[str, ...] = ()
+    """Optional canonical type names published by TypeInfo for this root."""
+
     @property
     def is_strong(self) -> bool:
         """Shorthand: can this location receive strong updates?"""
@@ -105,7 +108,7 @@ class PointsToEntry:
 
     def to_dict(self) -> dict[str, object]:
         """Serialize for inspection / JSON output."""
-        return {
+        data: dict[str, object] = {
             "location": self.location.to_dict(),
             "label": self.label,
             "alias_count": len(self.aliases),
@@ -117,6 +120,9 @@ class PointsToEntry:
             "identity": self.identity.value,
             "update_policy": self.update_policy.value,
         }
+        if self.inferred_types:
+            data["inferred_types"] = list(self.inferred_types)
+        return data
 
 
 @dataclass
@@ -205,6 +211,11 @@ class PointsToGraph:
         """
         root = location.root_location()
         return self.entries.get(root)
+
+    def inferred_types_for(self, location: "HeapLocation") -> tuple[str, ...]:
+        """Return canonical TypeInfo type names attached to *location*'s root."""
+        entry = self.get(location)
+        return entry.inferred_types if entry is not None else ()
 
     def points_to(
         self,

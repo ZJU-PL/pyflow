@@ -9,6 +9,7 @@ optimization passes and the semantic query API.
 
 from __future__ import annotations
 
+from pyflow.ir.core import Capabilities
 from pyflow.ir.core.index import ensure_codes_indexed
 
 from .domain.abstraction import (
@@ -106,20 +107,84 @@ class HeapAnalysis:
         self._precision_degradations = {
             operation_id: frozenset(reasons) for operation_id, reasons in degradations.items()
         }
+        catalogs = {
+            code.ir_catalog for code in codes if getattr(code, "ir_catalog", None) is not None
+        }
+        single_catalog = next(iter(catalogs)) if len(catalogs) == 1 else None
+        inferred_types_by_root = self._collect_inferred_types_by_root(
+            single_catalog, self._heap, engine
+        )
         graph = self._heap.to_points_to_graph(
             state=engine.state,
             program_point_states=engine.program_point_states,
             program_point_outcomes=engine.program_point_outcomes,
             precision_degradations=self._precision_degradations,
             operation_identities=engine.program_point_identities,
+            inferred_types_by_root=inferred_types_by_root,
         )
         self._graph = graph
-        catalogs = {
-            code.ir_catalog for code in codes if getattr(code, "ir_catalog", None) is not None
-        }
-        if len(catalogs) == 1:
-            publish_alias_facts(next(iter(catalogs)), graph, self._heap, codes)
+        if single_catalog is not None:
+            publish_alias_facts(single_catalog, graph, self._heap, codes)
         return graph
+
+    @staticmethod
+    def _collect_inferred_types_by_root(
+        catalog: object | None,
+        heap: HeapAbstraction,
+        engine: HeapTransferEngine,
+    ) -> dict[object, tuple[str, ...]]:
+        """Project published TypeInfo facts onto canonical heap roots.
+
+        Metadata-only projection; never modifies alias equivalence classes.
+        """
+        by_root: dict[object, set[str]] = {
+            root: set(names)
+            for root, names in getattr(engine, "_published_return_types_by_root", {}).items()
+            if names
+        }
+        if catalog is not None and catalog.facts.has(Capabilities.TYPE_SYMBOL_TYPES):
+            symbol_types: dict[tuple[object, str], set[str]] = {}
+            for symbol_id, fact_result in catalog.facts.items(Capabilities.TYPE_SYMBOL_TYPES):
+                if not fact_result.values:
+                    continue
+                symbol = catalog.symbols.get(symbol_id)
+                symbol_name = getattr(symbol, "name", None)
+                if not symbol_name:
+                    continue
+                bucket = symbol_types.setdefault((symbol_id.scope.code, symbol_name), set())
+                for fact in fact_result.values:
+                    bucket.update(fact.type_names)
+            if symbol_types:
+                for (proc_key, local_name), local_value in heap._local_values.items():
+                    type_names = symbol_types.get((proc_key, local_name))
+                    if not type_names:
+                        continue
+                    for loc in local_value.refs:
+                        by_root.setdefault(loc.root, set()).update(type_names)
+                for key, local_name in heap._local_names.items():
+                    type_names = symbol_types.get((key[0], local_name))
+                    if not type_names:
+                        continue
+                    storage = heap.storage_overrides.get(key)
+                    if storage is None:
+                        site = heap.allocation_sites.get(key)
+                        storage = heap.site_storage.get(site, ()) if site is not None else ()
+                    for raw in storage:
+                        by_root.setdefault(heap.location_for_raw(raw).root, set()).update(
+                            type_names
+                        )
+                for before_state, after_state in engine.program_point_states.values():
+                    for flow_state in (before_state, after_state):
+                        environment = getattr(flow_state, "environment", None)
+                        if environment is None:
+                            continue
+                        for (proc_key, local_name), local_value in environment.local_values.items():
+                            type_names = symbol_types.get((proc_key, local_name))
+                            if not type_names:
+                                continue
+                            for loc in local_value.refs:
+                                by_root.setdefault(loc.root, set()).update(type_names)
+        return {root: tuple(sorted(names)) for root, names in by_root.items() if names}
 
     @property
     def heap(self) -> HeapAbstraction | None:
@@ -197,6 +262,10 @@ class HeapAnalysis:
     def points_to(self, location: "HeapLocation") -> "frozenset[HeapLocation]":
         """Return all locations in the same alias class as *location*."""
         return self._require_graph().points_to(location)
+
+    def inferred_types_for(self, location: "HeapLocation") -> tuple[str, ...]:
+        """Return canonical TypeInfo type names attached to *location*'s root."""
+        return self._require_graph().inferred_types_for(location)
 
     def possible_values_at(
         self,

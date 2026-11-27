@@ -3,37 +3,27 @@
 # SPDX-FileCopyrightText: 2019–2026 Pynguin Contributors
 # SPDX-License-Identifier: MIT
 #
-"""Type system for Python type inference and subtyping.
+"""Type system registry, subtyping graph, and runtime type-hint conversion.
 
-Migrated from Pynguin's ``pynguin.analyses.typesystem`` with
-configuration references adapted to PyFlow's ``config.settings``.
-The ``SignatureInfo`` and ``TypeGuessingStats`` classes were extracted
-from ``pynguin.analyses.module``.
+Core immutable type nodes live in :mod:`.types`, class descriptors in
+:mod:`.descriptors`, visitors/subtyping in :mod:`.visitors`, and usage-trace
+signature guessing in :mod:`.signatures`.  This module exposes :class:`TypeSystem`
+and re-exports all core symbols for backward compatibility.
 """
 
 from __future__ import annotations
 
 import collections.abc as cabc
-import contextvars
-import dataclasses
-import enum
 import functools
 import inspect
 import logging
 import re
-import sys
 import types
 import typing
-from abc import ABC, abstractmethod
-from collections import Counter, defaultdict, deque
-from dataclasses import dataclass, field
-from itertools import starmap
+from collections import defaultdict
 from typing import (
     Any,
-    Final,
     ForwardRef,
-    Generic,
-    TypeVar,
     _BaseGenericAlias,  # noqa: PLC2701
     _eval_type,  # noqa: PLC2701
     cast,
@@ -44,2296 +34,111 @@ from typing import (
 import networkx as nx
 from typing_inspect import is_union_type
 
-import pyflow.analysis.typeinfo.config as config
-from pyflow.analysis.typeinfo.config import SubtypeInferenceStrategy
-from pyflow.analysis.typeinfo.inference.string_patterns import infer_regex_from_methods
-import pyflow.analysis.typeinfo.inference.tracing as tt
 from pyflow.analysis.typeinfo.core.runtime import (
     COLLECTIONS,
     PRIMITIVES,
     get_method_for_signature,
 )
-from pyflow.util import randomness
 from pyflow.util.orderedset import OrderedSet
-from pyflow.util.randomness import weighted_choice
+
+from .descriptors import (
+    ClassDescriptor,
+    _is_signatureless_member,
+    _typeshed_class_members,
+)
+from .signatures import (
+    STRING_SUBTYPES,
+    InferredSignature,
+    NamedDefaultDict,
+    _ARGUMENT_ATTRIBUTES,
+    _DICT_KEY_ATTRIBUTES,
+    _DICT_KEY_FROM_ARGUMENT_TYPES,
+    _DICT_VALUE_ATTRIBUTES,
+    _DICT_VALUE_FROM_ARGUMENT_TYPES,
+    _EMPTY_SET,
+    _LIST_ELEMENT_ATTRIBUTES,
+    _LIST_ELEMENT_FROM_ARGUMENT_TYPES,
+    _LIST_ELEMENT_FROM_ARGUMENT_TYPES_PATH,
+    _SET_ELEMENT_ATTRIBUTES,
+    _SET_ELEMENT_FROM_ARGUMENT_TYPES,
+    _SET_ELEMENT_FROM_ARGUMENT_TYPES_PATH,
+    _STRING_SUBTYPE_ATTRIBUTES,
+    _TUPLE_ELEMENT_ATTRIBUTES,
+    _TUPLE_ELEMENT_FROM_ARGUMENT_TYPES,
+)
+from .types import (
+    ANY,
+    NEVER,
+    NONE_TYPE,
+    UNSUPPORTED,
+    AnyType,
+    CallableType,
+    CSVString,
+    EmailString,
+    HexadecimalString,
+    Instance,
+    IPv4String,
+    IPv6String,
+    ISOColorString,
+    ISODateString,
+    ISOTimeString,
+    LiteralType,
+    NeverType,
+    NoneType,
+    NumericString,
+    PhoneNumberString,
+    ProperType,
+    SHA256String,
+    SignatureInfo,
+    StringSubtype,
+    TupleType,
+    TypeGuessingStats,
+    TypeType,
+    TypeVarType,
+    UnionType,
+    Unsupported,
+    URLString,
+    UUIDString,
+    Variance,
+    make_union,
+    normalize_generic_args,
+)
+from .visitors import (
+    TypeReprVisitor,
+    TypeStringVisitor,
+    TypeVisitor,
+    _CollectionTypeVisitor,
+    _is_partial_type_match,
+    _MaybeSubtypeVisitor,
+    _PartialTypeMatch,
+    _PrimitiveTypeVisitor,
+    _SubtypeDistanceVisitor,
+    _SubtypeVisitor,
+    _sum_distances,
+    is_collection_type,
+    is_primitive_type,
+)
 
 if typing.TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
-    from typing import ClassVar
+    from collections.abc import Callable
 
     from pyflow.analysis.typeinfo.inference.providers import InferenceProvider
 
 _LOGGER = logging.getLogger(__name__)
 
-
-@dataclasses.dataclass
-class SignatureInfo:
-    """Another utility class to group information per callable."""
-
-    # A dictionary mapping parameter names and to their developer annotated parameters
-    # types.
-    # Does not include self, etc.
-    annotated_parameter_types: dict[str, str] = dataclasses.field(default_factory=dict)
-
-    # Similar to above, but with guessed parameters types.
-    # Contains multiples type guesses.
-    guessed_parameter_types: dict[str, list[str]] = dataclasses.field(default_factory=dict)
-
-    # Needed to compute top-n accuracy in the evaluation.
-    # Elements are of form (A,B); A is a guess, B is an annotated type.
-    # (A,B) is only present, when A is a base type match of B.
-    # If it is present, it points to the partial type match between A and B.
-    partial_type_matches: dict[str, str] = dataclasses.field(default_factory=dict)
-
-    # Annotated return type, if any.
-    # Does not include constructors.
-    annotated_return_type: str | None = None
-
-    # Recorded return type, if any.
-    recorded_return_type: str | None = None
-
-
-@dataclasses.dataclass
-class TypeGuessingStats:
-    """Class to gather some type guessing related statistics."""
-
-    # Number of constructors in the MUT.
-    number_of_constructors: int = 0
-
-    # Maps names of callables to a signature info object.
-    signature_infos: dict[str, SignatureInfo] = dataclasses.field(
-        default_factory=lambda: defaultdict(SignatureInfo)
+_TRANSPARENT_WRAPPERS = frozenset(
+    origin
+    for origin in (
+        getattr(typing, "Annotated", None),
+        getattr(typing, "Final", None),
+        getattr(typing, "ClassVar", None),
     )
-
-
-# The following classes are inspired by
-# https://github.com/python/mypy/blob/master/mypy/types.py and most likely incomplete.
-# The plan is to gradually expand this type representation.
-
-
-T = TypeVar("T")
-
-
-class ProperType(ABC):
-    """Base class for all types. Might have to add another layer, like mypy's Type?.
-
-    All subclasses of this class are immutable.
-    """
-
-    @abstractmethod
-    def accept(self, visitor: TypeVisitor[T]) -> T:
-        """Accept a type visitor.
-
-        Args:
-            visitor: the visitor
-        """
-
-    def __str__(self) -> str:
-        # ProperType instances are immutable, and unions are sorted repeatedly
-        # while inference reaches a fixed point.  Cache each rendered node so
-        # comparing two large nested types does not walk the same tree over
-        # and over again.
-        cached = getattr(self, "_string_cache", None)
-        if cached is None:
-            cached = self.accept(TypeStringVisitor())
-            self._string_cache = cached
-        return cached
-
-    def __repr__(self) -> str:
-        return self.accept(TypeReprVisitor())
-
-    def __lt__(self, other):
-        return str(self) < str(other)
-
-
-class AnyType(ProperType):
-    """The Any Type."""
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_any_type(self)
-
-    def __hash__(self):
-        return hash(AnyType)
-
-    def __eq__(self, other):
-        return isinstance(other, AnyType)
-
-
-class NoneType(ProperType):
-    """The None type."""
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_none_type(self)
-
-    def __hash__(self):
-        return hash(NoneType)
-
-    def __eq__(self, other):
-        return isinstance(other, NoneType)
-
-
-class NeverType(ProperType):
-    """The bottom type used by ``Never`` and ``NoReturn`` annotations."""
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_never_type(self)
-
-    def __hash__(self):
-        return hash(NeverType)
-
-    def __eq__(self, other):
-        return isinstance(other, NeverType)
-
-
-class Instance(ProperType):
-    """An instance type of form C[T1, ..., Tn].
-
-    C is a class.  Args can be empty.
-    """
-
-    def __init__(  # noqa: D107
-        self, typ: ClassDescriptor, args: tuple[ProperType, ...] | None = None
-    ):
-        assert typ.raw_type is not tuple, "Use TupleType instead!"
-        self.type = typ
-        if args is None:
-            args = ()
-        self.args: Final[tuple[ProperType, ...]] = tuple(args)
-        # Cached hash value
-        self._hash: int | None = None
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_instance(self)
-
-    def __hash__(self):
-        if self._hash is None:
-            self._hash = hash((self.type, self.args))
-        return self._hash
-
-    def __eq__(self, other):
-        return isinstance(other, Instance) and self.type == other.type and self.args == other.args
-
-
-class LiteralType(Instance):
-    """An instance type carrying an exact literal value for annotation checks."""
-
-    def __init__(self, value: object, base: Instance) -> None:
-        super().__init__(base.type, base.args)
-        self.value = value
-        self.base = base
-
-    def __hash__(self):
-        return hash((super().__hash__(), self.value))
-
-    def __eq__(self, other):
-        return isinstance(other, LiteralType) and self.value == other.value
-
-
-class TupleType(ProperType):
-    """Tuple type Tuple[T1, ..., Tn].
-
-    Note that tuple is a special case and intentionally not
-    `Instance(ClassDescriptor(tuple))` because tuple is varargs generic.
-    """
-
-    def __init__(self, args: tuple[ProperType, ...], *, unknown_size: bool = False):  # noqa: D107
-        self.args: Final[tuple[ProperType, ...]] = args
-        self.unknown_size: Final[bool] = unknown_size
-        # Cached hash value
-        self._hash: int | None = None
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_tuple_type(self)
-
-    def __hash__(self):
-        if self._hash is None:
-            self._hash = hash((self.args, self.unknown_size))
-        return self._hash
-
-    def __eq__(self, other):
-        return (
-            isinstance(other, TupleType)
-            and self.args == other.args
-            and self.unknown_size == other.unknown_size
-        )
-
-
-class UnionType(ProperType):
-    """The union type Union[T1, ..., Tn] (at least one type argument)."""
-
-    def __init__(self, items: tuple[ProperType, ...]):  # noqa: D107
-        flattened: set[ProperType] = set()
-        for item in items:
-            if isinstance(item, UnionType):
-                flattened.update(item.items)
-            else:
-                flattened.add(item)
-        self.items: Final[tuple[ProperType, ...]] = tuple(sorted(flattened))
-        assert len(self.items) > 0
-        # Cached hash value
-        self._hash: int | None = None
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_union_type(self)
-
-    def __hash__(self):
-        if self._hash is None:
-            self._hash = hash(self.items)
-        return self._hash
-
-    def __eq__(self, other):
-        return isinstance(other, UnionType) and self.items == other.items
-
-
-class CallableType(ProperType):
-    """A callable type ``Callable[[A, ...], R]``.
-
-    ``arg_types`` is ``None`` for an ellipsis callable, i.e. ``Callable[..., R]``.
-    """
-
-    def __init__(
-        self,
-        arg_types: tuple[ProperType, ...] | None,
-        return_type: ProperType,
-        overloads: tuple["CallableType", ...] = (),
-    ) -> None:
-        self.arg_types: Final[tuple[ProperType, ...] | None] = arg_types
-        self.return_type: Final[ProperType] = return_type
-        self.overloads: Final[tuple[CallableType, ...]] = overloads
-        self._hash: int | None = None
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_callable_type(self)
-
-    def __hash__(self):
-        if self._hash is None:
-            self._hash = hash((self.arg_types, self.return_type, self.overloads))
-        return self._hash
-
-    def __eq__(self, other):
-        return (
-            isinstance(other, CallableType)
-            and self.arg_types == other.arg_types
-            and self.return_type == other.return_type
-            and self.overloads == other.overloads
-        )
-
-
-class TypeType(ProperType):
-    """A class-object type of the form ``type[T]``."""
-
-    def __init__(self, item: ProperType) -> None:
-        self.item: Final[ProperType] = item
-        self._hash: int | None = None
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_type_type(self)
-
-    def __hash__(self):
-        if self._hash is None:
-            self._hash = hash((TypeType, self.item))
-        return self._hash
-
-    def __eq__(self, other):
-        return isinstance(other, TypeType) and self.item == other.item
-
-
-class StringSubtype(ProperType):
-    """A subtype of str determined by its regex.
-
-    TODO(lk): Add support to all visitors.
-    """
-
-    def __init__(self, regex: re.Pattern):  # noqa: D107
-        self.regex = regex
-        self._hash: int | None = None
-
-    def __eq__(self, other):
-        return isinstance(other, StringSubtype) and other.regex == self.regex
-
-    def __hash__(self):
-        return hash(self.regex)
-
-    def __str__(self):
-        return f"StringSubtype({self.regex})"
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_string_subtype(self)
-
-
-class NumericString(StringSubtype):
-    """A string that only contains numerical characters and an optional decimal point.
-
-    Examples: "123", "123.45", "0.001"
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^\d+(\.\d+)?$"))
-
-
-class EmailString(StringSubtype):
-    """A string that follows the general pattern of an email address.
-
-    Example: "name@domain.edu".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^[^@]+@[^@]+\.[^@]+$"))
-
-
-class HexadecimalString(StringSubtype):
-    """A string that represents a hexadecimal number.
-
-    Examples: "0x1A3F", "1a3f", "0XABCDEF".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^(0x|0X)?[0-9a-fA-F]+$"))
-
-
-class ISOColorString(StringSubtype):
-    """A string that represents a hexadecimal color code.
-
-    Examples: "#FFFFFF", "#000000", "#FF5733".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$"))
-
-
-class UUIDString(StringSubtype):
-    """A string that represents a UUID.
-
-    Examples: "123e4567-e89b-12d3-a456-426614174000".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(
-            re.compile(
-                r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-            )
-        )
-
-
-class ISODateString(StringSubtype):
-    """A string that represents a date in ISO 8601 format.
-
-    Examples: "2023-10-05", "1999-12-31".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^\d{4}-\d{2}-\d{2}$"))
-
-
-class ISOTimeString(StringSubtype):
-    """A string that represents a time in ISO 8601 format.
-
-    Examples: "14:30:00", "23:59:59".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^\d{2}:\d{2}:\d{2}$"))
-
-
-class CSVString(StringSubtype):
-    """A string that represents comma-separated values.
-
-    Examples: "value1,value2,value3", "itemA,itemB,itemC".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^([^,]+,)*[^,]+$"))
-
-
-class URLString(StringSubtype):
-    """A string that represents a URL.
-
-    Examples: "http://example.com", "https://www.domain.org/path?query=param".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^(https?|ftp)://[^\s/$.?#].[^\s]*$"))
-
-
-class IPv4String(StringSubtype):
-    """A string that represents an IPv4 address.
-
-    Examples: "192.168.0.0", "74.5.123.31".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(
-            re.compile(
-                r"^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\."
-                r"(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\."
-                r"(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\."
-                r"(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
-            )
-        )
-
-
-class IPv6String(StringSubtype):
-    """A string that represents an IPv6 address.
-
-    Examples: "2001:0db8:85a3:0000:0000:8a2e:0370:7334", "fe80::1ff:fe23:4567:890a".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}$"))
-
-
-class PhoneNumberString(StringSubtype):
-    """A string that represents a phone number.
-
-    Examples: "+1-800-555-1234", "(123) 456-7890".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^\+?[\d\s\-\(\)]+$"))
-
-
-class SHA256String(StringSubtype):
-    """A string that represents a SHA-256 hash.
-
-    Examples: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".
-    """
-
-    def __init__(self):  # noqa: D107
-        super().__init__(re.compile(r"^[a-fA-F0-9]{64}$"))
-
-
-class Unsupported(ProperType):
-    """Marks an unsupported type in the type system.
-
-    Artificial type which represents a type that is currently not supported by
-    our type abstraction. This is purely used for statistic purposes and should not
-    be encountered during regular use.
-    """
-
-    def __eq__(self, other):
-        return isinstance(other, Unsupported)
-
-    def __hash__(self):
-        return hash(Unsupported)
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_unsupported_type(self)
-
-
-class Variance(enum.Enum):
-    """Type variable variance kinds as defined in PEP 484."""
-
-    INVARIANT = 0
-    COVARIANT = 1
-    CONTRAVARIANT = 2
-
-
-class TypeVarType(ProperType):
-    """A PEP 484 ``TypeVar`` in the type system.
-
-    Represents a type variable that may be constrained or have an upper bound.
-    Supports invariance, covariance, and contravariance.
-    """
-
-    def __init__(  # noqa: D107
-        self,
-        name: str,
-        *,
-        constraints: tuple[ProperType, ...] = (),
-        bound: ProperType | None = None,
-        variance: Variance = Variance.INVARIANT,
-    ) -> None:
-        self.name: Final[str] = name
-        self.constraints: Final[tuple[ProperType, ...]] = constraints
-        self.bound: Final[ProperType | None] = bound
-        self.variance: Final[Variance] = variance
-        self._hash: int | None = None
-
-    def accept(self, visitor: TypeVisitor[T]) -> T:  # noqa: D102
-        return visitor.visit_type_var_type(self)
-
-    @property
-    def has_constraints(self) -> bool:
-        """Whether this type var has explicit constraints (e.g. ``T = TypeVar('T', int, str)``)."""
-        return len(self.constraints) > 0
-
-    @property
-    def has_bound(self) -> bool:
-        """Whether this type var has an upper bound (e.g. ``T = TypeVar('T', bound=Number)``)."""
-        return self.bound is not None
-
-    def __hash__(self) -> int:
-        if self._hash is None:
-            self._hash = hash((self.name, self.constraints, self.bound, self.variance))
-        return self._hash
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, TypeVarType):
-            return False
-        return (
-            self.name == other.name
-            and self.constraints == other.constraints
-            and self.bound == other.bound
-            and self.variance == other.variance
-        )
-
-    def __repr__(self) -> str:
-        parts = [f"TypeVarType({self.name!r}"]
-        if self.has_constraints:
-            parts.append(f"constraints={self.constraints!r}")
-        if self.has_bound:
-            parts.append(f"bound={self.bound!r}")
-        if self.variance != Variance.INVARIANT:
-            parts.append(f"variance={self.variance.name}")
-        parts.append(")")
-        return "".join(parts)
-
-
-# Static instances to avoid repeated construction.
-ANY = AnyType()
-NONE_TYPE = NoneType()
-NEVER = NeverType()
-UNSUPPORTED = Unsupported()
-
-
-class TypeVisitor(Generic[T]):
-    """A type visitor.
-
-    Note that the parameter of the visit_* methods is called 'left',
-    because it makes the implementations of _SubTypeVisitor and _MaybeSubTypeVisitor
-    more clear and Python does not like changing the names of parameters in subclasses,
-    thus we renamed them in this class.
-    """
-
-    @abstractmethod
-    def visit_any_type(self, left: AnyType) -> T:
-        """Visit the Any type.
-
-        Args:
-            left: the Any type
-
-        Returns:
-            result of the visit
-        """
-
-    @abstractmethod
-    def visit_none_type(self, left: NoneType) -> T:
-        """Visit the None type.
-
-        Args:
-            left: the None type
-
-        Returns:
-            result of the visit
-        """
-
-    def visit_never_type(self, left: NeverType) -> T:
-        """Visit the bottom type."""
-        return None  # type: ignore[return-value]
-
-    @abstractmethod
-    def visit_instance(self, left: Instance) -> T:
-        """Visit an instance.
-
-        Args:
-            left: instance
-
-        Returns:
-            result of the visit
-        """
-
-    @abstractmethod
-    def visit_tuple_type(self, left: TupleType) -> T:
-        """Visit a tuple type.
-
-        Args:
-            left: tuple
-
-        Returns:
-            result of the visit
-        """
-
-    @abstractmethod
-    def visit_union_type(self, left: UnionType) -> T:
-        """Visit a union.
-
-        Args:
-            left: union
-
-        Returns:
-            result of the visit
-        """
-
-    @abstractmethod
-    def visit_unsupported_type(self, left: Unsupported) -> T:
-        """Visit unsupported type.
-
-        Args:
-            left: unsupported
-
-        Returns:
-            result of the visit
-        """
-
-    def visit_string_subtype(self, left: StringSubtype) -> T:
-        """Visit a string subtype.
-
-        Args:
-            left: string subtype
-
-        Returns:
-            Result of the visit
-        """
-        return None  # type: ignore[return-value]
-
-    def visit_type_var_type(self, left: TypeVarType) -> T:
-        """Visit a type variable type.
-
-        The default implementation returns ``None``.  Concrete visitors
-        should override this if they need to handle type variables.
-
-        Args:
-            left: type variable
-
-        Returns:
-            Result of the visit
-        """
-        return None  # type: ignore[return-value]
-
-    def visit_callable_type(self, left: CallableType) -> T:
-        """Visit a callable type."""
-        return None  # type: ignore[return-value]
-
-    def visit_type_type(self, left: TypeType) -> T:
-        """Visit a class-object type."""
-        return None  # type: ignore[return-value]
-
-
-class _PartialTypeMatch(TypeVisitor[ProperType | None]):
-    """A type visitor to check for base type matches."""
-
-    def __init__(self, right: ProperType):
-        self.right = right
-
-    def visit_any_type(self, left: AnyType) -> ProperType | None:
-        # Any is not guessed/recorded
-        return None
-
-    def visit_none_type(self, left: NoneType) -> ProperType | None:
-        if isinstance(self.right, NoneType):
-            return NONE_TYPE
-        return None
-
-    def visit_never_type(self, left: NeverType) -> ProperType | None:
-        return NEVER if isinstance(self.right, NeverType) else None
-
-    def visit_instance(self, left: Instance) -> ProperType | None:
-        if isinstance(self.right, Instance) and left.type == self.right.type:
-            return Instance(left.type)
-        return None
-
-    def visit_tuple_type(self, left: TupleType) -> ProperType | None:
-        if isinstance(self.right, TupleType):
-            return TupleType(())
-        return None
-
-    def visit_union_type(self, left: UnionType) -> ProperType | None:
-        matches: tuple[ProperType, ...] = tuple(
-            elem
-            for elem in (_is_partial_type_match(left_elem, self.right) for left_elem in left.items)
-            if elem
-        )
-        if matches:
-            return UnionType(matches)
-        return None
-
-    def visit_unsupported_type(self, left: Unsupported) -> ProperType | None:
-        # Cannot compare.
-        return None
-
-    def visit_callable_type(self, left: CallableType) -> ProperType | None:
-        return left if left == self.right else None
-
-    def visit_type_type(self, left: TypeType) -> ProperType | None:
-        return left if isinstance(self.right, TypeType) else None
-
-
-def _is_partial_type_match(left: ProperType, right: ProperType) -> ProperType | None:
-    """Is left a partial type match of right?
-
-    This is only useful for statistics purposes, i.e., do we have a fuzzy type match?
-
-    Args:
-        left: The guessed type
-        right: The ground truth
-
-    Returns:
-        The partial match, if any.
-    """
-    if isinstance(right, UnionType):
-        matches: tuple[ProperType, ...] = tuple(
-            elem
-            for elem in (_is_partial_type_match(left, right_elem) for right_elem in right.items)
-            if elem is not None
-        )
-        if matches:
-            flattened: set[ProperType] = set()
-            for match in matches:
-                if isinstance(match, UnionType):
-                    flattened.update(match.items)
-                else:
-                    flattened.add(match)
-            return UnionType(tuple(sorted(flattened)))
-        return None
-    return left.accept(_PartialTypeMatch(right))
-
-
-class TypeStringVisitor(TypeVisitor[str]):
-    """A simple visitor to convert a proper type to a string."""
-
-    def visit_any_type(self, left: AnyType) -> str:  # noqa: D102
-        return "Any"
-
-    def visit_none_type(self, left: NoneType) -> str:  # noqa: D102
-        return "None"
-
-    def visit_never_type(self, left: NeverType) -> str:  # noqa: D102
-        return "Never"
-
-    def visit_instance(self, left: Instance) -> str:  # noqa: D102
-        if isinstance(left, LiteralType):
-            if isinstance(left.value, tuple) and len(left.value) == 3 and left.value[0] == "enum":
-                return f"Literal[{left.value[1].rsplit('.', 1)[-1]}.{left.value[2]}]"
-            return f"Literal[{left.value!r}]"
-        rep = left.type.name if left.type.module == "builtins" else left.type.full_name
-        if len(left.args) > 0:
-            rep += "[" + self._sequence_str(left.args) + "]"
-        return rep
-
-    def visit_tuple_type(self, left: TupleType) -> str:  # noqa: D102
-        rep = "tuple"
-        if len(left.args) > 0:
-            args = self._sequence_str(left.args)
-            if left.unknown_size:
-                args += ", ..."
-            rep += f"[{args}]"
-        return rep
-
-    def visit_union_type(self, left: UnionType) -> str:  # noqa: D102
-        if len(left.items) == 1:
-            return left.items[0].accept(self)
-        return self._sequence_str(left.items, sep=" | ")
-
-    def _sequence_str(self, typs: Sequence[ProperType], sep=", ") -> str:
-        return sep.join(t.accept(self) for t in typs)
-
-    def visit_unsupported_type(self, left: Unsupported) -> str:  # noqa: D102
-        return "<?>"
-
-    def visit_type_var_type(self, left: TypeVarType) -> str:
-        # mypy and pyright display a type variable by its name only; the
-        # bound/constraints describe how it may be *solved*, not what the
-        # value is.  Printing ``T: Callable[..., Any]`` made every revealed
-        # parameter of a generic decorator disagree with mypy.
-        return left.name
-
-    def visit_callable_type(self, left: CallableType) -> str:
-        if left.arg_types is None:
-            args = "..."
-        else:
-            args = "[" + self._sequence_str(left.arg_types) + "]"
-        return f"Callable[{args}, {left.return_type.accept(self)}]"
-
-    def visit_type_type(self, left: TypeType) -> str:
-        return f"type[{left.item.accept(self)}]"
-
-
-class TypeReprVisitor(TypeVisitor[str]):
-    """A simple visitor to create a repr from a proper type."""
-
-    def visit_any_type(self, left: AnyType) -> str:  # noqa: D102
-        return "AnyType()"
-
-    def visit_none_type(self, left: NoneType) -> str:  # noqa: D102
-        return "NoneType()"
-
-    def visit_never_type(self, left: NeverType) -> str:  # noqa: D102
-        return "NeverType()"
-
-    def visit_instance(self, left: Instance) -> str:  # noqa: D102
-        rep = f"Instance({left.type!r}"
-        if len(left.args) > 0:
-            rep += "(" + self._sequence_str(left.args) + ")"
-        return rep + ")"
-
-    def visit_tuple_type(self, left: TupleType) -> str:  # noqa: D102
-        unknown_size = ", unknown_size=True" if left.unknown_size else ""
-        return f"TupleType({self._sequence_str(left.args)}{unknown_size})"
-
-    def visit_union_type(self, left: UnionType) -> str:  # noqa: D102
-        return f"UnionType({self._sequence_str(left.items)})"
-
-    def _sequence_str(self, typs: Sequence[ProperType]) -> str:
-        return ", ".join(t.accept(self) for t in typs)
-
-    def visit_unsupported_type(self, left: Unsupported) -> str:  # noqa: D102
-        return "Unsupported()"
-
-    def visit_type_var_type(self, left: TypeVarType) -> str:
-        parts = [f"name={left.name!r}"]
-        if left.has_constraints:
-            parts.append(f"constraints=({', '.join(c.accept(self) for c in left.constraints)})")
-        if left.has_bound and left.bound is not None:
-            parts.append(f"bound={left.bound.accept(self)}")
-        if left.variance != Variance.INVARIANT:
-            parts.append(f"variance={left.variance.name}")
-        return f"TypeVarType({', '.join(parts)})"
-
-    def visit_callable_type(self, left: CallableType) -> str:
-        args = "..." if left.arg_types is None else self._sequence_str(left.arg_types)
-        return f"CallableType(({args}), {left.return_type.accept(self)})"
-
-    def visit_type_type(self, left: TypeType) -> str:
-        return f"TypeType({left.item.accept(self)})"
-
-
-class _SubtypeVisitor(TypeVisitor[bool]):
-    """A visitor to check the subtyping relationship between two types.
-
-    Checks whether left is a subtype of right.
-
-    There is no need to check 'right' for AnyType, as this is done outside.
-    """
-
-    def __init__(
-        self,
-        graph: TypeSystem,
-        right: ProperType,
-        sub_type_check: Callable[[ProperType, ProperType], bool],
-    ):
-        """Create new visitor.
-
-        Args:
-            graph: The inheritance graph.
-            right: The right type.
-            sub_type_check: The subtype check to use
-        """
-        self.graph = graph
-        self.right = right
-        self.sub_type_check = sub_type_check
-
-    def visit_any_type(self, left: AnyType) -> bool:
-        # Any wins always
-        return True
-
-    def visit_none_type(self, left: NoneType) -> bool:
-        return (
-            isinstance(self.right, NoneType)
-            or isinstance(self.right, Instance)
-            and self.right.type.raw_type is object
-        )
-
-    def visit_never_type(self, left: NeverType) -> bool:
-        return True
-
-    def visit_instance(self, left: Instance) -> bool:
-        if left.type.tuple_fields is not None and (
-            isinstance(self.right, TupleType)
-            or isinstance(self.right, Instance)
-            and self.right.type.raw_type
-            in {cabc.Iterable, cabc.Collection, cabc.Sequence, cabc.Reversible, cabc.Container}
-        ):
-            return self.sub_type_check(
-                TupleType(
-                    tuple(left.type.members.get(name, ANY) for name in left.type.tuple_fields)
-                ),
-                self.right,
-            )
-        if isinstance(self.right, CallableType):
-            call = self.graph.get_members(left.type).get("__call__")
-            if not isinstance(call, CallableType):
-                return False
-            if left.args and left.type.type_parameters:
-                from pyflow.analysis.typeinfo.resolution.typing_syntax import (
-                    substitute_type_vars,
-                )
-
-                # ``functools._Wrapped[..., None]`` exposes
-                # ``__call__() -> _RWrapper``; compare the *specialized*
-                # member, otherwise the raw type variable never matches the
-                # declared return type.
-                call = substitute_type_vars(
-                    call,
-                    {
-                        parameter.name: argument
-                        for parameter, argument in zip(left.type.type_parameters, left.args)
-                    },
-                )
-                assert isinstance(call, CallableType)
-            if self.right.arg_types is None or call.arg_types is None:
-                return self.sub_type_check(call.return_type, self.right.return_type)
-            if len(call.arg_types) != len(self.right.arg_types):
-                return False
-            return all(
-                self.sub_type_check(expected, actual)
-                for expected, actual in zip(self.right.arg_types, call.arg_types)
-            ) and self.sub_type_check(call.return_type, self.right.return_type)
-
-        if isinstance(self.right, Instance):
-            expected_fields = self.right.type.typed_dict_fields
-            if expected_fields is not None:
-                actual_fields = left.type.typed_dict_fields
-                if actual_fields is None:
-                    return False
-                pair = (left, self.right)
-                active = self.graph._structural_checks
-                if pair in active:
-                    return True
-                active.add(pair)
-                try:
-                    return self.right.type.required_keys <= left.type.required_keys and all(
-                        name in actual_fields
-                        and self.sub_type_check(actual_fields[name], typ)
-                        and self.sub_type_check(typ, actual_fields[name])
-                        for name, typ in expected_fields.items()
-                    )
-                finally:
-                    active.remove(pair)
-            if self.right.type.is_protocol:
-                required = self.graph.get_members(self.right.type)
-                from pyflow.analysis.typeinfo.resolution.typing_syntax import (
-                    substitute_type_vars,
-                )
-
-                parameters = {
-                    parameter.name: argument
-                    for parameter, argument in zip(self.right.type.type_parameters, self.right.args)
-                }
-                # ``Self`` inside a protocol method refers to the concrete
-                # implementing type, not the protocol itself.
-                parameters["Self"] = left
-                if parameters:
-                    required = {
-                        name: substitute_type_vars(member, parameters)
-                        for name, member in required.items()
-                    }
-                available = self.graph.get_members(left.type)
-                # Recursive protocol members are checked coinductively.
-                pair = (left, self.right)
-                active = self.graph._structural_checks
-                if pair in active:
-                    return True
-                active.add(pair)
-                try:
-                    missing = [name for name in required if name not in available]
-                    if missing and getattr(left.type, "has_unresolved_bases", False):
-                        # Inherited members can come from a base that could not
-                        # be inspected; only report a violation when the whole
-                        # hierarchy is known.
-                        return True
-                    return all(
-                        name in available and self.sub_type_check(available[name], typ)
-                        for name, typ in required.items()
-                    )
-                finally:
-                    active.remove(pair)
-            import io as _io
-            import typing as _typing
-
-            is_sub = self.graph.is_subclass(left.type, self.right.type)
-            target = self.right.type.raw_type
-            if not is_sub and target in {
-                cabc.Iterable,
-                cabc.Iterator,
-                cabc.Collection,
-                cabc.Sequence,
-                cabc.Reversible,
-            }:
-                iter_sig = self.graph.get_members(left.type).get("__iter__")
-                if isinstance(iter_sig, CallableType):
-                    returned = iter_sig.return_type
-                    element: ProperType | None = None
-                    if isinstance(returned, Instance) and returned.args:
-                        element = returned.args[0]
-                    elif isinstance(returned, Instance) and returned.type.raw_type in {
-                        list,
-                        set,
-                        frozenset,
-                        dict,
-                    }:
-                        element = ANY
-                    if element is not None:
-                        if self.right.args:
-                            return self.sub_type_check(element, self.right.args[0])
-                        return True
-            if not is_sub:
-                if self.right.type.raw_type in {_typing.IO, _typing.TextIO, _typing.BinaryIO}:
-                    source_cls = left.type.raw_type
-                    if isinstance(source_cls, type):
-                        if self.right.type.raw_type is _typing.IO and issubclass(
-                            source_cls, _io.IOBase
-                        ):
-                            is_sub = True
-                        elif self.right.type.raw_type is _typing.TextIO and (
-                            issubclass(
-                                source_cls, (_io.TextIOBase, _io.TextIOWrapper, _io.StringIO)
-                            )
-                            or source_cls is _io.TextIOWrapper
-                        ):
-                            is_sub = True
-                        elif self.right.type.raw_type is _typing.BinaryIO and issubclass(
-                            source_cls, (_io.BufferedIOBase, _io.RawIOBase, _io.BytesIO)
-                        ):
-                            is_sub = True
-            if not is_sub:
-                return False
-            covariant = {
-                cabc.Iterable,
-                cabc.Iterator,
-                cabc.Collection,
-                cabc.Container,
-                cabc.Sequence,
-                cabc.Reversible,
-                cabc.Set,
-                cabc.AsyncIterable,
-                cabc.AsyncIterator,
-            }
-            source = left.type.raw_type
-            if target in covariant and self.right.args:
-                if source is str:
-                    elements = (Instance(self.graph.to_class_descriptor(str)),)
-                elif source is bytes:
-                    elements = (Instance(self.graph.to_class_descriptor(int)),)
-                elif source is cabc.ItemsView and len(left.args) >= 2:
-                    elements = (TupleType(left.args[:2]),)
-                else:
-                    elements = left.args[:1] or (ANY,)
-                return all(self.sub_type_check(element, self.right.args[0]) for element in elements)
-            if target in {cabc.MutableSequence, cabc.MutableSet} and self.right.args:
-                elements = left.args[:1] or (ANY,)
-                return all(
-                    isinstance(element, NeverType)
-                    or (
-                        self.sub_type_check(element, self.right.args[0])
-                        and self.sub_type_check(self.right.args[0], element)
-                    )
-                    for element in elements
-                )
-            if target in {cabc.Mapping, cabc.MutableMapping} and self.right.args:
-                arguments = left.args[:2] or (ANY, ANY)
-                if len(arguments) != len(self.right.args):
-                    return False
-                return all(
-                    isinstance(actual, NeverType)
-                    or (
-                        self.sub_type_check(actual, expected)
-                        and (
-                            target is cabc.Mapping
-                            and index == 1
-                            or self.sub_type_check(expected, actual)
-                        )
-                    )
-                    for index, (actual, expected) in enumerate(zip(arguments, self.right.args))
-                )
-            if left.type == self.right.type and (left.args or self.right.args):
-                # A bare generic is an Any-parameterized instance, not an
-                # incompatible zero-argument specialization.
-                if not self.right.args:
-                    return True
-                if not left.args:
-                    return True
-                # TODO(fk) handle generics properly :(
-                # Until variance metadata exists, same-origin generics are invariant.
-                if len(left.args) != len(self.right.args):
-                    return False
-                return all(
-                    isinstance(left_elem, NeverType)
-                    or (
-                        self.sub_type_check(left_elem, right_elem)
-                        and self.sub_type_check(right_elem, left_elem)
-                    )
-                    for left_elem, right_elem in zip(left.args, self.right.args)
-                )
-            return True
-        return False
-
-    def visit_tuple_type(self, left: TupleType) -> bool:
-        if isinstance(self.right, Instance) and self.right.type.raw_type is object:
-            return True
-        if isinstance(self.right, Instance) and self.right.type.raw_type in {
-            cabc.Iterable,
-            cabc.Collection,
-            cabc.Sequence,
-            cabc.Reversible,
-            cabc.Container,
-        }:
-            return not self.right.args or all(
-                self.sub_type_check(element, self.right.args[0]) for element in left.args
-            )
-        if isinstance(self.right, TupleType):
-            if self.right.unknown_size:
-                if not self.right.args:
-                    return True
-                right_element = self.right.args[0]
-                if left.unknown_size:
-                    return not left.args or self.sub_type_check(left.args[0], right_element)
-                return all(
-                    self.sub_type_check(left_element, right_element) for left_element in left.args
-                )
-            if left.unknown_size:
-                return False
-            if len(left.args) != len(self.right.args):
-                return False
-            return all(starmap(self.sub_type_check, zip(left.args, self.right.args)))
-        return False
-
-    def visit_union_type(self, left: UnionType) -> bool:
-        return all(self.sub_type_check(left_elem, self.right) for left_elem in left.items)
-
-    def visit_unsupported_type(self, left: Unsupported) -> bool:
-        raise NotImplementedError("This type shall not be used during runtime")
-
-    def visit_type_var_type(self, left: TypeVarType) -> bool:
-        if isinstance(self.right, TypeVarType) and left.name == self.right.name:
-            return True
-        if left.has_constraints:
-            return all(self.sub_type_check(c, self.right) for c in left.constraints)
-        if left.has_bound:
-            return self.sub_type_check(left.bound, self.right)  # type: ignore[arg-type]
-        return isinstance(self.right, Instance) and self.right.type.raw_type is object
-
-    def visit_callable_type(self, left: CallableType) -> bool:
-        if isinstance(self.right, Instance):
-            if self.right.type.raw_type is object or (
-                self.right.type.raw_type is cabc.Callable
-                and all(isinstance(argument, AnyType) for argument in self.right.args)
-            ):
-                return True
-            if self.right.type.is_protocol:
-                # A plain function satisfies a ``__call__`` protocol.
-                member = self.graph.get_members(self.right.type).get("__call__")
-                if isinstance(member, CallableType):
-                    return self.sub_type_check(left, member)
-            return False
-        if not isinstance(self.right, CallableType):
-            return False
-        if not self.sub_type_check(left.return_type, self.right.return_type):
-            return False
-        if self.right.arg_types is None:
-            return True
-        if left.arg_types is None:
-            # ``Callable[..., R]`` accepts any argument list.  Gradual typing
-            # treats it as compatible with every concrete callable whose
-            # return type is compatible; only the return check above remains.
-            return True
-        if len(left.arg_types) != len(self.right.arg_types):
-            return False
-        return all(
-            self.sub_type_check(right_arg, left_arg)
-            for left_arg, right_arg in zip(left.arg_types, self.right.arg_types)
-        )
-
-    def visit_type_type(self, left: TypeType) -> bool:
-        if isinstance(self.right, TypeType):
-            return self.sub_type_check(left.item, self.right.item)
-        if isinstance(self.right, CallableType):
-            if isinstance(left.item, Instance):
-                if not self.sub_type_check(left.item, self.right.return_type):
-                    return False
-                if self.right.arg_types is None:
-                    return True
-                init = self.graph.get_members(left.item.type).get("__init__")
-                if isinstance(init, CallableType) and init.arg_types is not None:
-                    ctor_args = init.arg_types
-                    if len(ctor_args) != len(self.right.arg_types):
-                        return False
-                    return all(
-                        self.sub_type_check(expected, actual)
-                        for expected, actual in zip(self.right.arg_types, ctor_args)
-                    )
-                # Builtin and stub classes often have no modelled constructor
-                # signature.  Their class objects are still callable; do not
-                # reject them merely because the signature is unavailable.
-                return True
-            return self.sub_type_check(left.item, self.right.return_type)
-        # type[T] is a subtype of the builtin type (and object, Callable).
-        return isinstance(self.right, Instance) and self.right.type.raw_type in {
-            type,
-            object,
-            cabc.Callable,
-        }
-
-    def visit_string_subtype(self, left: StringSubtype) -> bool:
-        if isinstance(self.right, StringSubtype):
-            return left == self.right
-        return isinstance(self.right, Instance) and self.right.type.raw_type is str
-
-
-def _sum_distances(distances: typing.Iterable[int | None]) -> int | None:
-    """Sum structural distances, rejecting any disconnected component."""
-    total = 0
-    for distance in distances:
-        if distance is None:
-            return None
-        total += distance
-    return total
-
-
-class _SubtypeDistanceVisitor(TypeVisitor[int | None]):
-    """A visitor to compute the subtype distance between two types.
-
-    The subtype distance is the length of the shortest path in the inheritance graph
-    between the two types. The AnyType is treated as a sub- and supertype of everything,
-    but with a high distance. For all not supported types, None is returned indicating
-    that the elements are not connected.
-    """
-
-    def __init__(
-        self,
-        graph: TypeSystem,
-        subtype: ProperType,
-        any_distance: int = config.settings.generator_selection.generator_any_distance,
-    ):
-        """Create a new visitor.
-
-        Args:
-            graph: The inheritance graph.
-            subtype: The subtype to calculate the distance to.
-            any_distance: The distance for the AnyType.
-        """
-        self.graph = graph
-        self.subtype = subtype
-        self.any_distance = any_distance
-
-    def visit_any_type(self, supertype: AnyType) -> int:
-        return self.any_distance
-
-    def visit_none_type(self, supertype: NoneType) -> int | None:
-        return 0 if isinstance(self.subtype, NoneType) else None
-
-    def visit_never_type(self, supertype: NeverType) -> int | None:
-        return 0 if isinstance(self.subtype, NeverType) else None
-
-    def visit_instance(self, supertype: Instance) -> int | None:
-        """Calculate the distance between two instances.
-
-        Uses the distance in the inheritance graph between the two types.
-        For types with arguments, e.g. list or dict, the sum of the distances of the
-        arguments is returned.
-        For the UnionType, the minimum distance is to any of the arguments is returned.
-        For the AnyType, the distance is always the any_distance.
-
-        Args:
-            supertype: The supertype to calculate the distance to.
-
-        Returns:
-            The distance between the two types or None if they are not connected.
-        """
-        if supertype.type.raw_type is object and isinstance(
-            self.subtype, (NoneType, TupleType, CallableType)
-        ):
-            return 1
-        if (
-            supertype.type.raw_type is cabc.Callable
-            and isinstance(self.subtype, CallableType)
-            and all(isinstance(argument, AnyType) for argument in supertype.args)
-        ):
-            return 1
-        if isinstance(self.subtype, Instance):
-            class_distance = self.graph.get_shortest_path_length(supertype.type, self.subtype.type)
-            if class_distance is None:
-                return None
-            if supertype.type != self.subtype.type:
-                return class_distance
-            if len(supertype.args) != len(self.subtype.args):
-                return None
-            argument_distance = _sum_distances(
-                self.graph.subtype_distance(supertype_arg, subtype_arg)
-                for supertype_arg, subtype_arg in zip(supertype.args, self.subtype.args)
-            )
-            return None if argument_distance is None else class_distance + argument_distance
-
-        if isinstance(self.subtype, UnionType):
-            distances = [
-                self.graph.subtype_distance(supertype, elem) for elem in self.subtype.items
-            ]
-            valid_distances = [dist for dist in distances if dist is not None]
-            if valid_distances:
-                return min(valid_distances)
-            return None
-
-        if isinstance(self.subtype, AnyType):
-            return self.any_distance
-
-        return None
-
-    def visit_tuple_type(self, supertype: TupleType) -> int | None:
-        """Calculate the distance between two tuple types.
-
-        The length of the arguments must match. If so, the result is the sum of
-        the distances of the arguments.
-
-        Args:
-            supertype: The supertype to calculate the distance to.
-
-        Returns:
-            The distance between the two types or None if they are not connected.
-        """
-        if not isinstance(self.subtype, TupleType):
-            return None
-        if supertype.unknown_size:
-            if not supertype.args:
-                return 0
-            supertype_element = supertype.args[0]
-            subtype_elements = (
-                self.subtype.args[:1] if self.subtype.unknown_size else self.subtype.args
-            )
-            return _sum_distances(
-                self.graph.subtype_distance(supertype_element, subtype_element)
-                for subtype_element in subtype_elements
-            )
-        if self.subtype.unknown_size or len(supertype.args) != len(self.subtype.args):
-            return None
-        return _sum_distances(
-            self.graph.subtype_distance(supertype_arg, subtype_arg)
-            for supertype_arg, subtype_arg in zip(supertype.args, self.subtype.args)
-        )
-
-    def visit_union_type(self, supertype: UnionType) -> int | None:
-        """Calculate the distance between two union types.
-
-        The minimum distance between any of the arguments is returned.
-
-        Args:
-            supertype: The supertype to calculate the distance to.
-
-        Returns:
-            The distance between the two types or None if they are not connected.
-        """
-        distances = [self.graph.subtype_distance(elem, self.subtype) for elem in supertype.items]
-        valid_distances = [dist for dist in distances if dist is not None]
-        if valid_distances:
-            return min(valid_distances)
-        return None
-
-    def visit_unsupported_type(self, supertype: Unsupported) -> int | None:
-        raise NotImplementedError("This type shall not be used during runtime")
-
-    def visit_callable_type(self, supertype: CallableType) -> int | None:
-        if not isinstance(self.subtype, CallableType):
-            return None
-        return_distance = self.graph.subtype_distance(
-            supertype.return_type, self.subtype.return_type
-        )
-        if return_distance is None:
-            return None
-        if supertype.arg_types is None:
-            return return_distance
-        if self.subtype.arg_types is None or len(supertype.arg_types) != len(
-            self.subtype.arg_types
-        ):
-            return None
-        parameter_distance = _sum_distances(
-            self.graph.subtype_distance(subtype_arg, supertype_arg)
-            for supertype_arg, subtype_arg in zip(supertype.arg_types, self.subtype.arg_types)
-        )
-        return None if parameter_distance is None else return_distance + parameter_distance
-
-    def visit_type_type(self, supertype: TypeType) -> int | None:
-        if not isinstance(self.subtype, TypeType):
-            return None
-        return self.graph.subtype_distance(supertype.item, self.subtype.item)
-
-
-class _MaybeSubtypeVisitor(_SubtypeVisitor):
-    """A weaker subtype check, which only checks if left may be a subtype of right.
-
-    For example, tuple[str | int | bytes, str | int | bytes] is not a subtype of
-    tuple[int, int], but the actual return value may be.
-    """
-
-    def visit_union_type(self, left: UnionType) -> bool:
-        return any(self.sub_type_check(left_elem, self.right) for left_elem in left.items)
-
-    def visit_unsupported_type(self, left: Unsupported) -> bool:
-        raise NotImplementedError("This type shall not be used during runtime")
-
-
-class _CollectionTypeVisitor(TypeVisitor[bool]):
-    # No tuple because it is a separate type.
-    Collections: ClassVar[set[type]] = {dict, list, set}
-
-    def visit_any_type(self, left: AnyType) -> bool:
-        return False
-
-    def visit_none_type(self, left: NoneType) -> bool:
-        return False
-
-    def visit_never_type(self, left: NeverType) -> bool:
-        return False
-
-    def visit_instance(self, left: Instance) -> bool:
-        return left.type.raw_type in _CollectionTypeVisitor.Collections
-
-    def visit_tuple_type(self, left: TupleType) -> bool:
-        return True
-
-    def visit_union_type(self, left: UnionType) -> bool:
-        return False
-
-    def visit_unsupported_type(self, left: Unsupported) -> bool:
-        raise NotImplementedError("This type shall not be used during runtime")
-
-    def visit_callable_type(self, left: CallableType) -> bool:
-        return False
-
-    def visit_type_type(self, left: TypeType) -> bool:
-        return False
-
-
-is_collection_type = _CollectionTypeVisitor()
-
-
-class _PrimitiveTypeVisitor(TypeVisitor[bool]):
-    Primitives: ClassVar[set[type]] = {int, str, bool, float, complex, bytes, type}
-
-    def visit_any_type(self, left: AnyType) -> bool:
-        return False
-
-    def visit_none_type(self, left: NoneType) -> bool:
-        return False
-
-    def visit_never_type(self, left: NeverType) -> bool:
-        return False
-
-    def visit_instance(self, left: Instance) -> bool:
-        return left.type.raw_type in _PrimitiveTypeVisitor.Primitives
-
-    def visit_tuple_type(self, left: TupleType) -> bool:
-        return False
-
-    def visit_union_type(self, left: UnionType) -> bool:
-        return False
-
-    def visit_unsupported_type(self, left: Unsupported) -> bool:
-        raise NotImplementedError("This type shall not be used during runtime")
-
-    def visit_callable_type(self, left: CallableType) -> bool:
-        return False
-
-    def visit_type_type(self, left: TypeType) -> bool:
-        return False
-
-
-is_primitive_type = _PrimitiveTypeVisitor()
-
-
-@functools.lru_cache(maxsize=4096)
-def _typeshed_class_members(full_name: str) -> dict[str, ProperType]:
-    """Return bound typeshed member types for a stdlib class, if stubbed."""
-    if "." not in full_name:
-        return {}
-    module_name = full_name.rpartition(".")[0]
-    if module_name.split(".", 1)[0] not in _STDLIB_ROOT_MODULES:
-        return {}
-    try:
-        from pyflow.analysis.typeinfo.resolution.typeshed_resolver import (
-            resolve_typeshed_class_members,
-        )
-
-        return resolve_typeshed_class_members(full_name)
-    except Exception:
-        return {}
-
-
-_STDLIB_ROOT_MODULES = frozenset(getattr(sys, "stdlib_module_names", ())) | {"builtins"}
-
-
-def _is_signatureless_member(member: ProperType) -> bool:
-    """Whether a member type carries no information worth keeping."""
-    if member == ANY:
-        return True
-    if not isinstance(member, CallableType):
-        return False
-    if member.return_type != ANY:
-        return False
-    return not member.arg_types or all(argument == ANY for argument in member.arg_types)
-
-
-class ClassDescriptor:
-    """A small wrapper around type, i.e., classes.
-
-    Corresponds 1:1 to a class.
-    """
-
-    def __init__(self, raw_type: type | types.UnionType):
-        """Create type info from the given type.
-
-        Don't use this constructor directly (unless for testing purposes), instead ask
-        the inheritance graph to give you a type info for the given raw type.
-
-        Naming in python is somehow misleading, 'type' actually only represents classes,
-        but not any more complex types.
-
-        Args:
-            raw_type: the raw (class) type
-        """
-        self.raw_type = raw_type
-        self.name, self.qualname, self.module = ClassDescriptor._extract_name_qualname_module(
-            raw_type
-        )
-        self.full_name = ClassDescriptor.to_full_name(raw_type)
-        self.hash = hash(self.full_name)
-        self.is_abstract = inspect.isabstract(raw_type)
-        # TODO(fk) store more information on attributes
-        self.instance_attributes: OrderedSet[str] = OrderedSet()
-        self.attributes: OrderedSet[str] = OrderedSet()
-        # Static declarations, populated without executing analysed source.
-        self.members: dict[str, ProperType] = {}
-        self.is_protocol = bool(getattr(raw_type, "_is_protocol", False))
-        # True when a source class declares a base whose members cannot be
-        # inspected (third-party or otherwise unresolved).  Structural checks
-        # must then stay conservative instead of reporting missing members.
-        self.has_unresolved_bases = False
-        self.enum_kind: str | None = None
-        self.typed_dict_fields: dict[str, ProperType] | None = None
-        self.required_keys: frozenset[str] = frozenset()
-        self.tuple_fields: tuple[str, ...] | None = None
-        self.type_parameters: tuple[TypeVarType, ...] = ()
-
-        # TODO(fk) properly implement generics!
-        # For now we just store the number of generic parameters for set, dict and list.
-        self.num_hardcoded_generic_parameters: int | None = (
-            2
-            if raw_type in {dict, defaultdict}
-            else (
-                1
-                if raw_type
-                in {
-                    set,
-                    list,
-                    deque,
-                    Counter,
-                    re.Pattern,
-                    re.Match,
-                    contextvars.ContextVar,
-                }
-                else None
-            )
-        )
-
-    def refresh(self, raw_type: type | types.UnionType) -> None:
-        """Refresh identity fields after the same class is re-created.
-
-        Project inference creates a fresh synthetic ``type`` object for every
-        source class on every module pass.  The descriptor is intentionally
-        keyed by full name so instances from earlier passes keep pointing at
-        the same analysis object; refreshing the raw type in place prevents an
-        early unresolved placeholder from shadowing the real class forever.
-        ``members`` and the other analysis-owned fields are preserved because
-        callers update those incrementally.
-        """
-        self.raw_type = raw_type
-        self.name, self.qualname, self.module = self._extract_name_qualname_module(raw_type)
-        self.is_abstract = inspect.isabstract(raw_type)
-        self.is_protocol = bool(getattr(raw_type, "_is_protocol", False))
-        self.num_hardcoded_generic_parameters = (
-            2 if raw_type is dict else 1 if raw_type in {set, list} else None
-        )
-
-    @staticmethod
-    def _extract_name_qualname_module(raw_type: type | types.UnionType) -> tuple[str, str, str]:
-        """Extract the name, qualname and module from the given type.
-
-        While type has a __name__, __qualname__ and __module__ attribute, UnionType
-        does not. This caused a crash which is resolved by special handling of UnionType.
-        As fallback, we use the type of the given type, which worked for the UnionType.
-        """
-        if isinstance(raw_type, types.UnionType):
-            name = "UnionType"
-            qualname = "UnionType"
-            module = "types"
-            return name, qualname, module
-
-        name = ClassDescriptor.get_dunder_value_from_type(raw_type, "name")
-        qualname = ClassDescriptor.get_dunder_value_from_type(raw_type, "qualname")
-        module = ClassDescriptor.get_dunder_value_from_type(raw_type, "module")
-        return name, qualname, module
-
-    @staticmethod
-    def to_full_name(typ: type | types.UnionType) -> str:  # noqa: D417
-        """Get the full name of the given type.
-
-        While `type` has a `__name__`, `__qualname__` and `__module__` attribute, `UnionType`
-        does not. This caused a crash which is resolved by special handling of `UnionType`.
-
-        Args:
-            `typ`: The `type` for which we want a full name.
-
-        Returns:
-            The fully qualified name
-        """
-        if isinstance(typ, types.UnionType):
-            return "types.UnionType"
-
-        module = ClassDescriptor.get_dunder_value_from_type(typ, "module")
-        qualname = ClassDescriptor.get_dunder_value_from_type(typ, "qualname")
-        # CPython 3.13 moved ``pathlib`` into ``pathlib._local``.  Expose the
-        # public module name so type strings stay stable across versions.
-        if module in {"pathlib._local", "pathlib._abc"}:
-            module = "pathlib"
-        return f"{module}.{qualname}"
-
-    @staticmethod
-    def get_dunder_value_from_type(typ: type, name: str) -> str:
-        """Get the dunder value with the given name from the given type.
-
-        If the given type has no dunder attribute with the given name, we fall back to
-        using the type of the given typ (== a value in this case). This worked for the
-        UnionType.
-
-        Args:
-            typ: The type from which to get the attribute.
-            name: The name of the dunder attribute to get.
-
-        Returns:
-            The value of the dunder attribute.
-        """
-        dunder_name = f"__{name}__"
-        if hasattr(typ, dunder_name):
-            return getattr(typ, dunder_name)
-
-        _LOGGER.error(
-            "%s has no attribute __%s__. This method must not be called with instances of types.",
-            typ,
-            name,
-        )
-        return getattr(type(typ), dunder_name)
-
-    def __eq__(self, other) -> bool:
-        return isinstance(other, ClassDescriptor) and other.full_name == self.full_name
-
-    def __hash__(self):
-        return self.hash
-
-    def __repr__(self):
-        return f"ClassDescriptor({self.full_name})"
-
-
-class NamedDefaultDict(dict[str, tt.UsageTraceNode]):  # noqa: FURB189
-    """A default dictionary that automatically creates nodes for keys.
-
-    Default dict which automatically creates a UsageTraceNode for each requested
-    and non-existing key.
-    """
-
-    def __missing__(self, key):
-        # Create node for missing attribute
-        res = self[key] = tt.UsageTraceNode(key)
-        return res
-
-
-# If one of these methods was called on a proxy, we can use the argument type
-# to make guesses.
-# __mul__ and __rmul__ are not reliable, as they don't necessarily have to indicate
-# the type, for example, [1,2] * 3 is well-defined between a list and an int.
-_ARGUMENT_ATTRIBUTES = OrderedSet(
-    [
-        "__eq__",
-        "__ne__",
-        "__lt__",
-        "__le__",
-        "__gt__",
-        "__ge__",
-        "__add__",
-        "__radd__",
-        "__sub__",
-        "__rsub__",
-        "__truediv__",
-        "__rtruediv__",
-        "__floordiv__",
-        "__rfloordiv__",
-    ]
+    if origin is not None
 )
-
-# If we suspect the type to be a string and one of these methods was called on a proxy,
-# we can use the argument values to try and infer a string subtype.
-_STRING_SUBTYPE_ATTRIBUTES = OrderedSet(
-    [
-        "startswith",
-        "endswith",
-        "split",
-        "rsplit",
-        "splitlines",
-        "partition",
-        "rpartition",
-        "find",
-        "rfind",
-        "index",
-        "rindex",
-        "replace",
-        "format",
-        "join",
-        "strip",
-        "lstrip",
-        "rstrip",
-        "zfill",
-        "center",
-        "ljust",
-        "rjust",
-        "removeprefix",
-        "removesuffix",
-        "translate",
-        "count",
-    ]
-)
-
-STRING_SUBTYPES = OrderedSet(
-    [
-        NumericString,
-        EmailString,
-        HexadecimalString,
-        ISOColorString,
-        UUIDString,
-        ISODateString,
-        ISOTimeString,
-        CSVString,
-        URLString,
-        IPv4String,
-        IPv6String,
-        PhoneNumberString,
-        SHA256String,
-    ]
-)
-# We can guess the element type by looking at the knowledge from these
-_LIST_ELEMENT_ATTRIBUTES = OrderedSet(("__iter__", "__getitem__"))
-_DICT_KEY_ATTRIBUTES = OrderedSet(("__iter__",))
-_DICT_VALUE_ATTRIBUTES = OrderedSet(("__getitem__",))
-_SET_ELEMENT_ATTRIBUTES = OrderedSet(("__iter__",))
-_TUPLE_ELEMENT_ATTRIBUTES = OrderedSet(("__iter__", "__getitem__"))
-
-# We can guess generic type(s) from the argument type(s) of these methods:
-_LIST_ELEMENT_FROM_ARGUMENT_TYPES = OrderedSet(("__contains__", "__delitem__"))
-_SET_ELEMENT_FROM_ARGUMENT_TYPES = OrderedSet(("__contains__", "__delitem__"))
-_DICT_KEY_FROM_ARGUMENT_TYPES = OrderedSet(
-    (
-        "__contains__",
-        "__delitem__",
-        "__getitem__",
-        "__setitem__",
-    )
-)
-_DICT_VALUE_FROM_ARGUMENT_TYPES = OrderedSet(("__setitem__",))
-_TUPLE_ELEMENT_FROM_ARGUMENT_TYPES = OrderedSet(("__contains__",))
-
-# Similar to above, but these are not dunder methods but are called,
-# e.g., for 'append', we need to search for 'append.__call__(...)'
-_LIST_ELEMENT_FROM_ARGUMENT_TYPES_PATH: OrderedSet[tuple[str, ...]] = OrderedSet(
-    [
-        ("append", "__call__"),
-        ("remove", "__call__"),
-    ]
-)
-_SET_ELEMENT_FROM_ARGUMENT_TYPES_PATH: OrderedSet[tuple[str, ...]] = OrderedSet(
-    [
-        ("add", "__call__"),
-        ("remove", "__call__"),
-        ("discard", "__call__"),
-    ]
-)
-# Nothing for tuple and dict.
-_EMPTY_SET: OrderedSet[tuple[str, ...]] = OrderedSet()
-
-
-@dataclass(eq=False, repr=False)
-class InferredSignature:
-    """Encapsulates the types inferred for a method."""
-
-    # Signature inferred from inspect, only useful to get non-type related information
-    # on parameters
-    signature: inspect.Signature
-    # The return type
-    original_return_type: ProperType
-    # A dict mapping every parameter name to its type
-    original_parameters: dict[str, ProperType]
-
-    # Proxy knowledge learned from executions
-    usage_trace: dict[str, tt.UsageTraceNode] = field(
-        default_factory=NamedDefaultDict,
-        init=False,
-    )
-
-    # Reference to the used type system.
-    type_system: TypeSystem
-
-    # Return type might be updated, which is stored here.
-    return_type: ProperType = field(init=False)
-
-    # The currently guessed parameter types. Guessing will never result in Any, as
-    # that is not a useful guess.
-    current_guessed_parameters: dict[str, list[ProperType]] = field(
-        init=False, default_factory=dict
-    )
-
-    # Parameter types of each parameter, including unsupported types,
-    # i.e., types that we currently cannot understand/parse. Purely used for statistics
-    # purposes!
-    parameters_for_statistics: dict[str, ProperType] = field(default_factory=dict)
-    return_type_for_statistics: ProperType = ANY
-
-    def __post_init__(self):
-        self.return_type = self.original_return_type
-
-    def __str__(self):
-        return str(self.signature)
-
-    def get_parameter_types(
-        self, signature_memo: dict[InferredSignature, dict[str, ProperType]]
-    ) -> dict[str, ProperType]:
-        """Get a possible type signature for the parameters.
-
-        This method may choose a random type signature, or return the original one or
-        create one based on the observed knowledge.
-
-        Args:
-            signature_memo: A memo that stores already chosen signatures, so that
-                we don't choose another signature in the same run. This is required for
-                certain operations in the test factory to be consistent.
-
-        Returns:
-            A dict of chosen parameter types for each parameter.
-        """
-        if (sig := signature_memo.get(self)) is not None:
-            # We already chose a signature
-            return sig
-        res: dict[str, ProperType] = {}
-        test_conf = config.settings.test_creation
-        for param_name, orig_type in self.original_parameters.items():
-            if len(self.usage_trace[param_name]) > 0:
-                # If we have information from proxies, update guess.
-                self._update_guess(
-                    param_name,
-                    self._guess_parameter_type(
-                        self.usage_trace[param_name],
-                        self.signature.parameters[param_name].kind,
-                    ),
-                )
-
-            # Choose from:
-            # - Reusing developer annotated types
-            # - Guessed types from proxies
-            # - NoneType
-            # - AnyType, i.e., disregard type
-            choices: list[ProperType] = [NONE_TYPE, ANY]
-            weights: list[float] = [test_conf.none_weight, test_conf.any_weight]
-            if not isinstance(orig_type, AnyType):
-                # Only add the original type to the choices, if it is not Any.
-                choices.append(orig_type)
-                weights.append(test_conf.original_type_weight)
-
-            if (guessed := self.current_guessed_parameters.get(param_name)) is not None:
-                # We have traced types
-                choices.append(UnionType(tuple(sorted(guessed))))
-                weights.append(test_conf.type_tracing_weight)
-
-            chosen = randomness.choices(choices, weights)[0]
-
-            if (
-                randomness.next_float()
-                < config.settings.test_creation.wrap_var_param_type_probability
-            ):
-                # Wrap var-positional or var-keyword parameters in list/dict,
-                # with a certain probability, as there might also be other data
-                # structures suitable for being passed by * and **, e.g.,
-                # generators, tuples, etc.
-                chosen = self.type_system.wrap_var_param_type(
-                    chosen,
-                    self.signature.parameters[param_name].kind,
-                )
-            res[param_name] = chosen
-        signature_memo[self] = res
-        return res
-
-    def _update_guess(self, name: str, guessed: ProperType | None):
-        if guessed is None:
-            return
-
-        if (old := self.current_guessed_parameters.get(name)) is None:
-            self.current_guessed_parameters[name] = [guessed]
-        else:
-            if guessed in old:
-                return
-            if len(old) >= config.settings.test_creation.type_tracing_kept_guesses:
-                # Drop first guess
-                old.pop(0)
-            # append current
-            old.append(guessed)
-
-    def _guess_parameter_type(self, knowledge: tt.UsageTraceNode, kind) -> ProperType | None:
-        """Guess a type for a parameter.
-
-        Args:
-            knowledge: The name of the parameter.
-            kind: the kind of parameter.
-
-        Returns:
-            A guessed type for the given parameter name, or None, if no educated guess
-                can be made.
-        """
-        match kind:
-            case inspect.Parameter.VAR_KEYWORD:
-                # Case for **kwargs parameter
-                # We know that it is always dict[str, ?].
-                # We can guess the unknown type by looking at the knowledge of
-                # __getitem__ of the proxy.
-                if (get_item_knowledge := knowledge.children.get("__getitem__")) is not None:
-                    return self._guess_parameter_type_from(get_item_knowledge)
-            case inspect.Parameter.VAR_POSITIONAL:
-                # Case for *args parameter
-                # We know that it is always list[?]
-                # Similar to above.
-                if (iter_knowledge := knowledge.children.get("__iter__")) is not None:
-                    return self._guess_parameter_type_from(iter_knowledge)
-            case _:
-                return self._guess_parameter_type_from(knowledge)
-        return None
-
-    def _from_type_check(self, knowledge: tt.UsageTraceNode) -> ProperType | None:
-        # Type checks is not empty here.
-        return self._choose_type_or_negate(
-            OrderedSet(
-                [self.type_system.to_class_descriptor(randomness.choice(knowledge.type_checks))]
-            )
-        )
-
-    def _from_attr_table(self, knowledge: tt.UsageTraceNode) -> ProperType | None:
-        random_attribute = randomness.choice(list(knowledge.children))
-        arg_types = knowledge.children[random_attribute].children["__call__"].arg_types[0]
-
-        def _string_subtype() -> ProperType | None:
-            return self._from_str_values(knowledge)
-
-        def _argument_type() -> ProperType | None:
-            selected_arg_type = randomness.choice(knowledge.children[random_attribute].arg_types[0])
-            return self._choose_type_or_negate(
-                OrderedSet([self.type_system.to_class_descriptor(selected_arg_type)])
-            )
-
-        def _attribute_table() -> ProperType | None:
-            return self._choose_type_or_negate(self.type_system.find_by_attribute(random_attribute))
-
-        weights = {
-            _string_subtype: config.settings.type_inference.type_tracing_subtype_weight,
-            _argument_type: config.settings.type_inference.type_tracing_argument_type_weight,
-            _attribute_table: config.settings.type_inference.type_tracing_attribute_weight,
-        }
-        available_strategies = {}
-
-        # Check if string subtype inference is applicable
-        if (
-            config.settings.type_inference.subtype_inference == SubtypeInferenceStrategy.STRING
-            and len(arg_types) > 0
-        ):
-            candidate_arg_type = randomness.choice(arg_types)
-            if candidate_arg_type is str and random_attribute in _STRING_SUBTYPE_ATTRIBUTES:
-                available_strategies[_string_subtype] = weights[_string_subtype]
-
-        # Check if argument-type inference is applicable
-        if (
-            random_attribute in _ARGUMENT_ATTRIBUTES
-            and knowledge.children[random_attribute].arg_types[0]
-        ):
-            available_strategies[_argument_type] = weights[_argument_type]
-
-        # Attribute-table inference is always available
-        available_strategies[_attribute_table] = weights[_attribute_table]
-
-        # Choose and execute strategy
-        chosen_strategy = weighted_choice(available_strategies)
-        return chosen_strategy()
-
-    @staticmethod
-    def _from_str_values(knowledge: tt.UsageTraceNode) -> StringSubtype | None:
-        """Try to infer a string subtype from the given knowledge."""
-        # Get all arg values from the knowledge
-        called_str_methods: Mapping[str, OrderedSet[str]] = defaultdict(OrderedSet)
-        for child in knowledge.children:
-            if child in _STRING_SUBTYPE_ATTRIBUTES:
-                for arg_values in knowledge.children[child].children["__call__"].arg_values[0]:
-                    if isinstance(arg_values, str):
-                        called_str_methods[child].add(arg_values)
-
-        if not called_str_methods:
-            return None
-        regex = infer_regex_from_methods(called_str_methods)
-        return StringSubtype(regex)
-
-    def _guess_parameter_type_from(
-        self, knowledge: tt.UsageTraceNode, recursion_depth: int = 0
-    ) -> ProperType | None:
-        guess_from: list[Callable[[tt.UsageTraceNode], ProperType | None]] = []
-        if knowledge.type_checks:
-            guess_from.append(self._from_type_check)
-        if knowledge.children:
-            guess_from.append(self._from_attr_table)
-
-        if not guess_from:
-            return None
-
-        guessed_type: ProperType | None = randomness.choice(guess_from)(knowledge)
-
-        if recursion_depth <= 1 and guessed_type and guessed_type.accept(is_collection_type):
-            guessed_type = self._guess_generic_type_parameters_for_builtins(
-                guessed_type, knowledge, recursion_depth
-            )
-        return guessed_type
-
-    def _guess_generic_type_parameters_for_builtins(
-        self,
-        guessed_type: ProperType,
-        knowledge: tt.UsageTraceNode,
-        recursion_depth: int,
-    ):
-        # If it is a builtin collection, we may be able to make further guesses on
-        # the generic types.
-        if isinstance(guessed_type, Instance):
-            args = guessed_type.args
-            match guessed_type.type.full_name:
-                case "builtins.list":
-                    guessed_element_type = self._guess_generic_arguments(
-                        knowledge,
-                        recursion_depth,
-                        _LIST_ELEMENT_ATTRIBUTES,
-                        _LIST_ELEMENT_FROM_ARGUMENT_TYPES,
-                        _LIST_ELEMENT_FROM_ARGUMENT_TYPES_PATH,
-                        argument_idx=0,
-                    )
-                    args = (guessed_element_type or guessed_type.args[0],)
-                case "builtins.set":
-                    guessed_element_type = self._guess_generic_arguments(
-                        knowledge,
-                        recursion_depth,
-                        _SET_ELEMENT_ATTRIBUTES,
-                        _SET_ELEMENT_FROM_ARGUMENT_TYPES,
-                        _SET_ELEMENT_FROM_ARGUMENT_TYPES_PATH,
-                        argument_idx=0,
-                    )
-                    args = (guessed_element_type or guessed_type.args[0],)
-                case "builtins.dict":
-                    guessed_key_type = self._guess_generic_arguments(
-                        knowledge,
-                        recursion_depth,
-                        _DICT_KEY_ATTRIBUTES,
-                        _DICT_KEY_FROM_ARGUMENT_TYPES,
-                        _EMPTY_SET,
-                        argument_idx=0,
-                    )
-                    guessed_value_type = self._guess_generic_arguments(
-                        knowledge,
-                        recursion_depth,
-                        _DICT_VALUE_ATTRIBUTES,
-                        _DICT_VALUE_FROM_ARGUMENT_TYPES,
-                        _EMPTY_SET,
-                        argument_idx=1,
-                    )
-                    args = (
-                        guessed_key_type or guessed_type.args[0],
-                        guessed_value_type or guessed_type.args[1],
-                    )
-            guessed_type = Instance(guessed_type.type, args)
-        elif isinstance(guessed_type, TupleType):
-            # Guess random size of tuple.
-            num_elements = randomness.next_int(1, config.settings.test_creation.collection_size)
-            elements = []
-            for _ in range(num_elements):
-                guessed_element_type = self._guess_generic_arguments(
-                    knowledge,
-                    recursion_depth,
-                    _TUPLE_ELEMENT_ATTRIBUTES,
-                    _TUPLE_ELEMENT_FROM_ARGUMENT_TYPES,
-                    _EMPTY_SET,
-                    argument_idx=0,
-                )
-                if guessed_element_type:
-                    elements.append(guessed_element_type)
-                else:
-                    elements.append(ANY)
-            guessed_type = TupleType(tuple(elements))
-        return guessed_type
-
-    def _choose_type_or_negate(
-        self, positive_types: OrderedSet[ClassDescriptor]
-    ) -> ProperType | None:
-        if not positive_types:
-            return None
-
-        if randomness.next_float() < config.settings.test_creation.negate_type:
-            negated_choices = self.type_system.get_type_outside_of(positive_types)
-            if len(negated_choices) > 0:
-                return self.type_system.make_instance(randomness.choice(negated_choices))
-        return self.type_system.make_instance(randomness.choice(positive_types))
-
-    def _guess_generic_arguments(  # noqa: PLR0917
-        self,
-        knowledge: tt.UsageTraceNode,
-        recursion_depth: int,
-        element_attributes: OrderedSet[str],
-        argument_attributes: OrderedSet[str],
-        argument_attribute_paths: OrderedSet[tuple[str, ...]],
-        argument_idx: int,
-    ) -> ProperType | None:
-        guess_from: list[
-            Callable[
-                [],
-                ProperType | None,
-            ]
-        ] = []
-
-        if elem_attributes := element_attributes.intersection(knowledge.children.keys()):
-            guess_from.append(
-                functools.partial(
-                    self._guess_parameter_type_from,
-                    knowledge.children[randomness.choice(elem_attributes)],
-                    recursion_depth + 1,
-                )
-            )
-        if arg_attributes := argument_attributes.intersection(knowledge.children.keys()):
-            guess_from.append(
-                functools.partial(
-                    self._guess_from_argument_types,
-                    arg_attributes,
-                    knowledge,
-                    argument_idx,
-                )
-            )
-        if paths := [
-            path for path in argument_attribute_paths if knowledge.find_path(path) is not None
-        ]:
-            guess_from.append(
-                functools.partial(self._guess_from_argument_types_from_path, paths, knowledge)
-            )
-        # Add Any as guess, i.e., do not make argument more specific
-        guess_from.append(lambda: ANY)
-
-        return randomness.choice(guess_from)()
-
-    def _guess_from_argument_types(
-        self,
-        arg_attrs: OrderedSet[str],
-        knowledge: tt.UsageTraceNode,
-        arg_idx: int = 0,
-    ) -> ProperType | None:
-        arg_types = knowledge.children[randomness.choice(arg_attrs)].arg_types[arg_idx]
-        if arg_types:
-            return self._choose_type_or_negate(
-                OrderedSet([self.type_system.to_class_descriptor(randomness.choice(arg_types))])
-            )
-        return None
-
-    def _guess_from_argument_types_from_path(
-        self,
-        paths: list[tuple[str, ...]],
-        knowledge: tt.UsageTraceNode,
-    ) -> ProperType | None:
-        path = randomness.choice(paths)
-        path_end = knowledge.find_path(path)
-        assert path_end is not None
-        # Select type from last element in path, i.e., '__call__'
-        # This way we can, for example, guess the generic type by looking at the
-        # argument types of `append.__call__`.
-        arg_types = path_end.children[path[-1]].arg_types[0]
-        if arg_types:
-            return self._choose_type_or_negate(
-                OrderedSet([self.type_system.to_class_descriptor(randomness.choice(arg_types))])
-            )
-        return None
-
-    def log_stats_and_guess_signature(
-        self,
-        is_constructor: bool,  # noqa: FBT001
-        callable_full_name: str,
-        stats: TypeGuessingStats,
-    ) -> None:
-        """Logs some statistics and creates a guessed signature.
-
-        Parameters annotated with Any could not be guessed.
-
-        Parameters:
-            callable_full_name: The full, unique name of the callable.
-            is_constructor: does this signature belong to a constructor?
-            stats: stats object to log to.
-        """
-        sig_info = stats.signature_infos[callable_full_name]
-
-        sig_info.annotated_parameter_types = {
-            k: str(v) for k, v in self.parameters_for_statistics.items()
-        }
-        if not is_constructor:
-            # Constructors don't need a return type, so no need to log it.
-            sig_info.annotated_return_type = str(self.return_type_for_statistics)
-        else:
-            stats.number_of_constructors += 1
-
-        parameter_types: dict[str, list[str]] = {}
-        # The pairs for which we need to compute partial matches.
-        compute_partial_matches_for: list[tuple[ProperType, ProperType]] = []
-        for param_name, param in self.signature.parameters.items():
-            if param_name not in self.original_parameters:
-                # Only check params where we expect a parameter, i.e., not self.
-                continue
-
-            top_n_guesses: list[ProperType] = []
-            if len(self.usage_trace[param_name]) > 0:
-                counter: Counter[ProperType] = Counter()
-                for _ in range(100):
-                    guess = self._guess_parameter_type(
-                        self.usage_trace[param_name],
-                        param.kind,
-                    )
-                    if guess is not None:
-                        counter[guess] += 1
-                for typ, _ in counter.most_common(
-                    config.settings.statistics_output.type_guess_top_n
-                ):
-                    top_n_guesses.append(typ)
-
-            for item in top_n_guesses:
-                compute_partial_matches_for.append(  # noqa: PERF401
-                    (item, self.parameters_for_statistics[param_name])
-                )
-            parameter_types[param_name] = [str(t) for t in top_n_guesses]
-        # Also need to compute for return type(s).
-        compute_partial_matches_for.append(
-            (
-                self.return_type,
-                self.return_type_for_statistics,
-            )
-        )
-
-        # Need to compute which types are base type matches of others.
-        # Otherwise, we need to parse the string again in the evaluation...
-        self._compute_partial_matches(compute_partial_matches_for, sig_info)
-
-        return_type = str(self.return_type)
-        if not is_constructor and self.return_type != self.original_return_type:
-            sig_info.recorded_return_type = str(return_type)
-        sig_info.guessed_parameter_types = parameter_types
-
-    @staticmethod
-    def _compute_partial_matches(compute_partial_matches_for, sig_info):
-        for left, right in compute_partial_matches_for:
-            if (match := _is_partial_type_match(left, right)) is not None:
-                sig_info.partial_type_matches[f"({left!s}, {right!s})"] = str(match)
 
 
 class TypeSystem:  # noqa: PLR0904
-    """Implements Pynguin's internal type system.
-
-    Provides a simple inheritance graph relating various classes using their subclass
-    relationships. Note that parents point to their children.
-
-    This is also the central system to store/handle type information.
-    """
+    """Central type registry, inheritance graph, and subtyping engine."""
 
     def __init__(self):  # noqa: D107
         self._structural_checks: set[tuple[ProperType, ProperType]] = set()
@@ -2344,16 +149,10 @@ class TypeSystem:  # noqa: PLR0904
         # raw runtime type (immutable; overlaid with dynamic descriptor members).
         self._runtime_members_cache: dict[type | types.UnionType, dict[str, ProperType]] = {}
         self._graph: nx.DiGraph[ClassDescriptor] = nx.DiGraph()
-        # Maps all known types from their full name to their type info.
         self._types: dict[str, ClassDescriptor] = {}
-        # Maps attributes to type which have that attribute
         self._attribute_map: dict[str, OrderedSet[ClassDescriptor]] = defaultdict(OrderedSet)
-        # These types are intrinsic for Pynguin, i.e., we can generate them ourselves
-        # without needing a generator. We store them here, so we don't have to generate
-        # them all the time.
         self.primitive_proper_types = [self.convert_type_hint(prim) for prim in PRIMITIVES]
         self.collection_proper_types = [self.convert_type_hint(coll) for coll in COLLECTIONS]
-        # Pre-compute numeric tower
         numeric = [complex, float, int, bool]
         self.numeric_tower: dict[Instance, list[Instance]] = cast(
             "dict[Instance, list[Instance]]",
@@ -2367,9 +166,7 @@ class TypeSystem:  # noqa: PLR0904
             self.add_subclass_edge(super_class=self.to_class_descriptor(str), sub_class=type_info)
 
     def enable_numeric_tower(self):
-        """Enable the numeric tower on this type system."""
-        # Enable numeric tower int <: float <: complex.
-        # https://peps.python.org/pep-0484/#the-numeric-tower
+        """Enable the PEP 484 numeric tower (``bool <: int <: float <: complex``)."""
         bool_info = self.to_class_descriptor(bool)
         int_info = self.to_class_descriptor(int)
         float_info = self.to_class_descriptor(float)
@@ -2381,17 +178,10 @@ class TypeSystem:  # noqa: PLR0904
     def add_subclass_edge(
         self, *, super_class: ClassDescriptor, sub_class: ClassDescriptor
     ) -> None:
-        """Add a subclass edge between two types.
-
-        Args:
-            super_class: superclass
-            sub_class: subclass
-        """
+        """Add a subclass edge ``super_class -> sub_class``."""
         if self._graph.has_edge(super_class, sub_class):
             return
         self._graph.add_edge(super_class, sub_class)
-        # New edges invalidate negative answers cached before a lazily
-        # discovered class hierarchy was registered.
         type(self).is_subclass.cache_clear()
         type(self).get_subclasses.cache_clear()
         type(self).get_superclasses.cache_clear()
@@ -2402,14 +192,7 @@ class TypeSystem:  # noqa: PLR0904
 
     @functools.lru_cache(maxsize=1024)
     def get_subclasses(self, klass: ClassDescriptor) -> OrderedSet[ClassDescriptor]:
-        """Provides all descendants of the given type. Includes klass.
-
-        Args:
-            klass: The class whose subtypes we want to query.
-
-        Returns:
-            All subclasses including klass
-        """
+        """Return all descendants of *klass* including *klass* itself."""
         if klass not in self._graph:
             return OrderedSet([klass])
         result: OrderedSet[ClassDescriptor] = OrderedSet(nx.descendants(self._graph, klass))
@@ -2418,14 +201,7 @@ class TypeSystem:  # noqa: PLR0904
 
     @functools.lru_cache(maxsize=1024)
     def get_superclasses(self, klass: ClassDescriptor) -> OrderedSet[ClassDescriptor]:
-        """Provides all ancestors of the given class.
-
-        Args:
-            klass: The class whose supertypes we want to query.
-
-        Returns:
-            All superclasses including klass
-        """
+        """Return all ancestors of *klass* including *klass* itself."""
         if klass not in self._graph:
             return OrderedSet([klass])
         result: OrderedSet[ClassDescriptor] = OrderedSet(nx.ancestors(self._graph, klass))
@@ -2435,14 +211,7 @@ class TypeSystem:  # noqa: PLR0904
     def get_type_outside_of(
         self, klasses: OrderedSet[ClassDescriptor]
     ) -> OrderedSet[ClassDescriptor]:
-        """Find a type that does not belong to the given types or any subclasses.
-
-        Args:
-            klasses: The classes to exclude
-
-        Returns:
-            A set of klasses that don't belong the given ones.
-        """
+        """Find registered types that do not belong to *klasses* or any of their subclasses."""
         results = OrderedSet(self._types.values())
         for info in klasses:
             results.difference_update(self.get_subclasses(info))
@@ -2450,31 +219,16 @@ class TypeSystem:  # noqa: PLR0904
 
     @functools.lru_cache(maxsize=16384)
     def is_subclass(self, left: ClassDescriptor, right: ClassDescriptor) -> bool:
-        """Is 'left' a subclass of 'right'?
-
-        Args:
-            left: left type info
-            right: right type info
-
-        Returns:
-            True, if there is a subclassing path from left to right.
-        """
+        """Return whether *left* is a subclass of *right*."""
         if left in self._graph:
             if right in self._graph and nx.has_path(self._graph, right, left):
                 return True
-            # Source classes are represented by synthetic ``type`` objects
-            # without real bases, so ``issubclass`` on the class itself cannot
-            # see builtin ancestry (``ValueError`` -> ``Exception``) or ABC
-            # registrations (``dict`` -> ``collections.abc.Mapping``).  Consult
-            # the real MRO of the nearest registered ancestors instead.
             for ancestor in nx.ancestors(self._graph, left):
                 try:
                     if issubclass(ancestor.raw_type, right.raw_type):
                         return True
                 except TypeError:
                     continue
-        # Descriptors can be created lazily for external and built-in classes
-        # without their hierarchy having been registered in this graph.
         try:
             return issubclass(left.raw_type, right.raw_type)
         except TypeError:
@@ -2482,87 +236,40 @@ class TypeSystem:  # noqa: PLR0904
 
     @functools.lru_cache(maxsize=16384)
     def is_subtype(self, left: ProperType, right: ProperType) -> bool:
-        """Is 'left' a subtype of 'right'?
-
-        This check is more than incomplete, but it takes into account
-        that anything is a subtype of AnyType.
-
-        See https://peps.python.org/pep-0483/ and https://peps.python.org/pep-0484/
-        for more details
-
-        Args:
-            left: The left type
-            right: The right type
-
-        Returns:
-            True, if left is a subtype of right.
-        """
+        """Return whether ``left <: right``."""
         if left == right:
-            # Reflexivity: also short-circuits protocol structural checks,
-            # which otherwise reject a protocol compared with itself when a
-            # member signature contains the protocol recursively.
             return True
         if isinstance(right, AnyType):
-            # trivial case
             return True
         if isinstance(left, LiteralType):
             if isinstance(right, LiteralType):
-                return left.value == right.value
+                return left.value == right.value and left.base == right.base
             if isinstance(right, UnionType):
-                # ``Literal["a"] <: Literal["a"] | Literal["b"]``; comparing
-                # the literal's base type would reject every literal union.
                 return any(self.is_subtype(left, item) for item in right.items)
             return self.is_subtype(left.base, right)
         if isinstance(right, LiteralType):
             return False
         if isinstance(right, UnionType) and not isinstance(left, UnionType):
-            # Case that would be duplicated for each type, so we put it here.
             return any(self.is_subtype(left, right_elem) for right_elem in right.items)
         return left.accept(_SubtypeVisitor(self, right, self.is_subtype))
 
     @functools.lru_cache(maxsize=16384)
     def is_maybe_subtype(self, left: ProperType, right: ProperType) -> bool:
-        """Is 'left' maybe a subtype of 'right'?
-
-        This is a more lenient check than is_subtype. Consider a function that
-        returns tuple[str | int | bytes, str | int | bytes]. Strictly speaking, we
-        cannot use such a value as an argument for a function that requires an argument
-        of type tuple[int, int]. However, it may be possible that the returned
-        value is tuple[int, int], in which case it does work.
-        This check only differs from is_subtype in how it handles Unions.
-        Instead of requiring every type to be a subtype, it is sufficient that one
-        type of the Union is a subtype.
-
-        Args:
-            left: The left type
-            right: The right type
-
-        Returns:
-            True, if left may be a subtype of right.
-        """
+        """Return whether *left* may be a subtype of *right* (existential on left unions)."""
         if isinstance(right, AnyType):
-            # trivial case
             return True
         if isinstance(left, LiteralType):
             if isinstance(right, LiteralType):
-                return left.value == right.value
+                return left.value == right.value and left.base == right.base
             return self.is_maybe_subtype(left.base, right)
         if isinstance(right, LiteralType):
             return False
         if isinstance(right, UnionType) and not isinstance(left, UnionType):
-            # Case that would be duplicated for each type, so we put it here.
             return any(self.is_maybe_subtype(left, right_elem) for right_elem in right.items)
         return left.accept(_MaybeSubtypeVisitor(self, right, self.is_maybe_subtype))
 
     def invalidate_subtype_caches(self) -> None:
-        """Discard memoized subtype answers after descriptors were mutated.
-
-        ``ClassDescriptor`` members, protocols, and typed-dict layouts are
-        populated incrementally.  ``is_subtype`` memoizes structural answers,
-        so callers that mutate a descriptor must invalidate the cache before
-        asking about the same pair of types again.
-        """
-
+        """Discard memoized subtype answers after descriptors were mutated."""
         type(self).is_subtype.cache_clear()
         type(self).is_maybe_subtype.cache_clear()
         self._normalize_cache.clear()
@@ -2573,7 +280,6 @@ class TypeSystem:  # noqa: PLR0904
 
     def forget_class_descriptor(self, full_name: str) -> None:
         """Drop a descriptor so a later analysis can recreate fresh state."""
-
         descriptor = self._types.pop(full_name, None)
         if descriptor is None:
             return
@@ -2585,23 +291,11 @@ class TypeSystem:  # noqa: PLR0904
 
     @property
     def dot(self) -> str:
-        """Create dot representation of this graph (stub — pydot not available).
-
-        Returns:
-            A string representation.
-        """
+        """Return a string representation of the class graph."""
         return str(self._graph)
 
     def to_class_descriptor(self, typ: type | types.UnionType) -> ClassDescriptor:  # noqa: D417
-        """Find or create `ClassDescriptor` for the given `type`.
-
-        Args:
-            `typ`: The raw `type` we want to convert.
-
-        Returns:
-            A `ClassDescriptor` object.
-        """
-        # TODO(fk) what to do when we encounter a new type?
+        """Find or create a :class:`ClassDescriptor` for *typ*."""
         full_name = ClassDescriptor.to_full_name(typ)
         found = self._types.get(full_name)
         if found is not None:
@@ -2611,10 +305,6 @@ class TypeSystem:  # noqa: PLR0904
                 getattr(found.raw_type, "__pyflow_unresolved_external__", False)
             )
             new_unresolved = bool(getattr(typ, "__pyflow_unresolved_external__", False))
-            # A real class always wins over a placeholder.  Two real classes
-            # with the same full name are normally the same source class
-            # re-created for a later project iteration; refresh in place so
-            # existing instances and graph edges keep working.
             if not (new_unresolved and not existing_unresolved):
                 found.refresh(typ)
             return found
@@ -2624,18 +314,11 @@ class TypeSystem:  # noqa: PLR0904
         return info
 
     def find_class_descriptor(self, full_name: str) -> ClassDescriptor | None:
-        """Find typeinfo for the given name.
-
-        Args:
-            full_name: The name to search for.
-
-        Returns:
-            Type info, if any.
-        """
+        """Find a registered :class:`ClassDescriptor` by full name."""
         return self._types.get(full_name)
 
     def get_members(self, descriptor: ClassDescriptor) -> dict[str, ProperType]:
-        """Return static declarations and safely inspected runtime members."""
+        """Return static declarations, safely inspected runtime members, and typeshed fills."""
         raw = descriptor.raw_type
         runtime_members = self._runtime_members_cache.get(raw)
         if runtime_members is None:
@@ -2659,9 +342,6 @@ class TypeSystem:  # noqa: PLR0904
                 if parent in {object, typing.Protocol, typing.Generic}:
                     continue
                 annotations = vars(parent).get("__annotations__")
-                # ``type`` (and some metaclasses) expose ``__annotations__`` as a
-                # getset descriptor rather than a mapping.  Walking that MRO used
-                # to crash every protocol check involving ``type``.
                 if isinstance(annotations, dict):
                     for name, annotation in annotations.items():
                         runtime_members[name] = convert(annotation)
@@ -2683,8 +363,6 @@ class TypeSystem:  # noqa: PLR0904
                         annotation = member.fget.__annotations__.get("return")
                         runtime_members[name] = convert(annotation)
                     elif inspect.isdatadescriptor(member):
-                        # C-level slots (``BaseException.args``, ``date.year``)
-                        # and similar descriptors carry no annotation we can read.
                         runtime_members[name] = ANY
                     elif inspect.isroutine(member) or callable(member):
                         try:
@@ -2702,10 +380,6 @@ class TypeSystem:  # noqa: PLR0904
         for parent in self.get_superclasses(descriptor):
             members.update(parent.members)
         members.update(descriptor.members)
-        # Runtime introspection loses most stdlib signatures (``inspect``
-        # cannot read builtin methods) and reports ``Callable[..., Any]``.
-        # Fill those gaps from the vendored typeshed snapshot so builtin and
-        # stdlib members keep the signatures mypy checks against.
         stub_members = _typeshed_class_members(descriptor.full_name)
         if stub_members:
             for name, member in stub_members.items():
@@ -2715,47 +389,15 @@ class TypeSystem:  # noqa: PLR0904
         return members
 
     def find_by_attribute(self, attr: str) -> OrderedSet[ClassDescriptor]:
-        """Search for all types that have the given attribute.
-
-        Args:
-            attr: the attribute to search for.
-
-        Returns:
-            All types (or supertypes thereof) who have the given attribute.
-        """
+        """Search for all registered types that define *attr*."""
         return self._attribute_map[attr]
 
     def get_all_types(self) -> list[ClassDescriptor]:
-        """Provides a list of all known types.
-
-        Returns:
-            A list of all known types.
-        """
+        """Return all registered class descriptors."""
         return list(self._types.values())
 
     def get_shortest_path_length(self, start: ClassDescriptor, end: ClassDescriptor) -> int | None:
-        """Get the shortest path length between two types.
-
-        I tried adding @functools.lru_cache to this function does not improve performance,
-        because we cache subtype_distance anyway.
-        I tried using a _shortest_path_length_cache[(start, end)] along with using
-        shortest_path_length(graph, source), which returns all nodes reachable from start
-        and its length. However, probably the overhead from caching and having many
-        different starting nodes make this slower than just using shortest_path_length
-        with a target node (which can also leverage the quicker bidirectional_shortest_path
-        internally).
-        I also tried to come up with an own variant of nx.single_shortest_path_length
-        that would stop at the target node, thinking the overhead maybe comes form deeper
-        traversal, but this did not achieve better performance either.
-        Thus, I suggest we stick to the simple version.
-
-        Args:
-            start: The start type
-            end: The end type
-
-        Returns:
-            The shortest path length between the two types or None if no path exists.
-        """
+        """Return the shortest subclassing path length from *start* to *end*."""
         if start in self._graph and end in self._graph:
             try:
                 length = int(nx.shortest_path_length(self._graph, start, end))
@@ -2764,10 +406,6 @@ class TypeSystem:  # noqa: PLR0904
             except nx.NetworkXNoPath:
                 pass
 
-        # Fall back to the runtime MRO for descriptors absent from the
-        # registered graph.  This covers exception classes and dynamically
-        # synthesized project classes while retaining None for unrelated or
-        # non-class objects.
         try:
             if not issubclass(end.raw_type, start.raw_type):
                 return None
@@ -2778,33 +416,14 @@ class TypeSystem:  # noqa: PLR0904
             return None
 
     def push_attributes_down(self) -> None:
-        """Pushes attributes down in hierarchy.
-
-        We don't want to see attributes multiple times, e.g., in subclasses, so only
-        the first class in the hierarchy which adds the attribute should have it listed
-        as an attribute, i.e., when searching for a class with that attribute we only
-        want to retrieve the top-most class(es) in the hierarchy which define it,
-        and not every (sub)class that inherited it.
-        """
+        """Deduplicate inherited attributes so only defining ancestors retain them."""
         reach_in_sets: dict[ClassDescriptor, set[str]] = defaultdict(set)
         reach_out_sets: dict[ClassDescriptor, set[str]] = defaultdict(set)
 
-        # While object sits at the top, it is not particularly useful, so we delete
-        # some of it attributes, as they are only stubs. For example, when searching for
-        # an object that supports comparison, choosing object does not make sense,
-        # because it will raise a NotImplementedError.
         object_info = self.find_class_descriptor("builtins.object")
         assert object_info is not None
-        object_info.attributes.difference_update(
-            {
-                "__lt__",
-                "__le__",
-                "__gt__",
-                "__ge__",
-            }
-        )
+        object_info.attributes.difference_update({"__lt__", "__le__", "__gt__", "__ge__"})
 
-        # Use fix point iteration with reach-in/out to push elements down.
         work_list = list(self._graph.nodes)
         while len(work_list) > 0:
             current = work_list.pop()
@@ -2821,18 +440,7 @@ class TypeSystem:  # noqa: PLR0904
                 self._attribute_map[attribute].add(type_info)
 
     def wrap_var_param_type(self, typ: ProperType, param_kind) -> ProperType:
-        """Wrap parameter types.
-
-        Wrap the parameter type of ``*args`` and ``**kwargs`` in List[...] or Dict[str, ...],
-        respectively.
-
-        Args:
-            typ: The type to be wrapped.
-            param_kind: the kind of parameter.
-
-        Returns:
-            The wrapped type, or the original type, if no wrapping is required.
-        """
+        """Wrap ``*args`` / ``**kwargs`` element types in ``list`` / ``dict``."""
         if param_kind == inspect.Parameter.VAR_POSITIONAL:
             return Instance(self.to_class_descriptor(list), (typ,))
         if param_kind == inspect.Parameter.VAR_KEYWORD:
@@ -2844,36 +452,14 @@ class TypeSystem:  # noqa: PLR0904
         method: Callable,
         type_inference_provider: InferenceProvider,
     ) -> InferredSignature:
-        """Infers the type information for a callable.
-
-        Args:
-            method: The callable we try to infer type information for
-            type_inference_provider: The provider for type inference
-
-        Returns:
-            The inference result
-        """
+        """Infer a callable's signature using *type_inference_provider*."""
         return self.infer_signature(method, type_inference_provider.provide)
 
     @staticmethod
     def type_hints_provider(method: Callable) -> dict[str, Any]:
-        """Provides PEP484-style type information, if available.
-
-        Args:
-            method: The method for which we want type hints.
-
-        Returns:
-            A dict mapping parameter names to type hints.
-        """
+        """Provide PEP 484 runtime type hints for *method*, if available."""
         try:
             hints = typing.get_type_hints(method)
-            # Sadly there is no guarantee that resolving the type hints actually works.
-            # If the developers annotated something with an erroneous type hint we fall
-            # back to no type hints, i.e., use Any.
-            # Using Self from `from __future__ import annotations` also results in Any.
-            # The import used in the type hint could also be conditional on
-            # typing.TYPE_CHECKING, e.g., to avoid circular imports, in which case this
-            # also fails.
         except (AttributeError, NameError, TypeError) as exc:
             _LOGGER.debug("Could not retrieve type hints for %s", method)
             _LOGGER.debug(exc)
@@ -2885,15 +471,7 @@ class TypeSystem:  # noqa: PLR0904
         method: Callable,
         type_hint_provider: Callable[[Callable], dict],
     ) -> InferredSignature:
-        """Infers the method signature using the given type hint provider.
-
-        Args:
-            method: The callable
-            type_hint_provider: A method that provides type hints for the given method.
-
-        Returns:
-            The inference result
-        """
+        """Infer a callable's signature using *type_hint_provider*."""
         method_for_signature = get_method_for_signature(method)
         try:
             method_signature = inspect.signature(method_for_signature)
@@ -2917,7 +495,6 @@ class TypeSystem:  # noqa: PLR0904
         hints = type_hint_provider(method)
         parameters: dict[str, ProperType] = {}
 
-        # Always use type hints for statistics, regardless of configured inference.
         from pyflow.analysis.typeinfo.inference.providers import HintInference  # lazy: break cycle
 
         hints_provider_for_statistics = HintInference()
@@ -2925,8 +502,6 @@ class TypeSystem:  # noqa: PLR0904
         parameters_for_statistics: dict[str, ProperType] = {}
         for param_name in method_signature.parameters:
             if param_name == "self":
-                # TODO(fk) does not necessarily work, can be named anything.
-                #  There is also cls for @classmethod.
                 continue
             parameters[param_name] = self.convert_type_hint(hints.get(param_name))
             parameters_for_statistics[param_name] = self.convert_type_hint(
@@ -2950,81 +525,54 @@ class TypeSystem:  # noqa: PLR0904
     _FIND_DOT_SEPARATED_IDENTIFIERS = re.compile(r"[.a-zA-Z0-9_]+\.[a-zA-Z0-9_]+")
 
     def try_to_load_type(self, candidate: str, globs) -> ProperType:
-        """Try to load the given type.
-
-        Args:
-            candidate: The type to load
-            globs: The globals that should be used for loading.
-
-        Returns:
-            The loaded type or Any.
-        """
+        """Try to evaluate a string type expression in *globs*."""
         glob: dict[str, Any] = {}
-        # Make sure typing constructs are available
-
         exec("from typing import *", glob)  # noqa: S102
-        # Make globals from module available
         glob.update(globs)
-        # Import any prefixes
-
-        # TODO(fk) properly implement this way to find potential imports:
         for potential_type in self._FIND_DOT_SEPARATED_IDENTIFIERS.finditer(candidate):
-            # try to import everything left of last dot
             potential_import = potential_type.group(0).rpartition(".")[0]
             _LOGGER.info("Try to import %s", potential_import)
             try:
                 exec("import " + potential_import, glob)  # noqa: S102
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug(err)
-        # If a type cannot be built from this info, there is not much we can do.
         try:
-            # (Ab)use typing module
             ref = ForwardRef(candidate)
             return self.convert_type_hint(_eval_type(ref, glob, glob))
         except Exception:  # noqa: BLE001
-            # Give up?
             return ANY
 
     def convert_type_hint(self, hint: Any, unsupported: ProperType = ANY) -> ProperType:
-        """Converts a type hint to a proper type.
-
-        Python's builtin functionality makes handling types during runtime really
-        hard, because 1) this is not intended to be used at runtime and 2) there are a
-        lot of different notations, due to the constantly evolving type hint system.
-        We also cannot easily use mypy's type abstraction because it is 1) strongly
-        encapsulated and not part of mypy's public API and 2) is designed to be used
-        for static type checking. This method tries to translate type hints into our
-        own type abstraction in order to make handling types less painful.
-
-        This conversion is naive when compared to what sophisticated type checkers like
-        mypy do, but it is hopefully sufficient for our purposes.
-        This method only handles a very small subset of the types that we may
-        encounter in the wild, but at least it allows use to better reason about types.
-        This should be extended in the future to handle more cases.
-
-        Args:
-            hint: The type hint
-            unsupported: The type to use when encountering an unsupported type construct
-
-        Returns:
-            A proper type.
-        """
-        # We must handle a lot of special cases, so try to give an example for each one.
+        """Convert a Python runtime type hint to a :class:`ProperType`."""
         if hint is Any or hint is None:
-            # typing.Any or empty
             return ANY
         if hint is type(None):
-            # None
             return NONE_TYPE
         if hint in {typing.NoReturn, getattr(typing, "Never", None)}:
             return NEVER
         if hint is tuple:
-            # tuple
-            # TODO(fk) Tuple without size. Should use tuple[Any, ...] ?
-            #  But ... (ellipsis) is not a type.
             return TupleType((ANY,), unknown_size=True)
-        if get_origin(hint) is tuple:
-            # Type is `tuple[int, str]` or `typing.Tuple[int, str]` or `typing.Tuple`
+        origin = get_origin(hint)
+        if origin in _TRANSPARENT_WRAPPERS:
+            raw_args = get_args(hint)
+            return (
+                self.convert_type_hint(raw_args[0], unsupported=unsupported)
+                if raw_args
+                else unsupported
+            )
+        if origin is typing.Literal:
+            raw_args = get_args(hint)
+            if not raw_args:
+                return unsupported
+            items: list[ProperType] = []
+            for value in raw_args:
+                if value is None:
+                    items.append(NONE_TYPE)
+                else:
+                    base = Instance(self.to_class_descriptor(type(value)))
+                    items.append(LiteralType(value, base))
+            return make_union(items)
+        if origin is tuple:
             raw_args = get_args(hint)
             if len(raw_args) == 2 and raw_args[1] is Ellipsis:
                 return TupleType(
@@ -3035,20 +583,18 @@ class TypeSystem:  # noqa: PLR0904
             if not args:
                 return TupleType((ANY,), unknown_size=True)
             return TupleType(args)
-        if get_origin(hint) is type:
+        if origin is type:
             type_args = get_args(hint)
             return TypeType(
                 self.convert_type_hint(type_args[0], unsupported=unsupported) if type_args else ANY
             )
-        if get_origin(hint) is cabc.Callable:
+        if origin is cabc.Callable:
             callable_args = get_args(hint)
             if len(callable_args) != 2:
                 return CallableType(None, ANY)
             parameters, returned = callable_args
             return_type = self.convert_type_hint(returned, unsupported=unsupported)
-            if parameters is Ellipsis:
-                return CallableType(None, return_type)
-            if not isinstance(parameters, list | tuple):
+            if parameters is Ellipsis or not isinstance(parameters, list | tuple):
                 return CallableType(None, return_type)
             return CallableType(
                 tuple(
@@ -3058,29 +604,18 @@ class TypeSystem:  # noqa: PLR0904
                 return_type,
             )
         if is_union_type(hint) or isinstance(hint, types.UnionType):
-            # Type is `int | str` or `typing.Union[int, str]`
-            # TODO(fk) don't make a union including Any.
-            return UnionType(
-                tuple(sorted(self.__convert_args_if_exists(hint, unsupported=unsupported)))
-            )
+            return make_union(self.__convert_args_if_exists(hint, unsupported=unsupported))
         if isinstance(hint, _BaseGenericAlias | types.GenericAlias):
-            # `list[int, str]` or `List[int, str]` or `Dict[int, str]` or `set[str]`
-            result = Instance(
-                self.to_class_descriptor(hint.__origin__),
+            descriptor = self.to_class_descriptor(hint.__origin__)
+            args = normalize_generic_args(
+                descriptor,
                 self.__convert_args_if_exists(hint, unsupported=unsupported),
             )
-            # TODO(fk) remove this one day.
-            #  Hardcoded support generic dict, list and set.
-            return self._fixup_known_generics(result)
-
+            return Instance(descriptor, args)
         if isinstance(hint, type):
-            # `int` or `str` or `MyClass`
-            return self._fixup_known_generics(Instance(self.to_class_descriptor(hint)))
-        # TODO(fk) log unknown hints to so we can better understand what
-        #  we should add next
-        #  Remove this or log to statistics?
+            descriptor = self.to_class_descriptor(hint)
+            return Instance(descriptor, normalize_generic_args(descriptor, ()))
         _LOGGER.debug("Unknown type hint: %s", hint)
-        # Should raise an error in the future.
         return unsupported
 
     def __convert_args_if_exists(
@@ -3091,62 +626,97 @@ class TypeSystem:  # noqa: PLR0904
         return ()
 
     def make_instance(self, typ: ClassDescriptor) -> Instance | TupleType | NoneType:
-        """Create an instance from the given type.
-
-        Args:
-            typ: The type info.
-
-        Returns:
-            An instance or TupleType
-        """
+        """Create an instance type from *typ*, normalizing tuple/None/builtin generics."""
         if typ.full_name == "builtins.tuple":
             return TupleType((ANY,), unknown_size=True)
         if typ.full_name == "builtins.NoneType":
             return NONE_TYPE
-        result = Instance(
-            typ,
-        )
-        return self._fixup_known_generics(result)
+        return Instance(typ, normalize_generic_args(typ, ()))
 
     @staticmethod
     def _fixup_known_generics(result: Instance) -> Instance:
-        if result.type.num_hardcoded_generic_parameters is not None:
-            args = tuple(result.args)
-            if len(result.args) < result.type.num_hardcoded_generic_parameters:
-                # Fill with AnyType if too small
-                args += (ANY,) * (result.type.num_hardcoded_generic_parameters - len(args))
-            elif len(result.args) > result.type.num_hardcoded_generic_parameters:
-                # Remove excessive args.
-                args = args[: result.type.num_hardcoded_generic_parameters]
-            return Instance(result.type, args)
-        return result
+        normalized = normalize_generic_args(result.type, result.args)
+        if normalized == result.args:
+            return result
+        return Instance(result.type, normalized)
 
     @functools.lru_cache(maxsize=16384)
     def subtype_distance(self, supertype: ProperType, subtype: ProperType) -> int | None:
-        """Computes the number of subclassing steps from the supertype to the subtype.
-
-        The number of subclassing steps is the shortest path length in the inheritance
-        graph from the supertype to the subtype. The length from a type to itself is 0.
-        If there is no path from the supertype to the subtype, i.e. if the supertype is
-        not a supertype of the subtype, the method returns None. Similar to
-        is_maybe_subtype, for unions it is sufficient that one type of the Union is a
-        subtype and further the shortest path between all arguments of the Union is
-        computed. See _SubtypeDistanceVisitor for special cases.
-
-        Examples:
-            Assume (Super > Sub > SubSub).
-            Super, Sub -> 1
-            Sub, Super -> None
-            Super, Super -> 0
-            Super, SubSub -> 2
-
-        Args:
-            supertype: The more general type.
-            subtype: The more specific type.
-
-        Returns:
-            The number of subclassing steps from left to right, or None if no path exists.
-        """
+        """Compute the shortest subclassing distance from *supertype* to *subtype*."""
         if not self.is_maybe_subtype(subtype, supertype):
             return None
         return supertype.accept(_SubtypeDistanceVisitor(self, subtype))
+
+
+__all__ = [
+    "ANY",
+    "AnyType",
+    "CSVString",
+    "CallableType",
+    "ClassDescriptor",
+    "EmailString",
+    "HexadecimalString",
+    "IPv4String",
+    "IPv6String",
+    "ISOColorString",
+    "ISODateString",
+    "ISOTimeString",
+    "InferredSignature",
+    "Instance",
+    "LiteralType",
+    "NEVER",
+    "NONE_TYPE",
+    "NamedDefaultDict",
+    "NeverType",
+    "NoneType",
+    "NumericString",
+    "PhoneNumberString",
+    "ProperType",
+    "SHA256String",
+    "STRING_SUBTYPES",
+    "SignatureInfo",
+    "StringSubtype",
+    "TupleType",
+    "TypeGuessingStats",
+    "TypeReprVisitor",
+    "TypeStringVisitor",
+    "TypeSystem",
+    "TypeType",
+    "TypeVarType",
+    "TypeVisitor",
+    "UNSUPPORTED",
+    "URLString",
+    "UUIDString",
+    "UnionType",
+    "Unsupported",
+    "Variance",
+    "_ARGUMENT_ATTRIBUTES",
+    "_CollectionTypeVisitor",
+    "_DICT_KEY_ATTRIBUTES",
+    "_DICT_KEY_FROM_ARGUMENT_TYPES",
+    "_DICT_VALUE_ATTRIBUTES",
+    "_DICT_VALUE_FROM_ARGUMENT_TYPES",
+    "_EMPTY_SET",
+    "_LIST_ELEMENT_ATTRIBUTES",
+    "_LIST_ELEMENT_FROM_ARGUMENT_TYPES",
+    "_LIST_ELEMENT_FROM_ARGUMENT_TYPES_PATH",
+    "_MaybeSubtypeVisitor",
+    "_PartialTypeMatch",
+    "_PrimitiveTypeVisitor",
+    "_SET_ELEMENT_ATTRIBUTES",
+    "_SET_ELEMENT_FROM_ARGUMENT_TYPES",
+    "_SET_ELEMENT_FROM_ARGUMENT_TYPES_PATH",
+    "_STRING_SUBTYPE_ATTRIBUTES",
+    "_SubtypeDistanceVisitor",
+    "_SubtypeVisitor",
+    "_TUPLE_ELEMENT_ATTRIBUTES",
+    "_TUPLE_ELEMENT_FROM_ARGUMENT_TYPES",
+    "_is_partial_type_match",
+    "_is_signatureless_member",
+    "_sum_distances",
+    "_typeshed_class_members",
+    "is_collection_type",
+    "is_primitive_type",
+    "make_union",
+    "normalize_generic_args",
+]

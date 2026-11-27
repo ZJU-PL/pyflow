@@ -1,26 +1,57 @@
 # Constraint-Based Call Graph Design
 
 ## Overview
-The implementation is split into a subpackage with a mixin-based architecture:
+The implementation is split into a subpackage with a mixin-based architecture
+and an IR publication bridge (`../publication.py`):
 
-- `model.py`: abstract values, scope metadata, and analysis options.
-- `engine.py`: fixed-point solver orchestrating the mixins.
-- `api.py`: public API entry points and file helpers.
-- `_loader.py`: module loading and import path resolution.
-- `_collector.py`: symbol collection (functions, classes) and scope initialization.
-- `_analyzer.py`: fixpoint iteration and per-scope/block control-flow analysis.
-- `_evaluator.py`: AST expression evaluation to abstract value sets.
-- `_resolver.py`: call target invocation, argument binding, MRO computation.
+- `model.py`: abstract values (`AbstractValue`), scope/class/function metadata,
+  `AnalysisOptions`, `SolverStats`, and `CallSiteEdgeIndex`.
+- `engine.py`: `ConstraintCallGraphBuilder` orchestrating the mixins and public
+  result extraction (`build`, `call_site_edge_index`, `to_value_flow_graph`).
+- `api.py`: public API entry points (`extract_call_graph_constraint`,
+  `analyze_file_constraint`, `extract_value_flow_graph_constraint`, directory
+  and recursive scan helpers).
+- `_modules.py` (`_ModuleAnalysisMixin`): module loading, monorepo/`src`/`lib`
+  import-root discovery, PEP 263 decoding, and bounded transitive import loading.
+- `_symbols.py` (`_SymbolAnalysisMixin`): symbol collection (functions, classes,
+  lambdas, decorators, module re-exports) and scope initialization.
+- `_solver.py` (`_FixpointSolverMixin`): worklist fixpoint scheduling, 5-tier
+  entry-module scope priority, iteration/wall-clock budgets
+  (`fixpoint_max_iterations`, `fixpoint_max_seconds`), and truncation metadata.
+- `_semi_naive.py`: incremental delta tracking and dependency-driven requeuing
+  for semi-naive fixpoint propagation.
+- `_statements.py` (`_StatementAnalysisMixin`): statement/block evaluation
+  (assignments, control flow, `try`/`except*`, `match`/`case`, `with`/`async with`,
+  imports, deletions, decorators).
+- `_expressions.py` (`_ExpressionAnalysisMixin`): AST expression evaluation to
+  abstract value sets (calls, attributes, subscripts, containers, comprehensions,
+  f-strings, slices, lambdas).
+- `_types.py` (`_TypeAnalysisMixin`): annotation, protocol, `TypeGuard`/`TypeIs`,
+  registry, and `singledispatch` resolution, with lazy fallback to `TypeInfo`
+  facts via `TypeFactBridge`.
+- `_call_binding.py` (`_CallBindingMixin`): positional/keyword/`*args`/`**kwargs`
+  parameter binding, default evaluation, and descriptor binding.
+- `_state.py` (`_StateAnalysisMixin`): scope/context state joins, widening caps,
+  and container/field heap state.
+- `_call_targets.py` (`_CallTargetMixin`): call dispatch, C3 MRO resolution,
+  dynamic summary nodes, and builtin/stdlib callback models.
+- `../publication.py`: publishes resolved call-site targets into `IRCatalog`
+  (`Capabilities.CALL_TARGETS` / `Capabilities.CALL_TARGET_CODES`) matched by
+  source span for IFDS and query consumers.
 
-The `ConstraintCallGraphBuilder` class in `engine.py` composes these mixins:
+The `ConstraintCallGraphBuilder` class in `engine.py` composes nine mixins:
 
 ```python
 class ConstraintCallGraphBuilder(
-    _LoaderMixin,
-    _CollectorMixin,
-    _AnalyzerMixin,
-    _EvaluatorMixin,
-    _ResolverMixin,
+    _ModuleAnalysisMixin,
+    _SymbolAnalysisMixin,
+    _FixpointSolverMixin,
+    _StatementAnalysisMixin,
+    _ExpressionAnalysisMixin,
+    _TypeAnalysisMixin,
+    _CallBindingMixin,
+    _StateAnalysisMixin,
+    _CallTargetMixin,
 ):
     ...
 ```
@@ -86,11 +117,14 @@ abstract values per symbol:
 - Closure-captured values:
   - nested function symbol collection,
   - capture propagation from defining scopes to nested scopes.
-- Type-directed pruning:
+- Type-directed pruning and TypeInfo enrichment:
   - parameter and annotated assignment filtering from resolvable hints,
-  - runtime guard refinement for `isinstance`, `issubclass`, `TypeGuard`, and `None` checks,
+  - runtime guard refinement for `isinstance`, `issubclass`, `TypeGuard`, `TypeIs`, and `None` checks,
   - expression-level narrowing via `typing.cast`,
-  - protocol-aware structural matching for annotated parameters.
+  - protocol-aware structural matching for annotated parameters,
+  - lazy `TypeInfo` fact bridge (`use_typeinfo_facts=True`) for resolving type
+    aliases, `TYPE_CHECKING` annotations, cross-module typed returns, and
+    annotated class attributes when raw local AST lookup is insufficient.
 - Python protocol/library hooks:
   - explicit and zero-argument `super(...)` receiver recovery,
   - dict dispatch helpers via `get`, `setdefault`, and `pop`,
@@ -100,13 +134,18 @@ abstract values per symbol:
   - `functools.singledispatch` plus `.register(...)` implementation dispatch.
 - Explainability for dynamic uncertainty:
   - explicit summary nodes `<dynamic>.<scope>@line:col` when unresolved call
-    targets remain.
+    targets remain, separated from concrete edges in unified JSON reports.
 - Async/control-flow support:
-  - `await` expressions and `async with` blocks are analyzed,
-  - `match/case` branch bodies are included in scope/block analysis.
+  - `await` expressions, `async with`, `try`/`except*`, f-string format specs,
+    slice expressions, and `match`/`case` (preserving subsequent cases after
+    refutable patterns) are analyzed.
 - Solver safety controls:
-  - configurable fixpoint iteration cap (`fixpoint_max_iterations`),
-  - optional truncation warning (`warn_on_fixpoint_truncation`).
+  - semi-naive incremental propagation (`_semi_naive.py`) and 5-tier entry-module
+    scope priority so entry scopes converge ahead of transitively imported modules,
+  - configurable fixpoint iteration cap (`fixpoint_max_iterations`) and
+    wall-clock solver/import budget (`fixpoint_max_seconds`),
+  - optional truncation warning (`warn_on_fixpoint_truncation`) and explicit
+    `converged` / `termination_reason` / `diagnostics` reporting,
   - deterministic scheduling (`requeue_policy=fifo|priority`),
   - bounded widening (`max_values_per_binding`, `max_contexts_per_scope`),
   - precision-safe bypass (`strict_precision_mode=True`),

@@ -22,6 +22,7 @@ from .model import (
     make_class,
     make_container,
     make_func,
+    make_instance,
     parse_instance_name,
 )
 
@@ -698,6 +699,22 @@ class _StateAnalysisMixin:
                     }
                     if attr_name in deque_methods:
                         out.add(make_func(f"<**PyDeque**>.{attr_name}"))
+                if not out:
+                    bridge = self._get_typeinfo_bridge()
+                    if bridge is not None:
+                        for klass in class_order:
+                            fact = bridge.member_type(klass, attr_name)
+                            if fact is None:
+                                continue
+                            klass_module = klass.rpartition(".")[0] or None
+                            matched_classes = self._resolve_typeinfo_class_names(
+                                fact.type_names,
+                                module_name=klass_module,
+                            )
+                            if matched_classes:
+                                for cls_name in matched_classes:
+                                    out.add(make_instance(cls_name))
+                                break
 
             elif base_value.kind == CONTAINER_KIND:
                 if base_value.name.startswith("dict:"):

@@ -44,13 +44,15 @@ class _ExpressionCallMixin:
             operand_locations,
         )
         if known_classes:
-            return self._evaluate_known_class_targets(
+            result = self._evaluate_known_class_targets(
                 procedure,
                 expression,
                 known_classes,
                 operand_locations,
                 self.effect_builder._call_result_label(expression),
             )
+            self._attach_published_return_type_facts(procedure, expression, result)
+            return result
         kind = self.effect_builder.call_return_kind(expression)
         if kind == CALL_RETURN_NONE:
             return ()
@@ -62,6 +64,9 @@ class _ExpressionCallMixin:
         )
         if modeled:
             self._attach_known_class(procedure, expression, modeled)
+            self._attach_published_return_type_facts(
+                procedure, expression, modeled, attach_weak_class=True
+            )
             return tuple(
                 dict.fromkeys(
                     (
@@ -90,6 +95,9 @@ class _ExpressionCallMixin:
                 result,
             )
         self._attach_known_class(procedure, expression, result)
+        self._attach_published_return_type_facts(
+            procedure, expression, result, attach_weak_class=True
+        )
         return tuple(
             dict.fromkeys(
                 (

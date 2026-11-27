@@ -1445,6 +1445,7 @@ class HeapAbstraction:
         program_point_outcomes: dict[object, dict[str, object]] | None = None,
         precision_degradations: dict[object, frozenset[str]] | None = None,
         operation_identities: dict[object, object] | None = None,
+        inferred_types_by_root: dict[HeapObject, tuple[str, ...]] | None = None,
     ) -> "PointsToGraph":
         """Export heap state as a reusable :class:`PointsToGraph`.
 
@@ -1480,6 +1481,7 @@ class HeapAbstraction:
                 update_policy=self.update_policy_for_location(location, ref_count=ref_count),
                 cardinality=obj.cardinality,
                 identity=obj.identity,
+                inferred_types=(inferred_types_by_root or {}).get(obj, ()),
             )
         values = getattr(state, "values", {}) if state is not None else {}
         contaminants = getattr(state, "contaminants", {}) if state is not None else {}

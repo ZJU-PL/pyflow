@@ -232,6 +232,92 @@ class ConstraintCallGraphBuilder(
             for name in dir(builtins)
             if callable(getattr(builtins, name, None)) and not name.startswith("_")
         }
+        self._typeinfo_bridge: Optional[object] = None
+        self._typeinfo_registered_modules: Set[str] = set()
+
+    def _get_typeinfo_bridge(self):
+        """Lazily initialize the TypeInfo fact bridge on first fallback query."""
+        if not self.options.use_typeinfo_facts or not self.options.use_type_hints:
+            return None
+        if self._fixpoint_deadline is not None and time.monotonic() >= self._fixpoint_deadline:
+            return None
+        if self._typeinfo_bridge is None:
+            from pyflow.analysis.typeinfo.publication import TypeFactBridge
+
+            bridge = TypeFactBridge(
+                project_context=self.project_context,
+                source_files=self.additional_sources,
+                enable_static_inference=True,
+            )
+            bridge.register_module_source(
+                self.entry_module_name,
+                self.source_code,
+                self.entry_path,
+            )
+            self._typeinfo_registered_modules.add(self.entry_module_name)
+            if self.entry_module_import_name != self.entry_module_name:
+                bridge.register_module_source(
+                    self.entry_module_import_name,
+                    self.source_code,
+                    self.entry_path,
+                )
+                self._typeinfo_registered_modules.add(self.entry_module_import_name)
+            self._typeinfo_bridge = bridge
+        bridge = self._typeinfo_bridge
+        for mod_name, mod_info in self.modules.items():
+            if mod_name in self._typeinfo_registered_modules:
+                continue
+            self._typeinfo_registered_modules.add(mod_name)
+            if mod_info.path is None:
+                continue
+            source_text = self.additional_sources.get(mod_info.path)
+            if source_text is None:
+                source_text = self.additional_sources.get(os.path.realpath(mod_info.path))
+            if source_text is not None:
+                bridge.register_module_source(mod_name, source_text, mod_info.path)
+        return bridge
+
+    def _resolve_typeinfo_class_names(
+        self,
+        type_names: Iterable[str],
+        *,
+        module_name: Optional[str] = None,
+    ) -> List[str]:
+        """Map canonical TypeInfo class names onto known classes in ``self.classes``."""
+        matched: List[str] = []
+        seen: Set[str] = set()
+        for raw_name in type_names:
+            if not raw_name or raw_name.startswith("builtins."):
+                continue
+            candidates = [raw_name]
+            if self.entry_module_import_name != self.entry_module_name and raw_name.startswith(
+                f"{self.entry_module_import_name}."
+            ):
+                suffix = raw_name[len(self.entry_module_import_name) + 1 :]
+                candidates.append(f"{self.entry_module_name}.{suffix}")
+            elif self.entry_module_import_name != self.entry_module_name and raw_name.startswith(
+                f"{self.entry_module_name}."
+            ):
+                suffix = raw_name[len(self.entry_module_name) + 1 :]
+                candidates.append(f"{self.entry_module_import_name}.{suffix}")
+            mod_part, sep, rest = raw_name.partition(".")
+            if sep:
+                mapped_mod = self.module_aliases.get(mod_part)
+                if mapped_mod:
+                    candidates.append(f"{mapped_mod}.{rest}")
+                for alias_mod, canonical_mod in self.module_aliases.items():
+                    if raw_name.startswith(f"{alias_mod}."):
+                        candidates.append(f"{canonical_mod}.{raw_name[len(alias_mod) + 1:]}")
+                    elif raw_name.startswith(f"{canonical_mod}."):
+                        candidates.append(f"{alias_mod}.{raw_name[len(canonical_mod) + 1:]}")
+            if module_name and "." not in raw_name:
+                candidates.append(f"{module_name}.{raw_name}")
+            for candidate in candidates:
+                if candidate in self.classes and candidate not in seen:
+                    seen.add(candidate)
+                    matched.append(candidate)
+                    break
+        return matched
 
     def _infer_project_root(self, entry_path: str) -> str:
         """Pick an import root above any package directories containing the entry."""
@@ -263,6 +349,7 @@ class ConstraintCallGraphBuilder(
         self._load_modules()
         self._collect_symbols()
         self._resolve_import_bindings()
+        self._resolve_module_annotated_bindings()
         self._resolve_class_bases()
         self._initialize_scopes()
         self._index_call_sites()
