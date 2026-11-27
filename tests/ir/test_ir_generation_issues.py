@@ -15,8 +15,10 @@ from pyflow.application.context import CompilerContext
 from pyflow.application.program import Program
 from pyflow.util.application.console import Console
 from pyflow.ir.cfg import transform, ssa, ssatransform
-from pyflow.ir.mir import lower_source, lower_file, MIRInterpreter
-from pyflow.ir.mir.lowering import _default_root
+from pyflow.language.modules.project_resolution import (
+    default_import_root,
+    module_name_for_root,
+)
 
 
 def test_match_guard_linear_scaling_no_exponential_explosion():
@@ -119,8 +121,8 @@ def f(x):
     assert result_code is not None
 
 
-def test_default_root_finds_package_root_for_namespace_subpackage(tmp_path):
-    """_default_root should resolve src-layout package roots even through namespace directories."""
+def test_default_import_root_finds_package_root_for_namespace_subpackage(tmp_path):
+    """default_import_root should resolve src-layout package roots even through namespace directories."""
     project_dir = tmp_path / "my_project"
     project_dir.mkdir()
     (project_dir / "pyproject.toml").touch()
@@ -132,47 +134,9 @@ def test_default_root_finds_package_root_for_namespace_subpackage(tmp_path):
     module_file = sub_dir / "routes.py"
     module_file.touch()
 
-    resolved = _default_root(module_file)
+    resolved = default_import_root(module_file)
     assert resolved == src_dir
-
-
-def test_mir_int_truediv_zero_raises_zero_division():
-    """1 / 0 in MIR must raise ZeroDivisionError rather than TypeError."""
-    source = """
-try:
-    x = 1 / 0
-except ZeroDivisionError:
-    result = 42
-"""
-    program = lower_source(source, filename="<test>")
-    execution = MIRInterpreter(program, max_steps=100_000).run()
-    builtins = execution.value("$builtins")
-    module = execution.value("$return")
-    env = execution.memory[module.fields["$env"]]
-    res_val = execution.memory[env.fields["result"]]
-    assert execution.memory[res_val.fields["$value"]] == 42
-
-
-def test_mir_string_comparison_operators():
-    """MIR string comparisons (<, <=, >, >=, !=) should work correctly."""
-    source = """
-result = (
-    "apple" < "banana",
-    "banana" > "apple",
-    "cat" == "cat",
-    "cat" != "dog",
-    "abc" <= "abc",
-    "def" >= "abc",
-)
-"""
-    program = lower_source(source, filename="<test>")
-    execution = MIRInterpreter(program, max_steps=100_000).run()
-    module = execution.value("$return")
-    env = execution.memory[module.fields["$env"]]
-    res_val = execution.memory[env.fields["result"]]
-    items = [execution.memory[addr] for addr in execution.memory[res_val.fields["$value"]].items]
-    bool_values = [execution.memory[item.fields["$value"]] for item in items]
-    assert bool_values == [True, True, True, True, True, True]
+    assert module_name_for_root(module_file, resolved) == "my_package.sansio.routes"
 
 
 def test_cli_ir_directory_without_recursive_hints_subdirectories(tmp_path):

@@ -10,7 +10,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from pyflow.analysis.alias.flow_sensitive import HeapAnalysis
-from pyflow.analysis.callgraph.pycg_mir import analyze_file_pycg_mir
 from pyflow.analysis.ipa.calling.cpa import CPATypeSigBuilder, anyType, nullIter
 from pyflow.analysis.taint_policy.policy import TaintPolicy
 from pyflow.analysis.typeinfo.query.service import TypeFact, TypeInfoService
@@ -31,7 +30,6 @@ from pyflow.ir.cfg import transform as cfg_transform
 from pyflow.ir.core.catalog import IRCatalog
 from pyflow.ir.core.index import index_code
 from pyflow.ir.cpg.graph import CPGEdgeKind
-from pyflow.ir.mir.lowering import lower_source
 from pyflow.language.modules.project_resolution import ProjectContext
 from pyflow.language.python import ast as py_ast
 from pyflow.optimization.source import optimize_source
@@ -122,30 +120,6 @@ def test_flow_sensitive_alias_nested_call_in_for_iterator_and_loop_convergence(t
     analysis = HeapAnalysis()
     result = analysis.analyze(compiler, program)
     assert result is not None
-
-
-def test_pycg_mir_direct_literal_lowering_and_budget_enforcement(tmp_path: Path):
-    """Large dict/list literals lower directly without per-element $site CFG blowup."""
-    entries = ", ".join(f"'k{i}': {i}" for i in range(400))
-    source = f"MAPPING = {{{entries}}}\nITEMS = [{', '.join(str(i) for i in range(400))}]\n"
-    prog = lower_source(source, module_name="litmod")
-    # Direct lowering avoids per-element synthetic $site CFGs for plain dict/list literals.
-    site_cfgs = [name for name in prog.cfgs if "$site" in name]
-    assert site_cfgs == []
-
-    # Tight budget triggers partial lowering gracefully instead of crashing.
-    target = tmp_path / "litmod.py"
-    target.write_text(source, encoding="utf-8")
-    with redirect_stdout(io.StringIO()), warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        cg = analyze_file_pycg_mir(
-            str(target),
-            project_root=str(tmp_path),
-            max_seconds=0.000001,
-            max_import_depth=0,
-            import_policy="opaque",
-        )
-    assert cg is not None
 
 
 def test_taint_policy_suffix_index_matches_full_and_shortened_names():

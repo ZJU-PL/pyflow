@@ -97,19 +97,6 @@ def test_canonical_entry_is_not_loaded_again_via_import(tmp_path):
     assert "entry.run" in graph["helper.call"]
 
 
-def test_native_mir_project_root_recognizes_src_layout(tmp_path):
-    from pyflow.ir.mir import lower_file
-
-    package = tmp_path / "src" / "demo"
-    package.mkdir(parents=True)
-    (package / "__init__.py").write_text("")
-    entry = package / "app.py"
-    entry.write_text("def run(): pass\n")
-    program = lower_file(entry, project_root=tmp_path)
-    assert "demo.app.run" in program.cfgs
-    assert "src.demo.app.run" not in program.cfgs
-
-
 @pytest.mark.parametrize("name", ["__init__", "items", "unknown.items"])
 def test_leaf_names_cannot_borrow_library_source_models(name):
     registry = CallModelRegistry(
@@ -305,48 +292,6 @@ def test_callgraph_unified_schema_separates_unresolved_targets(tmp_path, capsys)
     assert report["unresolved_calls"]
     assert report["external_calls"]
     assert all(not name.startswith("<") for name in report["graph"])
-
-
-def test_explicit_mir_budget_is_not_capped_by_implicit_process_limit(tmp_path, capsys, monkeypatch):
-    import pyflow.cli.callgraph as cli
-
-    def run(request, *, timeout):
-        assert request["analysis_seconds"] == 60
-        assert timeout == 65
-        return "{}"
-
-    monkeypatch.setattr(cli, "run_isolated_callgraph", run)
-    path = tmp_path / "sample.py"
-    path.write_text("pass\n")
-    parser = argparse.ArgumentParser()
-    add_callgraph_parser(parser.add_subparsers())
-    args = parser.parse_args(["callgraph", str(path), "-a", "pycg-mir", "--mir-max-seconds", "60"])
-    assert run_callgraph(path, args) == 0
-
-
-def test_native_mir_library_receivers_and_no_descriptor_cross_edges():
-    from pyflow.ir.mir import lower_source
-    from pyflow.analysis.callgraph.pycg_mir import analyze_program
-
-    program = lower_source(
-        """
-class Base:
-    @classmethod
-    def cm(cls): return cls.helper()
-    @classmethod
-    def helper(cls): return 1
-    def im(self): return self.helper2()
-    def helper2(self): return 2
-    @staticmethod
-    def sm(): return Base.helper()
-""",
-        module_name="library",
-    )
-    result = analyze_program(program, max_iterations=64, raise_on_truncation=True)
-    graph = result.call_graph.get()
-    assert graph["library.Base.cm"] == {"library.Base.helper"}
-    assert graph["library.Base.im"] == {"library.Base.helper2"}
-    assert graph["library.Base.sm"] == {"library.Base.helper"}
 
 
 def test_scanner_constant_shell_sql_yaml_and_hash_contracts(tmp_path, capsys):

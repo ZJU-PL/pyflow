@@ -87,19 +87,12 @@ def test_json_parsing_propagates_taint_without_being_an_execution_sink(tmp_path,
     assert {finding["sink_name"] for finding in findings} == {"eval"}
 
 
-def test_opaque_mir_keeps_local_import_edges_and_strict_failure_is_friendly(tmp_path):
-    (tmp_path / "helper.py").write_text("def helper(): return 1\n")
+def test_callgraph_engine_alias_selects_algorithm(tmp_path):
     path = tmp_path / "entry.py"
-    path.write_text(
-        "import unavailable_third_party\nfrom helper import helper\ndef run(): return helper()\nrun()\n"
-    )
-    result = cli("callgraph", path, "--engine", "pycg-mir", "--format", "json")
-    assert result.returncode == 3, result.stderr
-    assert "helper.helper" in json.loads(result.stdout)["entry.run"]
-    strict = cli("callgraph", path, "--engine", "pycg-mir", "--mir-import-policy", "strict")
-    assert strict.returncode == 1
-    assert "no local source or MIR runtime model" in strict.stderr
-    assert "Traceback" not in strict.stderr
+    path.write_text("def helper(): return 1\ndef run(): return helper()\nrun()\n")
+    result = cli("callgraph", path, "--engine", "constraint", "--format", "json")
+    assert result.returncode == 0, result.stderr
+    assert "entry.helper" in json.loads(result.stdout)["entry.run"]
 
 
 def test_optimize_dump_refreshes_facts_and_accepts_keyword_tuples(tmp_path):
@@ -132,26 +125,6 @@ def test_alias_hides_generated_runtime_helpers_unless_verbose(tmp_path):
     assert normal.returncode == detailed.returncode == 0
     assert "interpreter_format" not in normal.stdout
     assert "interpreter_format" in detailed.stdout
-
-
-def test_native_mir_budget_is_reported_without_internal_warning_stack(tmp_path):
-    path = tmp_path / "sample.py"
-    path.write_text("def f(): pass\nf()\n")
-    result = cli(
-        "callgraph",
-        path,
-        "--engine",
-        "pycg-mir",
-        "--mir-max-seconds",
-        "0.000001",
-        "--format",
-        "json",
-    )
-    assert result.returncode == 3
-    assert json.loads(result.stdout)
-    assert "MIR call graph is partial" in result.stderr
-    assert "Time budget" in result.stderr
-    assert "PyCGMIRConvergenceWarning" not in result.stderr
 
 
 @pytest.mark.parametrize(

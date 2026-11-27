@@ -1,13 +1,12 @@
 """
 IR dumping command for PyFlow CLI.
 
-This module provides functionality to dump MIR programs and AST, CFG, SSA,
+This module provides functionality to dump AST, CFG, SSA,
 CDG, DDG, and GIR forms for specific functions in Python code.
 """
 
 import sys
 import os
-import argparse
 import fnmatch
 import json
 from contextlib import redirect_stdout
@@ -37,9 +36,7 @@ import pyflow.util.pydot as pydot
 
 def add_ir_parser(subparsers):
     """Add IR dumping command parser to the main CLI."""
-    parser = subparsers.add_parser(
-        "ir", help="Dump MIR programs or AST, CFG, SSA, CDG, DDG, and GIR functions"
-    )
+    parser = subparsers.add_parser("ir", help="Dump AST, CFG, SSA, CDG, DDG, and GIR functions")
 
     # Input arguments
     parser.add_argument("input_path", help="Python file or directory to analyze")
@@ -70,24 +67,6 @@ def add_ir_parser(subparsers):
 
     # Dump arguments
     parser.add_argument(
-        "--dump-mir",
-        nargs="?",
-        const="*",
-        metavar="SCOPE",
-        help=(
-            "Dump the seven-instruction MIR program; optionally select a "
-            "qualified scope or an unambiguous function name"
-        ),
-    )
-    parser.add_argument(
-        "--mir-view",
-        choices=("source", "full"),
-        help=(
-            "MIR view: source hides runtime CFGs; full includes them. "
-            "Default: source for text/dot, full for JSON compatibility"
-        ),
-    )
-    parser.add_argument(
         "--list-functions",
         action="store_true",
         help="List available function names discovered in the input",
@@ -98,17 +77,6 @@ def add_ir_parser(subparsers):
         const="*",
         metavar="FUNCTION",
         help="Dump AST for the specified function name, or all functions if omitted or \x27*\x27",
-    )
-    parser.add_argument(
-        "--mir-import-policy",
-        choices=("strict", "opaque"),
-        help="Reject unmodeled imports, or retain opaque boundaries for inspection (default: opaque)",
-    )
-    parser.add_argument(
-        "--mir-follow-imports",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Whether to follow imports when dumping MIR (default: false unless explicitly requested)",
     )
     parser.add_argument(
         "--dump-cfg",
@@ -699,173 +667,11 @@ def find_python_files(directory, args):
         )
 
 
-def _select_mir_programs(compiled, scope):
-    """Resolve scopes across files, deduplicating shared imported definitions."""
-    if scope in (None, "*"):
-        return [(source, program, None) for source, program in compiled]
-    exact, suffix, source_suffix = {}, {}, {}
-    for source, program in compiled:
-        for name, cfg in program.cfgs.items():
-            identity = (name, cfg.filename or str(source.resolve()))
-            if name == scope:
-                exact.setdefault(identity, (source, program, name))
-            elif name.endswith(f".{scope}"):
-                suffix.setdefault(identity, (source, program, name))
-                if cfg.filename and not cfg.is_synthetic:
-                    source_suffix.setdefault(identity, (source, program, name))
-    matches = exact or source_suffix or suffix
-    if len(matches) == 1:
-        return list(matches.values())
-    if not matches:
-        candidates = sorted(
-            {
-                name
-                for _, program in compiled
-                for name, cfg in program.cfgs.items()
-                if cfg.filename and not cfg.is_synthetic
-            }
-        )
-        hint = f" Available candidates: {', '.join(candidates[:5])}" if candidates else ""
-        raise ValueError(f"MIR scope '{scope}' was not found.{hint}")
-    choices = ", ".join(f"{name} ({filename})" for name, filename in sorted(matches))
-    raise ValueError(f"MIR scope '{scope}' is ambiguous; choose one of: {choices}")
-
-
-def _format_mir_diagnostics(diagnostics):
-    """Render lowering diagnostics for text artifacts (JSON embeds them)."""
-    if not diagnostics:
-        return ""
-    lines = ["", f"diagnostics ({len(diagnostics)} unmodeled site(s); lowering is partial):"]
-    for item in diagnostics:
-        filename = item.get("filename", "<unknown>")
-        line = item.get("line")
-        location = f"{filename}:{line}" if line is not None else str(filename)
-        message = item.get("message", "")
-        prefix = f"{location}: "
-        if message.startswith(prefix):
-            message = message[len(prefix) :]
-        lines.append(f"  {location}: {message} [{item.get('code', '')}]")
-    return "\n".join(lines) + "\n"
-
-
-def _format_mir_view(program, args, scope, diagnostics=()):
-    """Keep human inspection compact while preserving default JSON exports."""
-    from dataclasses import replace
-    from pyflow.ir.mir import format_program
-
-    view = getattr(args, "mir_view", None) or ("full" if args.dump_format == "json" else "source")
-    if scope is not None or view == "full":
-        if args.dump_format == "json":
-            data = program.to_dict()
-            if scope is not None:
-                if scope not in program.cfgs:
-                    raise ValueError(f"MIR scope '{scope}' was not found in the compiled program")
-                data["cfgs"] = {scope: program.cfgs[scope].to_dict()}
-                data["entry"] = scope
-            if diagnostics:
-                data.update(status="partial", inspection_only=True, diagnostics=list(diagnostics))
-            return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-        content = format_program(program, format=args.dump_format, scope=scope)
-        if diagnostics and args.dump_format == "text":
-            return (
-                "MIR partial inspection (opaque imports/literals; see diagnostics)\n"
-                + content
-                + _format_mir_diagnostics(diagnostics)
-            )
-        return content
-    cfgs = {
-        name: cfg for name, cfg in program.cfgs.items() if cfg.filename and not cfg.is_synthetic
-    }
-    source_program = replace(program, cfgs=cfgs)
-    if args.dump_format == "json":
-        data = source_program.to_dict()
-        data.update(view="source", omitted_runtime_cfgs=len(program.cfgs) - len(cfgs))
-        if diagnostics:
-            data.update(status="partial", inspection_only=True, diagnostics=list(diagnostics))
-        return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    content = format_program(source_program, format=args.dump_format)
-    if args.dump_format == "text":
-        if diagnostics:
-            header = (
-                "MIR partial source view (runtime CFGs omitted; see diagnostics; "
-                "use --mir-view full)\n"
-            )
-            return header + content + _format_mir_diagnostics(diagnostics)
-        return "MIR source view (runtime CFGs omitted; use --mir-view full)\n" + content
-    return content
-
-
-def _dump_mir_files(python_files, input_path: Path, args):
-    """Lower source directly, so MIR inspection never imports target modules."""
-    from pyflow.ir.mir import lower_file
-    from pyflow.ir.mir.lowering import _default_root
-
-    output_dir = Path(args.dump_output or ".")
-    project_root = (
-        str(_default_root(input_path.resolve() / "__init__.py")) if input_path.is_dir() else None
-    )
-    view = getattr(args, "mir_view", None) or ("full" if args.dump_format == "json" else "source")
-    import_policy = getattr(args, "mir_import_policy", None) or "opaque"
-    # Default dumps inspect the requested files. Following a project's
-    # entire dependency graph requires explicit follow-imports or strict verification.
-    explicit_follow = getattr(args, "mir_follow_imports", None)
-    if explicit_follow is False and import_policy == "strict":
-        raise ValueError(
-            "--mir-import-policy strict requires resolving imports; "
-            "drop --no-mir-follow-imports or use --mir-import-policy opaque"
-        )
-    if explicit_follow is not None:
-        follow_imports = explicit_follow
-    else:
-        follow_imports = (
-            getattr(args, "mir_view", None) == "full" and import_policy == "strict"
-        ) or (import_policy == "strict")
-    compiled, diagnostics_by_source = [], {}
-    for source in python_files:
-        diagnostics = []
-        program = lower_file(
-            str(source),
-            project_root=project_root,
-            import_policy=import_policy,
-            diagnostics=diagnostics,
-            follow_imports=follow_imports,
-        )
-        compiled.append((source, program))
-        diagnostics_by_source[source] = diagnostics
-        if diagnostics:
-            modules = sorted({item["module"] for item in diagnostics if "module" in item})
-            print(
-                f"MIR inspection is partial: {len(diagnostics)} unmodeled semantic site(s). Opaque imports: {', '.join(modules) or '<none>'}. Use --mir-import-policy strict to require complete semantics.",
-                file=sys.stderr,
-            )
-    prepared = []
-    for source_path, program, scope in _select_mir_programs(compiled, args.dump_mir):
-        content = _format_mir_view(program, args, scope, diagnostics_by_source[source_path])
-        if input_path.is_dir():
-            relative = source_path.relative_to(input_path).with_suffix("")
-            relative_dir = relative.parent
-        else:
-            relative_dir = Path()
-        stem = source_path.stem
-        if scope is not None:
-            # Qualified names may contain compiler-generated markers; keep
-            # emitted filenames portable and confined to the output directory.
-            safe_scope = "".join(char if char.isalnum() or char in "._-" else "_" for char in scope)
-            stem = f"{stem}.{safe_scope}"
-        prepared.append((output_dir / relative_dir / f"{stem}_mir.{args.dump_format}", content))
-
-    for output_file, content in prepared:
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        output_file.write_text(content, encoding="utf-8")
-        print(f"MIR dumped to: {output_file}")
-
-
 def run_ir_dump(input_path: Path, args):
     """Print inspection artifacts by default; persist only to an explicit path."""
     if not any(
         getattr(args, name, None)
         for name in (
-            "dump_mir",
             "dump_ast",
             "dump_cfg",
             "dump_ssa",
@@ -876,7 +682,7 @@ def run_ir_dump(input_path: Path, args):
         )
     ):
         print(
-            "Error: no IR dump target specified; use --dump-mir, --dump-cfg, or --help",
+            "Error: no IR dump target specified; use --dump-ast, --dump-cfg, or --help",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -938,15 +744,6 @@ def _run_ir_dump(input_path: Path, args):
                 file=sys.stderr,
             )
             sys.exit(1)
-
-        if getattr(args, "dump_mir", None):
-            _dump_mir_files(python_files, input_path, args)
-            if not any(
-                getattr(args, name, None)
-                for name in ("dump_ast", "dump_cfg", "dump_ssa", "dump_cdg", "dump_ddg", "dump_gir")
-            ):
-                print("IR dumping complete!")
-                return
 
         console = Console(verbose=args.verbose)
         compiler = CompilerContext(console)

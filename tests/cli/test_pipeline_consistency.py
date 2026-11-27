@@ -39,7 +39,7 @@ def test_directory_targets_discover_nested_sources_without_recursive_flag(engine
     assert not args.recursive  # Keep caller-owned options unchanged.
 
 
-@pytest.mark.parametrize("algorithm", ["simple", "constraint", "pycg-mir"])
+@pytest.mark.parametrize("algorithm", ["simple", "constraint"])
 def test_callgraph_json_is_a_caller_to_callees_map(algorithm, tmp_path, capsys):
     source = tmp_path / "app.py"
     source.write_text("def helper():\n    pass\ndef run():\n    helper()\nrun()\n")

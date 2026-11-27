@@ -25,13 +25,16 @@ class QueryContext:
         if filename in self._filename_module_cache:
             return self._filename_module_cache[filename]
         from pathlib import Path
-        from pyflow.ir.mir.lowering import _default_root, _module_name
+        from pyflow.language.modules.project_resolution import (
+            default_import_root,
+            module_name_for_root,
+        )
 
         path = Path(filename)
         module: Optional[str] = None
         if path.is_file():
             resolved = path.resolve()
-            module = _module_name(resolved, _default_root(resolved))
+            module = module_name_for_root(resolved, default_import_root(resolved))
         self._filename_module_cache[filename] = module
         return module
 

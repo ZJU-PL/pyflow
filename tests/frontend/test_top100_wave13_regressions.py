@@ -1,4 +1,4 @@
-"""Regression tests for Wave 13 top-100 TypeInfo, CallGraph, and MIR fixes."""
+"""Regression tests for Wave 13 top-100 TypeInfo and CallGraph fixes."""
 
 from __future__ import annotations
 
@@ -26,7 +26,6 @@ from pyflow.application.program import Program
 from pyflow.frontend.extractor import Extractor, extract_program
 from pyflow.frontend.interface_builder import InterfaceBuildOptions, build_interface_from_paths
 from pyflow.ir.core import Capabilities
-from pyflow.ir.mir.lowering import LoweringBudgetError, lower_source
 from pyflow.language.modules.project_resolution import ProjectContext
 from pyflow.language.python import ast as pyflow_ast
 from pyflow.util.application.console import Console
@@ -342,24 +341,3 @@ def test_callgraph_publication_matches_by_source_location_not_shifted_ir_ordinal
                 assert any(name == "helper" or name.endswith(".helper") for name in targets)
                 matched_helper_on_real_call = True
     assert matched_helper_on_real_call
-
-
-def test_mir_lower_source_enforces_max_seconds_during_import_discovery(tmp_path: Path) -> None:
-    """``lower_source(..., max_seconds=...)`` must bound ``_discover`` before compiling."""
-    pkg = tmp_path / "bigpkg"
-    pkg.mkdir()
-    (pkg / "__init__.py").write_text("", encoding="utf-8")
-    for i in range(40):
-        nxt = f"from . import m{i + 1}\n" if i < 39 else ""
-        (pkg / f"m{i}.py").write_text(f"{nxt}VALUE = {i}\n", encoding="utf-8")
-
-    with pytest.raises(LoweringBudgetError):
-        lower_source(
-            (pkg / "m0.py").read_text(encoding="utf-8"),
-            module_name="bigpkg.m0",
-            filename=str(pkg / "m0.py"),
-            project_root=str(tmp_path),
-            follow_imports=True,
-            import_policy="opaque",
-            max_seconds=1e-9,
-        )

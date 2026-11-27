@@ -17,7 +17,6 @@ Package Layout
 * :doc:`cpg` — Code Property Graphs and CPG-backed taint infrastructure
 * :doc:`storegraph` — Shared heap and points-to representation
 * :doc:`gir` — Graph IR (Lian-compatible intermediate representation)
-* :doc:`mir` — Minimal seven-instruction MIR and native PyCG analysis
 * :doc:`revision` — IR revision summary (completed)
 
 The corresponding source and test trees mirror this organization under
@@ -35,5 +34,4 @@ The corresponding source and test trees mirror this organization under
    cpg
    storegraph
    gir
-   mir
    revision

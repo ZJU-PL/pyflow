@@ -223,6 +223,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type variables render by name (`T`) rather than `T: <bound>`, matching mypy
   and pyright output.
 
+### Removed
+
+- Removed the seven-instruction MIR subsystem (`pyflow.ir.mir`), the native
+  MIR-based PyCG call-graph backend (`pyflow.analysis.callgraph.pycg_mir`),
+  the `pyflow callgraph --algorithm pycg-mir` / `--mir-*` flags, and the
+  `pyflow ir --dump-mir` / `--mir-*` flags. Relocated the shared package-root
+  resolution helpers (`default_import_root` and `module_name_for_root`) into
+  `pyflow.language.modules.project_resolution`.
+
 ### Fixed
 
 - IFDS taint analysis now resolves receivers returned by simple local factory

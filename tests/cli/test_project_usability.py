@@ -3,80 +3,13 @@
 import argparse
 import json
 
-import pytest
-
-from pyflow.cli import ir, callgraph, capabilities
+from pyflow.cli import callgraph, capabilities
 
 
 def _parse(module, command, *values):
     parser = argparse.ArgumentParser()
     getattr(module, f"add_{command}_parser")(parser.add_subparsers())
     return parser.parse_args([command, *map(str, values)])
-
-
-def test_source_mir_handles_common_imports_with_explicit_partial_semantics(tmp_path, capsys):
-    source = tmp_path / "sample.py"
-    source.write_text(
-        "from collections.abc import Mapping\ndef worker(data):\n    ...\n    return data['x']\n"
-    )
-    output = tmp_path / "out"
-    args = _parse(ir, "ir", source, "--dump-mir", "worker", "--dump-output", output)
-    ir.run_ir_dump(source, args)
-    content = next(output.glob("*_mir.text")).read_text()
-    assert "sample.worker" in content
-    assert "MIR partial inspection" in content
-    error = capsys.readouterr().err
-    assert "collections.abc" in error and "partial" in error
-    assert "Traceback" not in error
-
-
-def test_explicit_strict_mir_export_rejects_unmodeled_imports(tmp_path, capsys):
-    source = tmp_path / "sample.py"
-    source.write_text("from collections.abc import Mapping\ndef worker(data):\n    return data\n")
-    args = _parse(
-        ir,
-        "ir",
-        source,
-        "--dump-mir",
-        "--dump-format",
-        "json",
-        "--mir-import-policy",
-        "strict",
-        "--dump-output",
-        tmp_path / "out",
-    )
-    with pytest.raises(SystemExit) as error:
-        ir.run_ir_dump(source, args)
-    assert error.value.code == 1
-    captured = capsys.readouterr()
-    assert "collections.abc" in captured.err
-    assert "Traceback" not in captured.err
-
-
-def test_source_json_discloses_opaque_imports_and_literals(tmp_path):
-    source = tmp_path / "sample.py"
-    source.write_text("from collections.abc import Mapping\ndef worker():\n    return 1.5\n")
-    output = tmp_path / "out"
-    args = _parse(
-        ir,
-        "ir",
-        source,
-        "--dump-mir",
-        "--mir-view",
-        "source",
-        "--dump-format",
-        "json",
-        "--dump-output",
-        output,
-    )
-    ir.run_ir_dump(source, args)
-    document = json.loads((output / "sample_mir.json").read_text())
-    assert document["status"] == "partial"
-    assert document["inspection_only"] is True
-    assert {item["code"] for item in document["diagnostics"]} == {
-        "mir-opaque-import",
-        "mir-opaque-literal",
-    }
 
 
 def test_default_constraint_graph_resolves_methods_using_source_module_names(tmp_path, capsys):

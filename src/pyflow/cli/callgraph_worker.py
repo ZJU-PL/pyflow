@@ -81,16 +81,6 @@ def main() -> int:
                     request["filepath"],
                     **kwargs,
                 )
-            elif request["algorithm"] == "pycg-mir":
-                from pyflow.analysis.callgraph.pycg_mir import analyze_file_pycg_mir
-
-                output = analyze_file_pycg_mir(
-                    request["filepath"],
-                    import_policy=request.get("import_policy") or "opaque",
-                    max_seconds=request["analysis_seconds"],
-                    json_schema=request.get("json_schema", "legacy"),
-                    **kwargs,
-                )
             else:
                 raise ValueError("Unsupported isolated callgraph backend")
         if output.startswith("Error analyzing "):

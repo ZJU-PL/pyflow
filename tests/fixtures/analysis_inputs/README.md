@@ -8,7 +8,6 @@ Run from the repository root after installing PyFlow:
 ```bash
 pyflow callgraph tests/fixtures/analysis_inputs/simple_callgraph.py
 pyflow ir tests/fixtures/analysis_inputs/control_flow.py --dump-cfg is_even
-pyflow callgraph tests/fixtures/analysis_inputs/mir/callbacks.py --algorithm pycg-mir
 pyflow security tests/fixtures/analysis_inputs/class_pollution_example.py
 ```
 

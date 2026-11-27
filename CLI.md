@@ -6,7 +6,7 @@ This document matches the current `pyflow` command surface.
 
 - `optimize`: Run the analysis and optimization pipeline
 - `callgraph`: Build a call graph from a Python file or project directory
-- `ir`: Dump MIR programs or AST, CFG, SSA, CDG, DDG, and GIR functions
+- `ir`: Dump AST, CFG, SSA, CDG, DDG, and GIR functions
 - `alias`: Run alias analysis (flow-sensitive heap or k-CFA pointer)
 - `concolic`: Generate branch-covering inputs and check simple postconditions
 - `security`: Unified security analysis (dispatches to any of four engines)
@@ -67,9 +67,6 @@ pyflow ir [OPTIONS] INPUT_PATH
 `INPUT_PATH` may be a Python file or directory.
 
 Key options:
-- `--dump-mir [SCOPE]`: Dump the seven-instruction MIR program, optionally selecting a scope
-- `--mir-view {source,full}`: Text/DOT default to compact source inspection; JSON defaults to the full view
-- `--mir-import-policy {strict,opaque}`: Imports default to opaque boundaries. JSON exports are marked `status: partial` whenever anything is unmodelled; pass `--mir-import-policy strict` (which follows imports) to require complete semantics
 - `--list-functions`: List available function names discovered in the input
 - `--dump-ast [FUNCTION]`: Dump AST for the specified function, or all functions if omitted or '*'
 - `--dump-cfg [FUNCTION]`: Dump CFG for a qualified function or unambiguous short name, or all functions if omitted or '*'
@@ -84,25 +81,6 @@ Key options:
 - `--include PATTERN [PATTERN ...]`
 - `--exclude PATTERN [PATTERN ...]`
 - `--verbose`, `-v`
-
-MIR dumps lower source directly without executing target modules. Omitting
-`SCOPE` dumps source CFGs for text/DOT, or the full program for JSON. Use
-`--mir-view full` to inspect runtime CFGs. Source views lower only the selected
-input files, retaining imports and unsupported expressions as explicit opaque
-boundaries; diagnostics mark these views partial and are appended to text
-artifacts (JSON embeds them under `diagnostics`). They are inspection artifacts,
-not executable or semantically complete programs. A complete export requires
-`--mir-import-policy strict`, which follows and validates the import graph and
-therefore rejects modules that have no MIR model.
-A scope can be a qualified name or an unambiguous function name.
-MIR supports `text`, `json`, and `dot` output. For recursive directory input,
-output paths preserve the source directory structure.
-
-```bash
-pyflow ir input.py --dump-mir --dump-output out/
-pyflow ir input.py --dump-mir input.worker --dump-format json --dump-output out/
-pyflow ir project/ --dump-mir --recursive --dump-format dot --dump-output out/
-```
 
 `--dump-cfg`, `--dump-ssa`, and `--dump-ddg` dump the lowered CFG IR for each
 function.  SSA names locals, phi targets, and expression-level bindings
@@ -141,14 +119,13 @@ pyflow callgraph input.py
 pyflow callgraph /path/to/project/
 pyflow callgraph /path/to/project/ --entry src/main.py
 pyflow callgraph /path/to/project/ --dry-run
-pyflow callgraph input.py --algorithm pycg-mir
 pyflow callgraph input.py --format json
 ```
 
 Key options:
 - `--entry`: Entry point file relative to project root (directory input only)
 - `--dry-run`: Print detected entry point without running analysis
-- `--algorithm`, `-a`: `simple`, `constraint`, `pycg`, or `pycg-mir` (default: `constraint`)
+- `--algorithm`, `-a`: `simple`, `constraint`, or `pycg` (default: `constraint`)
 - `--recursive`, `-r`: Analyze every project source file with constraint analysis; works for libraries without a unique entry
 - `--include-external`: Include third-party dependency source (default: project sources only)
 - `--format {text,json}`: Text is the default; JSON is a deterministic `{caller: [callees]}` map, including empty callee lists for leaf nodes
@@ -164,16 +141,6 @@ Key options:
 - `--as-graph-output PATH`
 
 `--as-graph-output` is only supported with `--algorithm constraint`.
-
-`pycg-mir` is the native PyCG-style assignment-graph fixed-point analysis over
-MIR. It is flow-, path-, and context-insensitive, and requires no optional
-upstream `pycg` package. The separate `pycg` algorithm continues to use that
-optional package. Context-sensitivity and fixed-point control options, including
-`--context-sensitive` and `--fixpoint-max-iterations`, are rejected for
-`pycg-mir`; direct MIR analysis APIs expose convergence information and iteration
-limits. See [the MIR documentation](docs/source/ir/mir.rst) for details and limitations.
-The stdlib flags affect only constraint analysis and do not extend MIR's
-supported import graph.
 
 ## Query
 

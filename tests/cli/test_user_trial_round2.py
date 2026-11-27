@@ -35,41 +35,6 @@ def test_ddg_constant_expression_statements(tmp_path, literal):
     assert result.stdout.strip()
 
 
-def test_directory_mir_preserves_package_identity(tmp_path):
-    pkg = tmp_path / "pkg"
-    pkg.mkdir()
-    (pkg / "__init__.py").write_text("")
-    (pkg / "a.py").write_text("def fa(): return 1\n")
-    (pkg / "runner.py").write_text("from .a import fa\ndef run(): return fa()\n")
-    result = successful("ir", pkg, "--dump-mir", "--mir-view", "source", "--dump-format", "json")
-    report = json.loads(result.stdout)
-    assert "pkg.runner" in result.stdout
-    assert report
-
-
-@pytest.mark.parametrize(
-    "statement",
-    [
-        "async def f():\n    return 1\n",
-        "def f(x):\n    match x:\n        case 1: return 2\n",
-        "def f(x):\n    x[1:2] = [3]\n",
-        pytest.param(
-            "type X = int\n",
-            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="Python 3.12 syntax"),
-        ),
-    ],
-)
-def test_opaque_mir_retains_unsupported_statements(tmp_path, statement):
-    path = tmp_path / "modern.py"
-    path.write_text(statement)
-    report = json.loads(successful("ir", path, "--dump-mir", "--dump-format", "json").stdout)
-    assert report["status"] == "partial"
-    assert any(d["code"] == "mir-opaque-statement" for d in report["diagnostics"])
-    strict = cli("ir", path, "--dump-mir", "--mir-import-policy", "strict")
-    assert strict.returncode == 1
-    assert "Traceback" not in strict.stderr
-
-
 @pytest.mark.parametrize("mode", ["basic", "full", "advanced"])
 def test_alias_query_runs_heap_and_resolves_source_variables(tmp_path, mode):
     path = tmp_path / "aliases.py"
@@ -194,16 +159,6 @@ def test_all_scopes_loads_unimported_module(tmp_path):
     assert "auto-detected entry" in default.stderr
     graph = json.loads(successful("callgraph", tmp_path, "--all-scopes", "--format", "json").stdout)
     assert "unused.hidden" in graph
-
-
-def test_mir_callgraph_has_only_real_callback_edge(tmp_path):
-    path = tmp_path / "higher.py"
-    path.write_text("def leaf(): pass\ndef apply(f): f()\napply(leaf)\n")
-    graph = json.loads(
-        successful("callgraph", path, "--algorithm", "pycg-mir", "--format", "json").stdout
-    )
-    assert graph["higher.apply"] == ["higher.leaf"]
-    assert "builtins.print" not in graph
 
 
 def test_ssa_match_uses_fresh_source_symbols(tmp_path):

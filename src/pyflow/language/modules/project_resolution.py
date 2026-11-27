@@ -30,6 +30,51 @@ _CONTAINS_POTENTIAL_PROJECT = (
     "pyproject.toml",
 )
 
+_IMPORT_ROOT_MARKERS = (
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "tox.ini",
+    "requirements.txt",
+    ".git",
+)
+
+
+def module_name_for_root(path: Path, root: Path) -> str:
+    """Return the dotted module name for *path* relative to *root*."""
+    relative = path.relative_to(root).with_suffix("")
+    parts = list(relative.parts)
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts) or root.name
+
+
+def default_import_root(path: Path) -> Path:
+    """Best-effort import root for a file or an ``__init__.py`` probe.
+
+    Regular packages are delimited by ``__init__.py``.  For PEP 420 namespace
+    packages (no ``__init__.py``), preserve qualified module names by using an
+    enclosing package or falling back to the nearest project marker.
+    """
+    entry = path if path.is_dir() else path.parent
+    root = entry
+    while (root / "__init__.py").is_file():
+        root = root.parent
+    if root != entry:
+        return root
+
+    candidate = entry.parent
+    while candidate != candidate.parent:
+        if (candidate / "__init__.py").is_file():
+            return candidate.parent
+        if any((candidate / marker).exists() for marker in _IMPORT_ROOT_MARKERS):
+            source_root = candidate / "src"
+            if entry.is_relative_to(source_root):
+                return source_root
+            return candidate
+        candidate = candidate.parent
+    return entry
+
 
 @dataclass(frozen=True)
 class ModuleResolution:

@@ -171,7 +171,7 @@ Then render the DOT file with Graphviz:
    dot -Tpng callgraph.dot -o callgraph.png
    dot -Tsvg callgraph.dot -o callgraph.svg
 
-For CFG, CDG, DDG, and MIR diagrams use ``pyflow ir --dump-format dot``; see
+For CFG, CDG, and DDG diagrams use ``pyflow ir --dump-format dot``; see
 :doc:`/cli` for the dump options.
 
 Common Analysis Tasks

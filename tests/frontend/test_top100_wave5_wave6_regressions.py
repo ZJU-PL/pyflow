@@ -9,8 +9,6 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from pyflow.analysis.alias.flow_sensitive import HeapAnalysis
 from pyflow.analysis.alias.kcfa.bridge import PointerAnalysis
 from pyflow.analysis.callgraph.publication import analyze_constraint_callgraph_edges
@@ -36,7 +34,6 @@ from pyflow.concolic import scan_project
 from pyflow.concolic.project.worker import decode_worker_value, encode_worker_value
 from pyflow.frontend.extractor import Extractor, extract_program
 from pyflow.frontend.interface_builder import InterfaceBuildOptions, build_interface_from_paths
-from pyflow.ir.mir.lowering import lower_file, lower_source
 from pyflow.language.modules.project_resolution import ProjectContext
 from pyflow.lsp.document_analysis import _comment_suppressions, document_diagnostics
 from pyflow.lsp.workspace import SourceIndex
@@ -258,42 +255,6 @@ def test_concolic_worker_value_codec_and_bytes_scan_project(tmp_path: Path):
     assert report is not None
 
 
-def test_mir_lowering_inspection_only_preserves_stacks_and_handles_pep758(tmp_path: Path):
-    """Unsupported async comprehension inside a loop must not corrupt loop/state stacks."""
-    # Pattern from django/core/management/commands/makemessages.py:
-    # unsupported construct inside loop + nested function + with statement
-    source = (
-        "async def run(items, cm):\n"
-        "    for item in items:\n"
-        "        with cm as handle:\n"
-        "            try:\n"
-        "                vals = [x async for x in item]\n"
-        "            except ValueError, TypeError:\n"
-        "                vals = []\n"
-        "    return vals\n"
-    )
-    program = lower_source(source, module_name="sample", import_policy="opaque")
-    assert program is not None
-    assert program.cfgs
-
-
-def test_mir_lower_file_opaque_skips_unparseable_imported_sibling(tmp_path: Path):
-    """Under import_policy='opaque', an unparseable imported sibling degrades cleanly."""
-    (tmp_path / "broken_dep.py").write_text("print 'py2 only'\n", encoding="utf-8")
-    entry = tmp_path / "main.py"
-    entry.write_text(
-        "import broken_dep\n" "\n" "def f():\n" "    return broken_dep\n",
-        encoding="utf-8",
-    )
-    program = lower_file(
-        str(entry),
-        project_root=str(tmp_path),
-        import_policy="opaque",
-        max_import_depth=1,
-    )
-    assert program is not None
-
-
 def test_lsp_comment_suppressions_and_references_for_uri(tmp_path: Path):
     """Single-pass _comment_suppressions tolerates TokenError and SourceIndex.references_for_uri isolates files."""
     # Unterminated triple-quoted string raises tokenize.TokenError
@@ -424,49 +385,6 @@ def test_ast_dataflow_detector_interprocedural_summary_after_optimizations(tmp_p
     ).analyze(session)
     assert result.status == "complete"
     assert len(result.findings) >= 1
-
-
-def test_mir_fast_serialization_roundtrip_and_strict_validation():
-    """Direct MIR encoder/decoder preserves round-trips and strict validation errors."""
-    from pyflow.ir.mir.model import MIRValidationError
-    from pyflow.ir.mir.serialization import program_from_dict
-
-    source = (
-        "def compute(xs):\n"
-        "    out = [x + 1 for x in xs]\n"
-        "    mapping = {'a': out}\n"
-        "    return len(mapping)\n"
-        "\n"
-        "res = compute([1, 2])\n"
-    )
-    prog = lower_source(source, module_name="serde_mod", import_policy="opaque")
-    raw = prog.to_dict()
-    rebuilt = program_from_dict(raw)
-    assert rebuilt.entry == prog.entry
-    assert set(rebuilt.cfgs) == set(prog.cfgs)
-    assert rebuilt.to_dict() == raw
-
-    # Strict validation still rejects unknown kinds, extra fields, and wrong categories.
-    bad_kind = json.loads(json.dumps(raw))
-    first_cfg = bad_kind["cfgs"][bad_kind["entry"]]
-    first_node = next(iter(first_cfg["nodes"].values()))
-    first_node["instruction"] = {"kind": "Exploit"}
-    with pytest.raises(MIRValidationError, match="unknown MIR term kind"):
-        program_from_dict(bad_kind)
-
-    bad_fields = json.loads(json.dumps(raw))
-    first_cfg = bad_fields["cfgs"][bad_fields["entry"]]
-    first_node = next(iter(first_cfg["nodes"].values()))
-    first_node["instruction"] = {"kind": "Skip", "unexpected": 1}
-    with pytest.raises(MIRValidationError, match="invalid fields"):
-        program_from_dict(bad_fields)
-
-    bad_category = json.loads(json.dumps(raw))
-    first_cfg = bad_category["cfgs"][bad_category["entry"]]
-    first_node = next(iter(first_cfg["nodes"].values()))
-    first_node["instruction"] = {"kind": "Var", "name": "x"}
-    with pytest.raises(MIRValidationError, match="is not a Instruction"):
-        program_from_dict(bad_category)
 
 
 def test_static_type_inference_nested_closure_and_cached_aliases(tmp_path: Path):

@@ -73,7 +73,7 @@ def _compute_required_passes(args) -> list[str]:
 def _source_query_index(input_path: Path) -> SourceIndex:
     """Build the lightweight AST index used by source-only queries."""
     from pyflow.frontend.source import read_python_source
-    from pyflow.ir.mir.lowering import _default_root
+    from pyflow.language.modules.project_resolution import default_import_root as _default_root
 
     if input_path.is_file():
         root = input_path.parent

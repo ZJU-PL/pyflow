@@ -11,8 +11,10 @@ from typing import Iterable, Sequence
 
 from pyflow.analysis.typeinfo import TypeInfoService
 from pyflow.analysis.typeinfo.inference.models import ModuleInferenceResult
-from pyflow.ir.mir.lowering import _default_root
-from pyflow.language.modules.project_resolution import ProjectContext
+from pyflow.language.modules.project_resolution import (
+    ProjectContext,
+    default_import_root as _default_root,
+)
 
 _IGNORED_DIRECTORIES = {
     "__pycache__",

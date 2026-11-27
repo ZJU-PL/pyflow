@@ -1,11 +1,9 @@
-"""Regression tests for Wave 9 top-100 compatibility and MIR lowering fixes."""
+"""Regression tests for Wave 9 top-100 compatibility fixes."""
 
 from __future__ import annotations
 
 import ast
 from pathlib import Path
-
-import pytest
 
 _PEP758_AND_PEP810_SOURCE = (
     "lazy import os\n"
@@ -116,82 +114,3 @@ def test_pep758_and_pep810_supported_across_subsystems(tmp_path: Path):
     # 8. k-CFA IRModule.load_module succeeds
     ir_mod = IRModule.load_module("modern_mod", str(mod_path))
     assert ir_mod.name == "modern_mod"
-
-
-def test_mir_helper_template_cloning_is_exact_and_validation_catches_mutations():
-    """MIR Runtime.helper template cloning matches uncached builds bit-for-bit and stays validated."""
-    from pyflow.ir.mir import runtime as mir_rt
-    from pyflow.ir.mir.builder import Builder
-    from pyflow.ir.mir.lowering import lower_source
-    from pyflow.ir.mir.model import Alloc, Lambda, MIRValidationError, Node
-
-    sample = (
-        "class Box:\n"
-        "    def __init__(self, x):\n"
-        "        self.x = x\n"
-        "    def get(self):\n"
-        "        return self.x + 1\n"
-        "\n"
-        "def run(v):\n"
-        "    b = Box(v)\n"
-        "    return b.get()\n"
-    )
-
-    # Lower with template cloning
-    prog_fast = lower_source(sample, "sample", "<sample>", import_policy="opaque")
-    # Full (untrusted) validate() must pass cleanly on the generated program
-    prog_fast.validate()
-
-    # Lower with uncached builder to prove bit-for-bit identity of all CFG names & nodes
-    orig_helper = mir_rt.Runtime.helper
-
-    def _uncached_helper(self, kind, owner, operator=None):
-        key = (owner, kind, operator)
-        if key in self.helpers:
-            return self.helpers[key]
-        self.serial += 1
-        name = f"{owner}.$mir_{kind}_{self.serial}"
-        self.helpers[key] = name
-        b = Builder(self.program, name, synthetic=True)
-        self.prologue(b)
-        getattr(self, "build_" + kind)(b, operator)
-        b.finish()
-        return name
-
-    mir_rt.Runtime.helper = _uncached_helper
-    try:
-        prog_ref = lower_source(sample, "sample", "<sample>", import_policy="opaque")
-    finally:
-        mir_rt.Runtime.helper = orig_helper
-
-    assert list(prog_fast.cfgs.keys()) == list(prog_ref.cfgs.keys())
-    for cfg_name in prog_fast.cfgs:
-        assert prog_fast.cfgs[cfg_name].nodes == prog_ref.cfgs[cfg_name].nodes
-
-    # Mutating a cloned helper CFG's Lambda target must still be caught by Program.validate()
-    helper_name = next(k for k in prog_fast.cfgs if ".$mir_" in k)
-    helper_cfg = prog_fast.cfgs[helper_name]
-    bad_id = max(helper_cfg.nodes) + 1
-    helper_cfg.nodes[bad_id] = Node(
-        bad_id,
-        Alloc("$bad", Lambda("$a", "$k", "$p", "nonexistent_cfg", "$r")),
-        (),
-    )
-    with pytest.raises(MIRValidationError, match="Unknown lambda body CFG"):
-        prog_fast.validate()
-
-
-def test_mir_builder_connect_deduplicates_preserving_order():
-    """Builder.connect fast path keeps successor order and deduplicates repeated edges."""
-    from pyflow.ir.mir.builder import Builder
-    from pyflow.ir.mir.model import Program
-
-    prog = Program({}, "m")
-    b = Builder(prog, "m")
-    n2 = b.node()
-    n3 = b.node()
-    b.connect((0,), n2)
-    b.connect((0,), n2)
-    b.connect((0,), n3)
-    b.connect((0,), n2)
-    assert b.cfg.nodes[0].successors == (n2, n3)
