@@ -715,6 +715,9 @@ class ConstraintExtractor(TypeDispatcher):
         obj = self._freshLocal("attribute_object")
         self(node.expr, [obj])
         name = self(node.name)
+        if name is None:
+            name = self._freshLocal("attribute_name")
+            self(node.name, [name])
         value = self._freshLocal("attribute_value")
         self(node.value, [value])
         self.context.store(value, obj, "Attribute", name)
@@ -722,8 +725,12 @@ class ConstraintExtractor(TypeDispatcher):
     @dispatch(ast.DeleteAttr)
     def visitDeleteAttr(self, node):
         # Treat as a check/use of the attribute
-        obj = self(node.expr)
+        obj = self._freshLocal("delattr_object")
+        self(node.expr, [obj])
         name = self(node.name)
+        if name is None:
+            name = self._freshLocal("delattr_name")
+            self(node.name, [name])
         tmp = self.context.local(ast.Local("delattr_chk"))
         self.check(node, obj, "Attribute", name, [tmp])
 

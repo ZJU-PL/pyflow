@@ -863,24 +863,38 @@ class SSARename(TypeDispatcher):
         # Placeholders installed when a merge masks its variables are bound
         # only once that merge's own phi is emitted.  A merge whose phi is
         # dropped (no argument ever flows) leaves its placeholder unbound, and
-        # downstream phis may still reference it.  Resolve exactly those edges
-        # to ``None`` ("nothing flows here") so every phi argument is either a
-        # live SSA value or absent.
-        placeholder_ids = {id(placeholder) for placeholder in self.placeholders}
-        for merge in self.fixup:
-            for phi in merge.phi:
-                phi.arguments = [
-                    (
-                        None
-                        if (
-                            argument is not None
-                            and id(argument) in placeholder_ids
-                            and not self.catalog.has_value(argument, self.code)
+        # downstream phis may still reference it.  Cascade to a fixed point so
+        # no phi is left with only absent arguments and any read of a dropped
+        # phi target is explicitly marked undefined.
+        unbound_targets = {
+            id(placeholder)
+            for placeholder in self.placeholders
+            if not self.catalog.has_value(placeholder, self.code)
+        }
+        pruned = True
+        while pruned:
+            pruned = False
+            for merge in self.fixup:
+                kept = []
+                for phi in merge.phi:
+                    phi.arguments = [
+                        (
+                            None
+                            if (argument is not None and id(argument) in unbound_targets)
+                            else argument
                         )
-                        else argument
-                    )
-                    for argument in phi.arguments
-                ]
+                        for argument in phi.arguments
+                    ]
+                    if any(argument is not None for argument in phi.arguments):
+                        kept.append(phi)
+                    else:
+                        unbound_targets.add(id(phi.target))
+                        if phi.target in self.read:
+                            symbol = local_key(self.catalog, self.code, phi.target)
+                            undef = self.catalog.values.define(symbol, None, undefined=True)
+                            self.catalog.bind_value(self.code, phi.target, undef.id)
+                        pruned = True
+                merge.phi = kept
 
 
 def _lower_function_definitions(g, catalog):

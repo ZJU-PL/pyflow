@@ -35,6 +35,37 @@ class InternalError(Exception):
     pass
 
 
+def local_flow_key(code, key):
+    """Normalize an ``ast.Local`` occurrence to its lexical identity in *code*.
+
+    Frontend extraction produces distinct ``ast.Local`` instances for separate
+    occurrences of the same variable, while ``IRCatalog`` binds all occurrences
+    in a procedure scope to one ``SymbolId``.  Normalizing ``ast.Local`` keys
+    keeps forward/backward dataflow analyses sound across extracted IR.
+    """
+    if not isinstance(key, ast.Local):
+        return key
+    catalog = getattr(code, "ir_catalog", None) if code is not None else None
+    if catalog is not None and catalog.has_procedure(code):
+        if catalog.has_symbol(key, code):
+            return catalog.symbol_id(key, code)
+        if key.name is not None:
+            scope = catalog.procedure(code).root_scope
+            symbol = catalog.symbols.find(scope, key.name)
+            if symbol is not None:
+                return symbol.id
+    if key.name is not None:
+        return ("local", key.name)
+    return key
+
+
+def _bind_strategy_code(strategy, code):
+    flow = getattr(strategy, "flow", None)
+    bind = getattr(flow, "bindCode", None)
+    if callable(bind):
+        bind(code)
+
+
 class ApplyToCode(TypeDispatcher):
     """
     Applies a strategy to all code nodes without mutation.
@@ -68,6 +99,7 @@ class ApplyToCode(TypeDispatcher):
             The node unchanged
         """
         assert node.isCode(), type(node)
+        _bind_strategy_code(self.strategy, node)
         for child in node.children():
             self.strategy(child)
         return node
@@ -106,6 +138,7 @@ class MutateCode(TypeDispatcher):
             The node with transformed children
         """
         assert node.isCode(), type(node)
+        _bind_strategy_code(self.strategy, node)
         node.replaceChildren(self.strategy)
         return node
 
@@ -143,6 +176,7 @@ class MutateCodeReversed(TypeDispatcher):
             The node with transformed children
         """
         assert node.isCode(), type(node)
+        _bind_strategy_code(self.strategy, node)
         node.replaceChildrenReversed(self.strategy)
         return node
 
@@ -160,14 +194,15 @@ class DynamicBase(object):
         shared: Whether this dictionary is shared (copy-on-write flag)
     """
 
-    __slots__ = "lut", "shared"
+    __slots__ = "lut", "shared", "key_fn"
 
-    def __init__(self, d=None):
+    def __init__(self, d=None, key_fn=None):
         """
         Initialize a dynamic dictionary.
 
         Args:
             d: Optional initial dictionary (if provided, marks as shared)
+            key_fn: Optional callable normalizing lookup/define/undefine keys
         """
         if d is None:
             self.lut = {}
@@ -175,6 +210,7 @@ class DynamicBase(object):
         else:
             self.lut = d
             self.shared = True
+        self.key_fn = key_fn
 
     def split(self):
         """
@@ -187,7 +223,7 @@ class DynamicBase(object):
             New DynamicDict sharing the same lookup table
         """
         self.shared = True
-        return DynamicDict(self.lut)
+        return DynamicDict(self.lut, key_fn=self.key_fn)
 
     def premutate(self):
         """
@@ -252,6 +288,11 @@ class DynamicDict(DynamicBase):
 
     __slots__ = ()
 
+    def _norm(self, key):
+        if self.key_fn is not None:
+            return self.key_fn(key)
+        return key
+
     def lookup(self, key, default=undefined):
         """
         Look up a value for a key.
@@ -263,6 +304,7 @@ class DynamicDict(DynamicBase):
         Returns:
             Value associated with key, or default if not found
         """
+        key = self._norm(key)
         if key in self.lut:
             return self.lut[key]
         else:
@@ -280,7 +322,7 @@ class DynamicDict(DynamicBase):
             value: Value to associate with key
         """
         self.premutate()
-        self.lut[key] = value
+        self.lut[self._norm(key)] = value
 
     def undefine(self, key):
         """
@@ -292,6 +334,7 @@ class DynamicDict(DynamicBase):
         Args:
             key: Key to remove
         """
+        key = self._norm(key)
         if key in self.lut:
             self.premutate()
             del self.lut[key]
@@ -350,7 +393,7 @@ def meet(meetF, *dynamic):
             print("Meet")
             for d in dynamic:
                 printlut(d.lut)
-        out = DynamicDict()
+        out = DynamicDict(key_fn=dynamic[0].key_fn)
         changed = False
 
         # Find all the keys from all dictionaries
@@ -412,11 +455,37 @@ class FlowDict(object):
         tryLevel: Nesting level of try blocks (for exception handling)
     """
 
-    def __init__(self):
+    def __init__(self, code=None):
         """Initialize an empty flow dictionary."""
-        self._current = DynamicDict()
+        self._code = code
+        self._current = DynamicDict(key_fn=self._normalizeKey)
         self.bags = {}
         self.tryLevel = 0
+
+    def bindCode(self, code):
+        """Bind the active code object used to resolve local symbol keys."""
+        self._code = code
+        if self._current is not None:
+            self._current.key_fn = self._normalizeKey
+        for bag in self.bags.values():
+            for frame in bag:
+                if frame is not None:
+                    frame.key_fn = self._normalizeKey
+
+    def _normalizeKey(self, key):
+        return local_flow_key(self._code, key)
+
+    def _invalidateLocalAliases(self, norm_key):
+        """Invalidate copy-propagation entries pointing at *norm_key*."""
+        if self._current is None or not self._current.lut:
+            return
+        stale = [
+            k
+            for k, val in self._current.lut.items()
+            if isinstance(val, ast.Local) and self._normalizeKey(val) == norm_key
+        ]
+        for k in stale:
+            self._current.define(k, top)
 
     def save(self, name):
         """
@@ -597,7 +666,9 @@ class FlowDict(object):
         if self._current is None:
             raise InternalError("No flow contour exists.")
 
-        return self._current.define(key, value)
+        norm_key = self._normalizeKey(key)
+        self._invalidateLocalAliases(norm_key)
+        return self._current.define(norm_key, value)
 
     def lookup(self, key):
         """
@@ -614,7 +685,7 @@ class FlowDict(object):
         """
         if self._current is None:
             raise InternalError("No flow contour exists.")
-        return self._current.lookup(key)
+        return self._current.lookup(self._normalizeKey(key))
 
     def undefine(self, key):
         """
@@ -632,7 +703,9 @@ class FlowDict(object):
         if self._current is None:
             raise InternalError("No flow contour exists.")
 
-        return self._current.undefine(key)
+        norm_key = self._normalizeKey(key)
+        self._invalidateLocalAliases(norm_key)
+        return self._current.undefine(norm_key)
 
 
 class MayRaise(TypeDispatcher):

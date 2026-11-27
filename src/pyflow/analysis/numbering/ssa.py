@@ -18,6 +18,7 @@ Key concepts:
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
+from pyflow.optimization.dataflow.base import local_flow_key
 
 
 class ForwardESSA(TypeDispatcher):
@@ -92,6 +93,8 @@ class ForwardESSA(TypeDispatcher):
             list: List of state dictionaries, one per branch
         """
         current = self.popState()
+        if current is None:
+            return [None for _ in range(count)]
         branches = [dict(current) for i in range(count)]
         return branches
 
@@ -154,6 +157,11 @@ class ForwardESSA(TypeDispatcher):
                 merged[key] = dstID
         self._current = merged
 
+    def _stateKey(self, node):
+        if isinstance(node, ast.Local):
+            return local_flow_key(getattr(self, "code", None), node)
+        return node
+
     def current(self, node):
         """Get current version number for a variable or field.
 
@@ -175,7 +183,7 @@ class ForwardESSA(TypeDispatcher):
             else:
                 uid = self.existing[obj]
         else:
-            uid = self._current.get(node, -1)
+            uid = self._current.get(self._stateKey(node), -1)
         return uid
 
     def setCurrent(self, node, uid):
@@ -190,7 +198,7 @@ class ForwardESSA(TypeDispatcher):
         """
         assert not isinstance(node, int), node
         assert isinstance(uid, int), uid
-        self._current[node] = uid
+        self._current[self._stateKey(node)] = uid
 
     def rename(self, node):
         """Rename a variable or field (assign new version number).
@@ -320,7 +328,7 @@ class ForwardESSA(TypeDispatcher):
         """
         filtered = {}
         for name, uid in self._current.items():
-            if isinstance(name, ast.Local):
+            if not hasattr(name, "object"):
                 pass  # Assumed all locals are parameters
             else:
                 # Fields from killed objects could not have been passed from outside.
@@ -348,12 +356,14 @@ class ForwardESSA(TypeDispatcher):
 
         self.mergeStates(returns)
         state = self.popState()
-        assert state is not None
+        if state is None:
+            state = {}
 
+        return_keys = {self._stateKey(p) for p in self.returnparams}
         filtered = {}
         for name, uid in state.items():
-            if isinstance(name, ast.Local):
-                if name not in self.returnparams:
+            if not hasattr(name, "object"):
+                if name not in return_keys:
                     continue
             else:
                 if name in self.entry and self.entry[name] == uid:
@@ -403,6 +413,8 @@ class ForwardESSA(TypeDispatcher):
 
     @dispatch(ast.Assign)
     def processAssign(self, node):
+        if self._current is None:
+            return
         self.logReadLocals(node, node.expr)
         self.logReadFields(node)
 
@@ -422,11 +434,15 @@ class ForwardESSA(TypeDispatcher):
 
     @dispatch(ast.OutputBlock)
     def visitOutputBlock(self, node):
+        if self._current is None:
+            return
         for output in node.outputs:
             self.logReadLocals(node, output.expr)
 
     @dispatch(ast.Discard)
     def processDiscard(self, node):
+        if self._current is None:
+            return
         self.logReadLocals(node, node.expr)
         self.logReadFields(node)
         self.renameModifiedFields(node)
@@ -434,6 +450,8 @@ class ForwardESSA(TypeDispatcher):
 
     @dispatch(ast.Store)
     def processStore(self, node):
+        if self._current is None:
+            return
         # Bug 26 fix: ast.Store has no .children() method.  The original code
         # called ``self.logReadLocals(node, node.children())`` which raised
         # AttributeError at runtime.  The correct approach is to pass the
@@ -447,6 +465,8 @@ class ForwardESSA(TypeDispatcher):
 
     @dispatch(ast.Return)
     def processReturn(self, node):
+        if self._current is None:
+            return
         self.logReadLocals(node, node.exprs)
         self.logReadFields(node)
 
@@ -462,14 +482,22 @@ class ForwardESSA(TypeDispatcher):
 
     @dispatch(ast.For)
     def processFor(self, node):
+        if self._current is None:
+            return
         info = self.rm[node]
 
         # Handle loop preamble
         self(node.loopPreamble)
 
         # Mark iterator as read
-        if node.iterator:
+        if node.iterator and self._current is not None:
             self.logRead(node, node.iterator)
+
+        self.renameAll(info.localModify)
+        self.renameAll(info.fieldModify)
+        if isinstance(node.index, ast.Local) and self._current is not None:
+            self.rename(node.index)
+            self.logModify(node, node.index)
 
         # Process body preamble
         self(node.bodyPreamble)
@@ -477,11 +505,21 @@ class ForwardESSA(TypeDispatcher):
         # Process the loop body
         self(node.body)
 
+        if self._current is not None:
+            self.renameAll(info.localModify)
+            self.renameAll(info.fieldModify)
+
         # Process else clause
         self(node.else_)
 
+        if self._current is not None:
+            self.renameAll(info.localModify)
+            self.renameAll(info.fieldModify)
+
     @dispatch(ast.While)
     def processWhile(self, node):
+        if self._current is None:
+            return
         info = self.rm[node]
 
         self.renameAll(info.localModify)
@@ -490,25 +528,34 @@ class ForwardESSA(TypeDispatcher):
         # TODO Only valid without breaks/continues?
 
         self(node.condition)
-        self.logRead(node, node.condition.conditional)
+        if self._current is not None:
+            self.logRead(node, node.condition.conditional)
 
         self(node.body)
 
-        self.renameAll(info.localModify)
-        self.renameAll(info.fieldModify)
+        if self._current is not None:
+            self.renameAll(info.localModify)
+            self.renameAll(info.fieldModify)
 
         self(node.else_)
 
-        self.renameAll(info.localModify)
-        self.renameAll(info.fieldModify)
+        if self._current is not None:
+            self.renameAll(info.localModify)
+            self.renameAll(info.fieldModify)
 
     @dispatch(ast.Condition)
     def processCondition(self, node):
+        if self._current is None:
+            return
         self(node.preamble)
 
     @dispatch(ast.Switch)
     def processSwitch(self, node):
+        if self._current is None:
+            return
         self(node.condition)
+        if self._current is None:
+            return
 
         self.logRead(node, node.condition.conditional)
 
@@ -526,6 +573,8 @@ class ForwardESSA(TypeDispatcher):
 
     @dispatch(ast.TypeSwitch)
     def processTypeSwitch(self, node):
+        if self._current is None:
+            return
         self.logRead(node, node.conditional)
 
         branches = self.branch(len(node.cases))
@@ -534,7 +583,7 @@ class ForwardESSA(TypeDispatcher):
         for case, branch in zip(node.cases, branches):
             self.setState(branch)
 
-            if case.expr:
+            if case.expr and self._current is not None:
                 if False:
                     # Give the expression the same number as the conditional - they are the same.
                     # WARNING if this is used, redundant load elimination may cause a precision loss.
@@ -550,7 +599,49 @@ class ForwardESSA(TypeDispatcher):
 
         self.mergeStates(exits)
 
-    @dispatch(str, type(None), ast.Code)
+    @dispatch(ast.TryExceptFinally)
+    def processTryExceptFinally(self, node):
+        if self._current is None:
+            return
+        info = self.rm.get(node)
+        entry_state = dict(self._current)
+        self(node.body)
+        exits = [self.popState()]
+
+        if getattr(node, "else_", None) is not None and exits[0] is not None:
+            self.setState(exits[0])
+            self(node.else_)
+            exits[0] = self.popState()
+
+        for handler in getattr(node, "handlers", ()) or ():
+            self.setState(dict(entry_state))
+            if info is not None:
+                self.renameAll(info.localModify)
+                self.renameAll(info.fieldModify)
+            if getattr(handler, "preamble", None) is not None:
+                self(handler.preamble)
+            if isinstance(getattr(handler, "value", None), ast.Local) and self._current is not None:
+                self.rename(handler.value)
+                self.logModify(handler, handler.value)
+            if getattr(handler, "body", None) is not None:
+                self(handler.body)
+            exits.append(self.popState())
+
+        if getattr(node, "defaultHandler", None) is not None:
+            self.setState(dict(entry_state))
+            if info is not None:
+                self.renameAll(info.localModify)
+                self.renameAll(info.fieldModify)
+            self(node.defaultHandler)
+            exits.append(self.popState())
+
+        self.mergeStates(exits)
+        if getattr(node, "finally_", None) is not None:
+            if self._current is None:
+                self.setState(dict(entry_state))
+            self(node.finally_)
+
+    @dispatch(str, int, float, bool, bytes, type(None), ast.Code)
     def processLeaf(self, node):
         pass
 
@@ -560,12 +651,33 @@ class ForwardESSA(TypeDispatcher):
 
     @dispatch(ast.Suite)
     def processOK(self, node):
+        if self._current is None:
+            return
         node.visitChildren(self)
 
     @dispatch(list, tuple)
     def processContainer(self, node):
         for child in node:
             self(child)
+
+    @defaultdispatch
+    def processDefault(self, node):
+        if self.parent is not None:
+            if hasattr(node, "visitChildren"):
+                node.visitChildren(self)
+            return
+        if self._current is None:
+            return
+        info = self.rm.get(node)
+        if info is not None:
+            for lcl in info.localRead:
+                self.logRead(node, lcl)
+            self.logReadFields(node)
+            for lcl in info.localModify:
+                self.rename(lcl)
+                self.logModify(node, lcl)
+            self.renameModifiedFields(node)
+            self.logModifiedFields(node)
 
     def renameParam(self, p):
         if isinstance(p, ast.Local):

@@ -2340,6 +2340,9 @@ class TypeSystem:  # noqa: PLR0904
         # Memo for ``domain._normalize_types``; cleared with the subtype
         # caches so class-graph mutations cannot produce stale unions.
         self._normalize_cache: dict[frozenset[ProperType], frozenset[ProperType]] = {}
+        # Memo for runtime MRO/inspect.signature member extraction, keyed by
+        # raw runtime type (immutable; overlaid with dynamic descriptor members).
+        self._runtime_members_cache: dict[type | types.UnionType, dict[str, ProperType]] = {}
         self._graph: nx.DiGraph[ClassDescriptor] = nx.DiGraph()
         # Maps all known types from their full name to their type info.
         self._types: dict[str, ClassDescriptor] = {}
@@ -2633,62 +2636,69 @@ class TypeSystem:  # noqa: PLR0904
 
     def get_members(self, descriptor: ClassDescriptor) -> dict[str, ProperType]:
         """Return static declarations and safely inspected runtime members."""
-        members = {}
+        raw = descriptor.raw_type
+        runtime_members = self._runtime_members_cache.get(raw)
+        if runtime_members is None:
+            runtime_members = {}
 
-        def convert(annotation):
-            if isinstance(annotation, str):
-                from pyflow.analysis.typeinfo.resolution.annotations import (
-                    BuiltinTypeLookup,
-                    resolve_annotation,
+            def convert(annotation):
+                if isinstance(annotation, str):
+                    from pyflow.analysis.typeinfo.resolution.annotations import (
+                        BuiltinTypeLookup,
+                        resolve_annotation,
+                    )
+
+                    return resolve_annotation(annotation, BuiltinTypeLookup()) or ANY
+                return (
+                    ANY
+                    if annotation is inspect.Signature.empty
+                    else self.convert_type_hint(annotation)
                 )
 
-                return resolve_annotation(annotation, BuiltinTypeLookup()) or ANY
-            return (
-                ANY if annotation is inspect.Signature.empty else self.convert_type_hint(annotation)
-            )
-
-        raw = descriptor.raw_type
-        for parent in reversed(getattr(raw, "__mro__", ())):
-            if parent in {object, typing.Protocol, typing.Generic}:
-                continue
-            annotations = vars(parent).get("__annotations__")
-            # ``type`` (and some metaclasses) expose ``__annotations__`` as a
-            # getset descriptor rather than a mapping.  Walking that MRO used
-            # to crash every protocol check involving ``type``.
-            if isinstance(annotations, dict):
-                for name, annotation in annotations.items():
-                    members[name] = convert(annotation)
-            for name, member in vars(parent).items():
-                if name in {
-                    "__init__",
-                    "__init_subclass__",
-                    "__subclasshook__",
-                    "__dict__",
-                    "__weakref__",
-                    "__doc__",
-                    "__module__",
-                    "__qualname__",
-                    "__annotations__",
-                    "__slots__",
-                }:
+            for parent in reversed(getattr(raw, "__mro__", ())):
+                if parent in {object, typing.Protocol, typing.Generic}:
                     continue
-                if isinstance(member, property) and member.fget is not None:
-                    annotation = member.fget.__annotations__.get("return")
-                    members[name] = convert(annotation)
-                elif inspect.isdatadescriptor(member):
-                    # C-level slots (``BaseException.args``, ``date.year``)
-                    # and similar descriptors carry no annotation we can read.
-                    members[name] = ANY
-                elif inspect.isroutine(member) or callable(member):
-                    try:
-                        signature = inspect.signature(member)
-                        arguments = tuple(signature.parameters.values())[1:]
-                        members[name] = CallableType(
-                            tuple(convert(arg.annotation) for arg in arguments),
-                            convert(signature.return_annotation),
-                        )
-                    except (ValueError, TypeError):
-                        members[name] = CallableType(None, ANY)
+                annotations = vars(parent).get("__annotations__")
+                # ``type`` (and some metaclasses) expose ``__annotations__`` as a
+                # getset descriptor rather than a mapping.  Walking that MRO used
+                # to crash every protocol check involving ``type``.
+                if isinstance(annotations, dict):
+                    for name, annotation in annotations.items():
+                        runtime_members[name] = convert(annotation)
+                for name, member in vars(parent).items():
+                    if name in {
+                        "__init__",
+                        "__init_subclass__",
+                        "__subclasshook__",
+                        "__dict__",
+                        "__weakref__",
+                        "__doc__",
+                        "__module__",
+                        "__qualname__",
+                        "__annotations__",
+                        "__slots__",
+                    }:
+                        continue
+                    if isinstance(member, property) and member.fget is not None:
+                        annotation = member.fget.__annotations__.get("return")
+                        runtime_members[name] = convert(annotation)
+                    elif inspect.isdatadescriptor(member):
+                        # C-level slots (``BaseException.args``, ``date.year``)
+                        # and similar descriptors carry no annotation we can read.
+                        runtime_members[name] = ANY
+                    elif inspect.isroutine(member) or callable(member):
+                        try:
+                            signature = inspect.signature(member)
+                            arguments = tuple(signature.parameters.values())[1:]
+                            runtime_members[name] = CallableType(
+                                tuple(convert(arg.annotation) for arg in arguments),
+                                convert(signature.return_annotation),
+                            )
+                        except (ValueError, TypeError):
+                            runtime_members[name] = CallableType(None, ANY)
+            self._runtime_members_cache[raw] = runtime_members
+
+        members = dict(runtime_members)
         for parent in self.get_superclasses(descriptor):
             members.update(parent.members)
         members.update(descriptor.members)

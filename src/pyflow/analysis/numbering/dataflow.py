@@ -186,6 +186,56 @@ class ForwardDataflow(TypeDispatcher):
 
         self._link(prev, exit)
 
+    @dispatch(ast.TryExceptFinally)
+    def visitTryExceptFinally(self, node):
+        entry, exit = self.makeSymbolic(node)
+        self(node.body)
+        self._link(entry, self.entry[node.body])
+
+        body_exit = self.exit[node.body]
+        if getattr(node, "else_", None) is not None:
+            self(node.else_)
+            self._link(body_exit, self.entry[node.else_])
+            normal_exit = self.exit[node.else_]
+        else:
+            normal_exit = body_exit
+
+        handler_exits = []
+        for handler in getattr(node, "handlers", ()) or ():
+            h_entry, h_exit = self.makeSymbolic(handler)
+            prev = h_entry
+            if getattr(handler, "preamble", None) is not None:
+                self(handler.preamble)
+                self._link(prev, self.entry[handler.preamble])
+                prev = self.exit[handler.preamble]
+            if getattr(handler, "body", None) is not None:
+                self(handler.body)
+                self._link(prev, self.entry[handler.body])
+                prev = self.exit[handler.body]
+            self._link(prev, h_exit)
+            self._link(entry, h_entry)
+            handler_exits.append(h_exit)
+
+        if getattr(node, "defaultHandler", None) is not None:
+            self(node.defaultHandler)
+            self._link(entry, self.entry[node.defaultHandler])
+            handler_exits.append(self.exit[node.defaultHandler])
+
+        if getattr(node, "finally_", None) is not None:
+            self(node.finally_)
+            self._link(normal_exit, self.entry[node.finally_])
+            for h_exit in handler_exits:
+                self._link(h_exit, self.entry[node.finally_])
+            self._link(self.exit[node.finally_], exit)
+        else:
+            self._link(normal_exit, exit)
+            for h_exit in handler_exits:
+                self._link(h_exit, exit)
+
+    @defaultdispatch
+    def visitDefault(self, node):
+        self.makeConcrete(node)
+
     def processCode(self, code):
         """Process a code object and build its dataflow graph.
 

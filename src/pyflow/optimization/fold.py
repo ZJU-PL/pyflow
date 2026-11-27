@@ -7,7 +7,7 @@ expressions at compile time and replaces them with their computed values.
 from pyflow.util.typedispatch import *
 
 from pyflow.optimization.dataflow.forward import *
-from pyflow.optimization.dataflow.base import top, undefined, MutateCode
+from pyflow.optimization.dataflow.base import top, undefined, MutateCode, local_flow_key
 from pyflow.language.python import fold
 from pyflow.analysis import tools
 from pyflow.language.python.ir_metadata import copy_call_argument_metadata
@@ -128,8 +128,8 @@ class FoldRewrite(TypeDispatcher):
         self.fact_sources = {}
         self.fact_replacements = {}
 
-        # Term rewriter for call optimizations
-        self.callRewrite = makeCallRewrite(extractor, getattr(code, "ir_catalog", None))
+        # Term rewriter for call optimizations (requires an indexed IR catalog)
+        self.callRewrite = makeCallRewrite(extractor, catalog) if catalog is not None else None
 
         # Check if we have context annotations for type-based optimizations
         self.annotationsExist = bool(
@@ -228,7 +228,7 @@ class FoldRewrite(TypeDispatcher):
             qualname=procedure.code_id.qualname,
             filename=procedure.code_id.anchor.filename or None,
         )
-        build_semantics(catalog)
+        build_semantics(catalog, codes=(procedure.code_id,))
         if self.fact_replacements:
             catalog.commit_revision(preserved_capabilities=catalog.facts.capabilities())
 
@@ -427,7 +427,21 @@ class FoldRewrite(TypeDispatcher):
             const = self.flow.lookup(node)
             if const is not undefined:
                 if isinstance(const, ast.Local):
-                    # Reach for the local definition
+                    # Reach for the local definition, avoiding self-replacement
+                    # and AST node aliasing across statements.
+                    if local_flow_key(self.code, const) == local_flow_key(self.code, node):
+                        return node
+                    if const.name is not None:
+                        cloned = ast.Local(const.name)
+                        cloned.annotation = const.annotation
+                        catalog = getattr(self.code, "ir_catalog", None)
+                        if catalog is not None and catalog.has_symbol(const, self.code):
+                            catalog.bind_symbol(
+                                cloned,
+                                catalog.symbol_id(const, self.code),
+                                invalidate_semantics=False,
+                            )
+                        return cloned
                     return const
                 elif const is not top:
                     # Reach for the constant definition
@@ -482,6 +496,8 @@ class FoldRewrite(TypeDispatcher):
         return result
 
     def tryDirectCallRewrite(self, node):
+        if self.callRewrite is None:
+            return node
         result = self.callRewrite(self, node)
         if result is not None:
             self.logCreated(result)

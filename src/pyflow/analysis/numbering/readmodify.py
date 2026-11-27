@@ -14,7 +14,7 @@ Key concepts:
 
 from pyflow.util.typedispatch import *
 from pyflow.language.python import ast
-from pyflow.ir.core import Capabilities
+from pyflow.ir.core import Capabilities, MissingAnalysisFact
 
 
 class ReadModifyInfo(object):
@@ -32,7 +32,7 @@ class ReadModifyInfo(object):
 
     __slots__ = "localRead", "localModify", "fieldRead", "fieldModify"
 
-    def __init__(self, facts, code):
+    def __init__(self):
         """Initialize empty read/modify info."""
         self.localRead = set()
         self.localModify = set()
@@ -64,14 +64,17 @@ class FindReadModify(TypeDispatcher):
         lut: Dictionary mapping AST nodes to ReadModifyInfo
     """
 
-    def __init__(self):
+    def __init__(self, facts, code):
         """Initialize read/modify finder."""
         self.lut = {}
         self.facts = facts
         self.code = code
 
     def _effects(self, capability, node):
-        return self.facts.merged_operation_effect(capability, self.code, node)
+        try:
+            return self.facts.merged_operation_effect(capability, self.code, node)
+        except MissingAnalysisFact:
+            return ()
 
     def getListInfo(self, l):
         """Get combined read/modify info for a list of nodes.
@@ -143,16 +146,100 @@ class FindReadModify(TypeDispatcher):
         self.lut[node] = info
         return info
 
-    @dispatch(list)
+    @dispatch(list, tuple)
     def visitList(self, node, info):
         for child in node:
             self(child, info)
 
-    @dispatch(ast.Suite)
-    def visitSuite(self, node):
-        info = self.getListInfo(node.blocks)
+    @dispatch(ast.Delete)
+    def visitDelete(self, node):
+        info = ReadModifyInfo()
+        if isinstance(node.lcl, ast.Local):
+            info.localModify.add(node.lcl)
         self.lut[node] = info
         return info
+
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        info = ReadModifyInfo()
+        if getattr(node, "annotation_expr", None) is not None:
+            self(node.annotation_expr, info)
+        if getattr(node, "value", None) is not None:
+            self(node.value, info)
+        if isinstance(node.target, ast.Local):
+            info.localModify.add(node.target)
+        self.lut[node] = info
+        return info
+
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node, info=None):
+        target_info = info if info is not None else ReadModifyInfo()
+        self(node.value, target_info)
+        if isinstance(node.target, ast.Local):
+            target_info.localModify.add(node.target)
+        if info is None:
+            self.lut[node] = target_info
+            return target_info
+
+    @dispatch(ast.ExceptionHandler)
+    def visitExceptionHandler(self, node):
+        info = ReadModifyInfo()
+        if getattr(node, "preamble", None) is not None:
+            info.update(self(node.preamble))
+        if getattr(node, "type", None) is not None:
+            self(node.type, info)
+        if isinstance(getattr(node, "value", None), ast.Local):
+            info.localModify.add(node.value)
+        if getattr(node, "body", None) is not None:
+            info.update(self(node.body))
+        self.lut[node] = info
+        return info
+
+    @dispatch(ast.TryExceptFinally)
+    def visitTryExceptFinally(self, node):
+        info = ReadModifyInfo()
+        if getattr(node, "body", None) is not None:
+            info.update(self(node.body))
+        for handler in getattr(node, "handlers", ()) or ():
+            info.update(self(handler))
+        if getattr(node, "defaultHandler", None) is not None:
+            info.update(self(node.defaultHandler))
+        if getattr(node, "else_", None) is not None:
+            info.update(self(node.else_))
+        if getattr(node, "finally_", None) is not None:
+            info.update(self(node.finally_))
+        self.lut[node] = info
+        return info
+
+    @dispatch(ast.InputBlock)
+    def visitInputBlock(self, node):
+        info = ReadModifyInfo()
+        for inp in getattr(node, "inputs", ()) or ():
+            if isinstance(getattr(inp, "lcl", None), ast.Local):
+                info.localModify.add(inp.lcl)
+        self.lut[node] = info
+        return info
+
+    @defaultdispatch
+    def visitDefault(self, node, info=None):
+        if info is not None:
+            node.visitChildrenArgs(self, info)
+            return None
+        stmt_info = ReadModifyInfo()
+        node.visitChildrenArgs(self, stmt_info)
+        stmt_info.fieldRead.update(self._effects(Capabilities.LIFETIME_OP_READS, node))
+        stmt_info.fieldModify.update(self._effects(Capabilities.LIFETIME_OP_WRITES, node))
+        self.lut[node] = stmt_info
+        return stmt_info
+
+    @dispatch(ast.Suite)
+    def visitSuite(self, node, info=None):
+        suite_info = self.getListInfo(node.blocks)
+        self.lut[node] = suite_info
+        if info is not None:
+            info.update(suite_info)
+            return None
+        return suite_info
 
     @dispatch(ast.For)
     def visitFor(self, node):

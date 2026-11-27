@@ -31,6 +31,7 @@ from pyflow.analysis import tools
 from pyflow.ir.core import (
     AnalysisFacts,
     Capabilities,
+    MissingAnalysisFact,
     RebuildProvenanceSeed,
     rebuild_program_ir,
 )
@@ -487,9 +488,9 @@ class ProgramCloner(object):
                     group,
                     self.catalog,
                     self.provenance_seeds,
+                    indirectGroup=self.indirectGroup,
                 )
                 fc.process()
-                simplify.evaluateCode(compiler, prgm, newcode)
 
         # Entry points are considered to be "indirect"
         # As there is only one indirect function, we know it is the entry point.
@@ -533,6 +534,7 @@ class FunctionCloner(TypeDispatcher):
         group,
         catalog,
         provenance_seeds,
+        indirectGroup=None,
     ):
         self.newfuncLUT = newfuncLUT
         self.groupLUT = groupLUT
@@ -541,6 +543,7 @@ class FunctionCloner(TypeDispatcher):
         self.group = group
         self.catalog = catalog
         self.provenance_seeds = provenance_seeds
+        self.indirectGroup = indirectGroup if indirectGroup is not None else {}
 
         self.localMap = {}
 
@@ -556,6 +559,11 @@ class FunctionCloner(TypeDispatcher):
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):
         return node
+
+    @dispatch(list, tuple)
+    def visitContainer(self, node):
+        result = [self(item) for item in node]
+        return tuple(result) if isinstance(node, tuple) else result
 
     @defaultdispatch
     def default(self, node):
@@ -575,21 +583,42 @@ class FunctionCloner(TypeDispatcher):
     def visitDirectCall(self, node):
         tempresult = self.default(node)
 
-        targets = AnalysisFacts.for_code(self.source_code).merged_call_targets(
-            self.source_code, node
-        )
-        if targets:
-            func = tools.singleCall(self.source_code, node)
-            if not func:
-                names = tuple(sorted({code.name for code, _context in targets}))
-                raise Exception(
-                    "Cannot clone the direct call in %r, as it has multiple targets. %r"
-                    % (self.code, names)
-                )
+        facts = AnalysisFacts(self.catalog)
+        remapped_targets = set()
+        for context in self.group:
+            try:
+                invokes = facts.call_targets(self.source_code, node, context)
+            except MissingAnalysisFact:
+                continue
+            for target_code, target_context in invokes:
+                if target_context in self.groupLUT and target_code in self.newfuncLUT:
+                    remapped_code, _ = self.annotationMapper((target_code, target_context))
+                    remapped_targets.add(remapped_code)
+                else:
+                    remapped_targets.add(target_code)
+
+        if len(remapped_targets) == 1:
+            func = next(iter(remapped_targets))
+        elif len(remapped_targets) > 1:
+            names = tuple(sorted({code.name for code in remapped_targets}))
+            raise Exception(
+                "Cannot clone the direct call in %r, as it has multiple targets. %r"
+                % (self.code, names)
+            )
         else:
-            # This op is never actually executed, so we can't determine the target.
-            # Set the target to "None", as the op should be subsequently eliminated.
-            func = None
+            # This op had no dynamic call targets recorded in this context
+            # group (e.g. unresolved arguments or an unexecuted branch). Keep a
+            # valid target Code rather than emitting DirectCall(None, ...),
+            # which breaks subsequent IPA/CPA passes if the call survives DCE.
+            func = node.code
+            if func is not None and func in self.newfuncLUT:
+                clones = self.newfuncLUT[func]
+                if len(clones) == 1:
+                    func = next(iter(clones.values()))
+                elif func in self.indirectGroup:
+                    func = clones[self.groupLUT[self.indirectGroup[func]]]
+                elif clones:
+                    func = clones[min(clones)]
 
         result = ast.DirectCall(func, *tempresult.children()[1:])
         copy_call_argument_metadata(node, result)
@@ -652,11 +681,12 @@ def rewriteProgram(compiler, prgm, cloner):
     old_live = set(prgm.liveCode)
     liveCode = cloner.liveFunctions
     changed = False
+    cloned_funcs = ()
 
     # Is cloning worthwhile?
     if cloner.clonedNumGroups() > cloner.originalNumGroups():
         with compiler.console.scope("rewrite"):
-            cloner.rewriteProgram(compiler, prgm)
+            cloned_funcs = cloner.rewriteProgram(compiler, prgm)
             liveCode = cloner.newLive
             changed = True
 
@@ -665,6 +695,8 @@ def rewriteProgram(compiler, prgm, cloner):
         changed = True
     if changed:
         rebuild_program_ir(prgm, provenance_seeds=cloner.provenance_seeds)
+        for newcode in cloned_funcs:
+            simplify.evaluateCode(compiler, prgm, newcode)
     return changed
 
 

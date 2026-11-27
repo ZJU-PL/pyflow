@@ -119,8 +119,10 @@ class RedundantLoadEliminator(object):
         Returns:
             True if a dominates b
         """
-        adom = self.dom[a]
-        bdom = self.dom[b]
+        adom = self.dom.get(a)
+        bdom = self.dom.get(b)
+        if adom is None or bdom is None:
+            return False
         return adom[0] < bdom[0] and adom[1] > bdom[1]
 
     def findLoadStores(self):
