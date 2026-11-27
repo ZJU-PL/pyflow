@@ -235,6 +235,7 @@ file.</p>
 <li><p><strong>Context Sensitivity</strong>: Optional call-site context sensitivity with configurable depth for improved precision</p></li>
 <li><p><strong>Full MRO Support</strong>: Complete C3 MRO linearization for class method lookup</p></li>
 <li><p><strong>Rich Semantics</strong>: Handles descriptors, closures, comprehensions, and container tracking</p></li>
+<li><p><strong>TypeInfo Fact Bridge</strong>: Lazily consults <code class="docutils literal notranslate"><span class="pre">TypeInfoService</span></code> facts for type aliases, <code class="docutils literal notranslate"><span class="pre">TYPE_CHECKING</span></code> annotations, typed cross-module returns, and class attributes when local AST lookup is insufficient</p></li>
 <li><p><strong>Dynamic Summaries</strong>: Generates explicit summary nodes for unresolved call targets</p></li>
 <li><p><strong>Stdlib Filtering</strong>: Standard library modules can be skipped to reduce noise (<code class="docutils literal notranslate"><span class="pre">--skip-stdlib</span></code>)</p></li>
 </ul>
