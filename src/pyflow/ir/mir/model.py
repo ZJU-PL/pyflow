@@ -388,9 +388,62 @@ def _validate_instruction(instruction: Instruction, program: Program) -> None:
 
 
 def _encode(value: Any) -> Any:
+    cls = type(value)
+    if cls is Var:
+        return {"kind": "Var", "name": value.name}
+    if cls is Literal:
+        return {"kind": "Literal", "value": value.value}
+    if cls is Attr:
+        return {"kind": "Attr", "base": _encode(value.base), "key": _encode(value.key)}
+    if cls is Bind:
+        return {"kind": "Bind", "target": _encode(value.target), "source": _encode(value.source)}
+    if cls is Alloc:
+        return {"kind": "Alloc", "target": value.target, "value": _encode(value.value)}
+    if cls is Assume:
+        return {"kind": "Assume", "condition": _encode(value.condition)}
+    if cls is Skip:
+        return {"kind": "Skip"}
+    if cls is Call:
+        return {
+            "kind": "Call",
+            "target": value.target,
+            "function": _encode(value.function),
+            "args": _encode(value.args),
+            "kwargs": _encode(value.kwargs),
+        }
+    if cls is Binary:
+        return {
+            "kind": "Binary",
+            "op": value.op,
+            "left": _encode(value.left),
+            "right": _encode(value.right),
+        }
+    if cls is NewObject:
+        return {"kind": "NewObject"}
+    if cls is Env:
+        return {"kind": "Env", "target": value.target}
+    if cls is Delete:
+        return {"kind": "Delete", "target": _encode(value.target)}
+    if cls is Not:
+        return {"kind": "Not", "operand": _encode(value.operand)}
+    if cls is Length:
+        return {"kind": "Length", "operand": _encode(value.operand)}
+    if cls is ListExpr:
+        return {"kind": "ListExpr", "items": [_encode(item) for item in value.items]}
+    if cls is DictExpr:
+        return {"kind": "DictExpr", "items": [[k, _encode(v)] for k, v in value.items]}
+    if cls is Lambda:
+        return {
+            "kind": "Lambda",
+            "args_param": value.args_param,
+            "kwargs_param": value.kwargs_param,
+            "parent_param": value.parent_param,
+            "body": value.body,
+            "return_var": value.return_var,
+        }
     if isinstance(value, (Expr, Instruction)):
         return {
-            "kind": type(value).__name__,
+            "kind": cls.__name__,
             **{field.name: _encode(getattr(value, field.name)) for field in fields(value)},
         }
     if isinstance(value, (tuple, list)):

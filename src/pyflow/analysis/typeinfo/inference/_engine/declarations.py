@@ -908,25 +908,44 @@ class DeclarationInference(InferenceComponent):
         return AbstractTypeValue.from_type(resolved, unknown=uncertain)
 
     def _annotation_aliases(self):
+        cache_key = (
+            id(self.engine._imports),
+            len(self.engine._imports),
+            len(self.engine._class_aliases),
+            len(self.engine._functions),
+            self.engine._module_name,
+        )
+        if getattr(self, "_annotation_aliases_key", None) == cache_key:
+            return self._annotation_aliases_cache
         aliases = {}
+        module_prefix = f"{self.engine._module_name}."
+        class_aliases = self.engine._class_aliases
+        functions = self.engine._functions
         for name, target in self.engine._imports.items():
-            if (
-                name in self.engine._class_aliases
-                or f"{self.engine._module_name}.{name}" in self.engine._functions
-            ):
+            if name in class_aliases or f"{module_prefix}{name}" in functions:
                 continue
             aliases[name] = self._typing_reexport_alias(target) or target
+        self._annotation_aliases_key = cache_key
+        self._annotation_aliases_cache = aliases
         return aliases
 
     def _typing_reexport_alias(self, target: str) -> str | None:
         """Map ``from ._types import Union`` back to ``typing.Union``."""
+        cache = getattr(self, "_typing_reexport_cache", None)
+        if cache is None:
+            cache = {}
+            self._typing_reexport_cache = cache
+        cached = cache.get(target, False)
+        if cached is not False:
+            return cached
         module_name, _, attribute = target.rpartition(".")
         if not module_name or not _is_typing_surface_name(attribute):
+            cache[target] = None
             return None
         resolution = self.engine.project_context.find_module(module_name)
-        if resolution is None or resolution.path is None:
-            return None
-        return f"typing.{attribute}"
+        result = None if resolution is None or resolution.path is None else f"typing.{attribute}"
+        cache[target] = result
+        return result
 
     def _unresolved_annotation_kinds(self, typ) -> tuple[bool, bool]:
         """Classify unresolved placeholders in a resolved annotation.

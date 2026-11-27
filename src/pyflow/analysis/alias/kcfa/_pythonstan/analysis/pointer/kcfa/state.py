@@ -533,7 +533,7 @@ class PointerAnalysisState:
                     (
                         owner.container_scope,
                         NormalNode(effective_ctx),
-                        PointsToSet.from_objects(targets),
+                        PointsToSet.from_objects(targets, arena=self.arena),
                     )
                 )
 

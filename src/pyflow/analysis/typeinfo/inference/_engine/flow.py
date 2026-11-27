@@ -1079,10 +1079,22 @@ class FlowInference(InferenceComponent):
         current_function: _FunctionInfo,
     ) -> None:
         """Propagate a later enclosing assignment into nested closures."""
-        prefix = f"{current_function.qualified_name}."
-        for function in self.engine._functions.values():
-            if not function.qualified_name.startswith(prefix):
-                continue
+        fn_count = len(self.engine._functions)
+        cache_count = getattr(self, "_nested_closures_fn_count", -1)
+        if cache_count != fn_count:
+            nested_by_prefix: dict[str, list[_FunctionInfo]] = {}
+            for function in self.engine._functions.values():
+                parent_name = function.qualified_name
+                while "." in parent_name:
+                    parent_name = parent_name.rpartition(".")[0]
+                    if parent_name in self.engine._functions:
+                        nested_by_prefix.setdefault(parent_name, []).append(function)
+            self._nested_closures_by_owner = nested_by_prefix
+            self._nested_closures_fn_count = fn_count
+        nested = self._nested_closures_by_owner.get(current_function.qualified_name)
+        if not nested:
+            return
+        for function in nested:
             previous = function.closure_evidence.get(name)
             if previous is None:
                 continue

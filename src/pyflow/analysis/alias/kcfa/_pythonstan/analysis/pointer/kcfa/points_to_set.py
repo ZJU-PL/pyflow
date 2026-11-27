@@ -98,7 +98,15 @@ class PointsToSet:
         obj: "AbstractObject",
         arena: Optional[AnalysisArena] = None,
     ) -> "PointsToSet":
-        return PointsToSet.from_objects((obj,), arena=arena)
+        from .object import MethodObject
+
+        owner = arena if arena is not None else AnalysisArena()
+        bit = 1 << owner.intern(obj)
+        if isinstance(obj, MethodObject):
+            if obj.alloc_site.stmt.is_class_method:
+                return PointsToSet(0, bit, 0, owner)
+            return PointsToSet(0, 0, bit, owner)
+        return PointsToSet(bit, 0, 0, owner)
 
     @staticmethod
     def from_objects(

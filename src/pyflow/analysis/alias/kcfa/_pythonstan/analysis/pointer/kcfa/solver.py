@@ -2659,7 +2659,11 @@ class PointerSolver:
                         receiver_var=c.base,
                     )
                     self.state._worklist.add(
-                        (scope, NormalNode(target_var), PointsToSet.singleton(method_obj))
+                        (
+                            scope,
+                            NormalNode(target_var),
+                            PointsToSet.singleton(method_obj, self.state.arena),
+                        )
                     )
                     continue
                 view_field = self._dict_view_field(c.field)
@@ -2676,7 +2680,11 @@ class PointerSolver:
                     child_name = "*"
                 child = base_obj.child(child_name)
                 self.state._worklist.add(
-                    (scope, NormalNode(target_var), PointsToSet.singleton(child))
+                    (
+                        scope,
+                        NormalNode(target_var),
+                        PointsToSet.singleton(child, self.state.arena),
+                    )
                 )
                 continue
 
@@ -2752,7 +2760,11 @@ class PointerSolver:
                         receiver_var=c.base,
                     )
                     self.state._worklist.add(
-                        (scope, NormalNode(target_var), PointsToSet.singleton(method_obj))
+                        (
+                            scope,
+                            NormalNode(target_var),
+                            PointsToSet.singleton(method_obj, self.state.arena),
+                        )
                     )
                     continue
                 elif isinstance(base_obj, AbstractObject) and (
@@ -2802,7 +2814,11 @@ class PointerSolver:
                             receiver_var=c.base,
                         )
                         self.state._worklist.add(
-                            (scope, NormalNode(target_var), PointsToSet.singleton(method_obj))
+                            (
+                                scope,
+                                NormalNode(target_var),
+                                PointsToSet.singleton(method_obj, self.state.arena),
+                            )
                         )
                         continue
 
@@ -4189,7 +4205,8 @@ class PointerSolver:
 
         guard = GuardNode(
             lambda edge, pts: PointsToSet.from_objects(
-                [obj for obj in pts if is_constructed_class_instance(obj)]
+                [obj for obj in pts if is_constructed_class_instance(obj)],
+                arena=self.state.arena,
             )
         )
         self.state._add_points_flow_edge(
@@ -4203,7 +4220,8 @@ class PointerSolver:
             target_var = self.state.get_variable(scope, context, call.target)
             foreign_guard = GuardNode(
                 lambda edge, pts: PointsToSet.from_objects(
-                    [obj for obj in pts if not is_constructed_class_instance(obj)]
+                    [obj for obj in pts if not is_constructed_class_instance(obj)],
+                    arena=self.state.arena,
                 )
             )
             self.state._add_points_flow_edge(
@@ -4253,7 +4271,8 @@ class PointerSolver:
         ctx_bound_init = self.state.get_variable(scope, context, bound_init_var)
         bound_guard = GuardNode(
             lambda edge, pts: PointsToSet.from_objects(
-                [obj for obj in pts if isinstance(obj, MethodObject)]
+                [obj for obj in pts if isinstance(obj, MethodObject)],
+                arena=self.state.arena,
             )
         )
         self.state._add_points_flow_edge(

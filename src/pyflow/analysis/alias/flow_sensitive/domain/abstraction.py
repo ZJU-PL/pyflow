@@ -124,6 +124,7 @@ class HeapAbstraction:
         self._opaque_raw_ids: dict[int, int] = {}
         self._binding_sort_cache: dict[tuple[object, object], tuple[object, ...]] = {}
         self.next_site = next_site
+        self._state_version: int = 0
 
     def locations_for_local(
         self,
@@ -238,6 +239,7 @@ class HeapAbstraction:
         }
         self._site_ref_counts = dict(environment.site_ref_counts)
         self._local_values = dict(environment.local_values)
+        self._state_version += 1
 
     def join_environments(
         self,
@@ -477,7 +479,10 @@ class HeapAbstraction:
     ) -> None:
         name = getattr(local, "name", None)
         if isinstance(name, str):
-            self._local_values[(self._procedure_key(procedure), name)] = value
+            key = (self._procedure_key(procedure), name)
+            if self._local_values.get(key) != value:
+                self._local_values[key] = value
+                self._state_version += 1
 
     @staticmethod
     def _environment_storage(
@@ -620,6 +625,7 @@ class HeapAbstraction:
             self._equiv_members.pop(root_b, None)
             self._site_ref_counts[root_a] = refs_a + refs_b
             self._site_ref_counts.pop(root_b, None)
+            self._state_version += 1
             return root_a
         self._equiv_parent[root_a] = root_b
         merged = members_b | members_a
@@ -627,6 +633,7 @@ class HeapAbstraction:
         self._equiv_members.pop(root_a, None)
         self._site_ref_counts[root_b] = refs_b + refs_a
         self._site_ref_counts.pop(root_a, None)
+        self._state_version += 1
         return root_b
 
     def _is_site_in_equiv_class(self, site: int, canonical_root: int) -> bool:
@@ -736,7 +743,10 @@ class HeapAbstraction:
             self._local_names[target_key] = target_name
         if isinstance(source_name, str):
             self._local_names[source_key] = source_name
-        self.storage_overrides[target_key] = source_storage
+        prev_override = self.storage_overrides.get(target_key)
+        if prev_override != source_storage:
+            self.storage_overrides[target_key] = source_storage
+            self._state_version += 1
         if isinstance(target_name, str):
             for raw in source_storage:
                 location = self.location_for_raw(raw)
@@ -747,12 +757,14 @@ class HeapAbstraction:
         source_site = self.allocation_sites.get(source_key)
         target_site = self.allocation_sites.get(target_key)
         if source_site is not None:
-            self.allocation_sites[target_key] = source_site
-            if target_site is not None and target_site != source_site:
-                self._decr_site_ref(target_site)
-                self._unify(source_site, target_site)
-            else:
-                self._incr_site_ref(source_site)
+            if target_site != source_site:
+                self.allocation_sites[target_key] = source_site
+                self._state_version += 1
+                if target_site is not None:
+                    self._decr_site_ref(target_site)
+                    self._unify(source_site, target_site)
+                else:
+                    self._incr_site_ref(source_site)
         source_value = self.local_value_for_local(procedure, source)
         if source_value is not None:
             self._set_local_value(
@@ -772,11 +784,24 @@ class HeapAbstraction:
         name = getattr(local, "name", None)
         if isinstance(name, str):
             self._local_names[key] = name
+        raw = self._raw_storage_provider(procedure, local)
         old_site = self.allocation_sites.get(key)
+        if (
+            old_site is not None
+            and key not in self.storage_overrides
+            and self.site_storage.get(old_site) == raw
+            and self._equiv_class_ref_count(old_site) == 1
+            and len(self._equiv_members.get(self._find(old_site), (old_site,))) == 1
+        ):
+            self._set_local_value(
+                procedure,
+                local,
+                LocalValue(refs=frozenset(self.location_for_raw(item) for item in raw)),
+            )
+            return
         if old_site is not None:
             self._decr_site_ref(old_site)
         self.storage_overrides.pop(key, None)
-        raw = self._raw_storage_provider(procedure, local)
         self._assign_site(key, raw)
         self._set_local_value(
             procedure,
@@ -799,9 +824,12 @@ class HeapAbstraction:
         if isinstance(name, str):
             self._local_names[key] = name
         old_site = self.allocation_sites.pop(key, None)
+        changed = old_site is not None
         if old_site is not None:
             self._decr_site_ref(old_site)
-        self.storage_overrides[key] = ()
+        if self.storage_overrides.get(key) != ():
+            self.storage_overrides[key] = ()
+            changed = True
         self._set_local_value(
             procedure,
             local,
@@ -818,10 +846,15 @@ class HeapAbstraction:
                     and other_key[0] == proc_id
                     and self._local_names.get(other_key) == name
                 ):
-                    self.storage_overrides[other_key] = ()
+                    if self.storage_overrides.get(other_key) != ():
+                        self.storage_overrides[other_key] = ()
+                        changed = True
                     other_site = self.allocation_sites.pop(other_key, None)
                     if other_site is not None:
                         self._decr_site_ref(other_site)
+                        changed = True
+        if changed:
+            self._state_version += 1
 
     def _sync_name_bindings(
         self,
@@ -834,6 +867,7 @@ class HeapAbstraction:
         point to the current *storage*, keeping the local alias class consistent
         across distinct ``Local`` node identities that share a variable name."""
         proc_id = self._procedure_key(procedure)
+        changed = False
         for (p_id, l_id), old_storage in list(self.storage_overrides.items()):
             if p_id != proc_id or (p_id, l_id) == except_key:
                 continue
@@ -841,11 +875,16 @@ class HeapAbstraction:
                 continue
             if not old_storage:
                 continue
-            self.storage_overrides[(p_id, l_id)] = storage
+            if old_storage != storage:
+                self.storage_overrides[(p_id, l_id)] = storage
+                changed = True
             old_site = self.allocation_sites.get((p_id, l_id))
             if old_site is not None:
                 self._decr_site_ref(old_site)
+                changed = True
             self.allocation_sites.pop((p_id, l_id), None)
+        if changed:
+            self._state_version += 1
 
     def bind_local_to_object(
         self,
@@ -862,12 +901,29 @@ class HeapAbstraction:
         name = getattr(local, "name", None)
         if isinstance(name, str):
             self._local_names[key] = name
-        old_site = self.allocation_sites.get(key)
-        if old_site is not None:
-            self._decr_site_ref(old_site)
         storage = (obj,)
         if include_provider_storage:
             storage = (*storage, *self._raw_storage_provider(procedure, local))
+        old_site = self.allocation_sites.get(key)
+        if (
+            old_site is not None
+            and self.storage_overrides.get(key) == storage
+            and self.site_storage.get(old_site) == storage
+            and self._equiv_class_ref_count(old_site) == 1
+            and len(self._equiv_members.get(self._find(old_site), (old_site,))) == 1
+        ):
+            self._set_local_value(
+                procedure,
+                local,
+                LocalValue(refs=frozenset(self.location_for_raw(raw) for raw in storage)),
+            )
+            if isinstance(name, str) and obj not in self._object_labels:
+                self._object_labels[obj] = name
+            if isinstance(name, str):
+                self._sync_name_bindings(procedure, name, storage, except_key=key)
+            return
+        if old_site is not None:
+            self._decr_site_ref(old_site)
         self.storage_overrides[key] = storage
         self._set_local_value(
             procedure,
@@ -900,6 +956,28 @@ class HeapAbstraction:
         name = getattr(local, "name", None)
         if isinstance(name, str):
             self._local_names[key] = name
+        old_site = self.allocation_sites.get(key)
+        if (
+            old_site is not None
+            and self.storage_overrides.get(key) == storage
+            and self.site_storage.get(old_site) == storage
+            and self._equiv_class_ref_count(old_site) == 1
+            and len(self._equiv_members.get(self._find(old_site), (old_site,))) == 1
+        ):
+            self._set_local_value(
+                procedure,
+                local,
+                LocalValue(refs=frozenset(self.location_for_raw(raw) for raw in storage)),
+            )
+            if isinstance(name, str):
+                for raw in storage:
+                    location = self.location_for_raw(raw)
+                    if location.root not in self._object_labels:
+                        self._object_labels[location.root] = name
+                self._sync_name_bindings(procedure, name, storage, except_key=key)
+            return
+        if old_site is not None:
+            self._decr_site_ref(old_site)
         self.storage_overrides[key] = storage
         self._set_local_value(
             procedure,
@@ -1328,7 +1406,9 @@ class HeapAbstraction:
         if not self.policy.track_escapes:
             return
         heap_location = self.location_for_raw(location)
-        self._escaped_objects.add(heap_location.root)
+        if heap_location.root not in self._escaped_objects:
+            self._escaped_objects.add(heap_location.root)
+            self._state_version += 1
 
     def mark_all_escaped(self, locations: tuple[object, ...]) -> None:
         for location in locations:
@@ -2044,6 +2124,7 @@ class HeapAbstraction:
         self.next_site += 1
         self.allocation_sites[key] = site
         self.site_storage[site] = storage
+        self._state_version += 1
         if self._root_site_index is not None:
             for raw in storage:
                 self._root_site_index.setdefault(

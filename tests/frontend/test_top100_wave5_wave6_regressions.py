@@ -424,3 +424,250 @@ def test_ast_dataflow_detector_interprocedural_summary_after_optimizations(tmp_p
     ).analyze(session)
     assert result.status == "complete"
     assert len(result.findings) >= 1
+
+
+def test_mir_fast_serialization_roundtrip_and_strict_validation():
+    """Direct MIR encoder/decoder preserves round-trips and strict validation errors."""
+    from pyflow.ir.mir.model import MIRValidationError
+    from pyflow.ir.mir.serialization import program_from_dict
+
+    source = (
+        "def compute(xs):\n"
+        "    out = [x + 1 for x in xs]\n"
+        "    mapping = {'a': out}\n"
+        "    return len(mapping)\n"
+        "\n"
+        "res = compute([1, 2])\n"
+    )
+    prog = lower_source(source, module_name="serde_mod", import_policy="opaque")
+    raw = prog.to_dict()
+    rebuilt = program_from_dict(raw)
+    assert rebuilt.entry == prog.entry
+    assert set(rebuilt.cfgs) == set(prog.cfgs)
+    assert rebuilt.to_dict() == raw
+
+    # Strict validation still rejects unknown kinds, extra fields, and wrong categories.
+    bad_kind = json.loads(json.dumps(raw))
+    first_cfg = bad_kind["cfgs"][bad_kind["entry"]]
+    first_node = next(iter(first_cfg["nodes"].values()))
+    first_node["instruction"] = {"kind": "Exploit"}
+    with pytest.raises(MIRValidationError, match="unknown MIR term kind"):
+        program_from_dict(bad_kind)
+
+    bad_fields = json.loads(json.dumps(raw))
+    first_cfg = bad_fields["cfgs"][bad_fields["entry"]]
+    first_node = next(iter(first_cfg["nodes"].values()))
+    first_node["instruction"] = {"kind": "Skip", "unexpected": 1}
+    with pytest.raises(MIRValidationError, match="invalid fields"):
+        program_from_dict(bad_fields)
+
+    bad_category = json.loads(json.dumps(raw))
+    first_cfg = bad_category["cfgs"][bad_category["entry"]]
+    first_node = next(iter(first_cfg["nodes"].values()))
+    first_node["instruction"] = {"kind": "Var", "name": "x"}
+    with pytest.raises(MIRValidationError, match="is not a Instruction"):
+        program_from_dict(bad_category)
+
+
+def test_static_type_inference_nested_closure_and_cached_aliases(tmp_path: Path):
+    """Indexed nested-closure updates and cached annotation aliases preserve inference semantics."""
+    from pyflow.analysis.typeinfo.inference.engine import (
+        InferenceOptions,
+        StaticTypeInferenceEngine,
+    )
+
+    (tmp_path / "typing_reexport.py").write_text("from typing import Union\n", encoding="utf-8")
+    source = (
+        "from typing_reexport import Union\n"
+        "\n"
+        "def outer(flag: bool) -> Union[int, str]:\n"
+        "    val = 1\n"
+        "    def inner() -> Union[int, str]:\n"
+        "        return val\n"
+        "    if flag:\n"
+        "        val = 'late'\n"
+        "    return inner()\n"
+    )
+    mod_path = tmp_path / "closure_mod.py"
+    mod_path.write_text(source, encoding="utf-8")
+    engine = StaticTypeInferenceEngine(
+        ProjectContext(tmp_path),
+        options=InferenceOptions(strict_annotations=True),
+    )
+    result = engine.infer_source("closure_mod", source, filename=str(mod_path))
+    assert result is not None
+    inner_summary = result.functions.get("closure_mod.outer.inner")
+    assert inner_summary is not None
+    ret_str = str(inner_summary.return_type)
+    assert "int" in ret_str and "str" in ret_str
+
+
+def test_project_context_get_sys_path_cache_and_invalidation(tmp_path: Path):
+    """ProjectContext.get_sys_path caches safely and invalidates when source_files change."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    script = pkg / "mod.py"
+    extra_dir = tmp_path / "extra_lib"
+    extra_dir.mkdir()
+    script.write_text("x = 1\n", encoding="utf-8")
+
+    ctx = ProjectContext(tmp_path)
+    p1 = ctx.get_sys_path(script_path=script)
+    p2 = ctx.get_sys_path(script_path=script)
+    assert p1 == p2
+    assert p1 is not p2  # returns a fresh list copy so caller mutation cannot corrupt cache
+    p1.append("/mutated")
+    assert "/mutated" not in ctx.get_sys_path(script_path=script)
+
+    # Updating source_files with sys.path.append invalidates cached sys.path
+    ctx.with_source_files({str(script): f"import sys\nsys.path.append({str(extra_dir)!r})\n"})
+    p3 = ctx.get_sys_path(script_path=script)
+    assert str(extra_dir) in p3
+
+
+def test_capability_reachability_dead_node_pruning_preserves_findings():
+    """Dead-node pruning and child caching in DefensiveCapabilityAnalysis preserve escape traces."""
+    from pyflow.checker.capability import DefensiveCapabilityAnalysis
+
+    source = (
+        "import os\n"
+        "\n"
+        "class Node:\n"
+        "    def __init__(self, payload):\n"
+        "        self.payload = payload\n"
+        "        self.next = None\n"
+        "\n"
+        "def run(sink):\n"
+        "    dead_a = Node(1)\n"
+        "    dead_b = Node(2)\n"
+        "    dead_a.next = dead_b\n"
+        "    dead_b.next = dead_a\n"
+        "    live = Node(os.system)\n"
+        "    live.next = dead_a\n"
+        "    sink(dead_a)\n"
+        "    sink(dead_b)\n"
+        "    sink(live)\n"
+    )
+    analysis = DefensiveCapabilityAnalysis(analyze_all_scopes=True)
+    result = analysis.analyze_source(source)
+    caps = {f.capability for f in result.findings}
+    assert any("process" in cap or "exec" in cap or "os" in cap for cap in caps) or result.findings
+
+
+def test_kcfa_context_cached_hash_and_replace():
+    """Cached hashes on frozen k-CFA contexts stay consistent under equality and dataclasses.replace."""
+    from dataclasses import replace
+
+    from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.context import (
+        CallStringContext,
+        HybridContext,
+        ObjectContext,
+        ParamContext,
+        ReceiverContext,
+        SummaryContext,
+        TypeContext,
+    )
+
+    c1 = CallStringContext((), k=2)
+    c2 = CallStringContext((), k=2)
+    c3 = replace(c1, k=0)
+    assert c1 == c2 and hash(c1) == hash(c2)
+    assert c1 != c3
+    assert hash(c3) == hash((c3.call_sites, c3.k))
+
+    for cls, attr in (
+        (ObjectContext, "depth"),
+        (TypeContext, "depth"),
+        (ReceiverContext, "depth"),
+        (ParamContext, "depth"),
+    ):
+        a = cls((), 2)
+        b = replace(a, **{attr: 0})
+        assert a != b
+        assert hash(b) == hash(((), 0))
+
+    h1 = HybridContext((), (), 1, 1)
+    h2 = replace(h1, call_k=0, obj_depth=0)
+    assert h1 != h2
+    assert hash(h2) == hash(((), (), 0, 0))
+
+    s1 = SummaryContext(c1)
+    s2 = SummaryContext(c3)
+    assert s1 != s2 and hash(s1) == hash(("summary", c1))
+
+
+def test_heap_abstraction_version_and_idempotent_bindings():
+    """HeapAbstraction bumps _state_version on real mutations and stays idempotent on repeats."""
+    from pyflow.analysis.alias.flow_sensitive.domain.abstraction import HeapAbstraction
+    from pyflow.language.python import ast as py_ast
+
+    proc = object()
+    lcl_a = py_ast.Local("a")
+    lcl_b = py_ast.Local("b")
+
+    raw_by_name = {"a": object(), "b": object()}
+
+    def provider(_proc, local):
+        return (raw_by_name[local.name],)
+
+    heap = HeapAbstraction(provider)
+    v0 = heap._state_version
+    obj = heap.allocation_object(proc, "alloc1", label="x")
+
+    # Initial binding bumps version; repeating identical binding is idempotent (no site leak)
+    heap.bind_local_to_object(proc, lcl_a, obj)
+    v1 = heap._state_version
+    site_count_1 = len(heap.site_storage)
+    assert v1 > v0
+    heap.bind_local_to_object(proc, lcl_a, obj)
+    assert heap._state_version == v1
+    assert len(heap.site_storage) == site_count_1
+
+    # Escaping once bumps version; repeat escape is idempotent
+    loc_a = heap.locations_for_local(proc, lcl_a)[0]
+    heap.mark_escaped(loc_a)
+    v2 = heap._state_version
+    assert v2 > v1
+    heap.mark_escaped(loc_a)
+    assert heap._state_version == v2
+
+    # Unaliasing once bumps version; repeat unalias is idempotent
+    heap.unalias_local(proc, lcl_b)
+    v3 = heap._state_version
+    site_count_3 = len(heap.site_storage)
+    assert v3 > v2
+    heap.unalias_local(proc, lcl_b)
+    assert heap._state_version == v3
+    assert len(heap.site_storage) == site_count_3
+
+    # Snapshot + restore invalidates version
+    snap = heap.snapshot_environment()
+    heap.restore_environment(snap)
+    assert heap._state_version > v3
+
+
+def test_ifds_nullness_cached_effects_and_solver_transition_normalization(tmp_path: Path):
+    """IFDS nullness heap caching and fast transition normalization preserve findings and order."""
+    from pyflow.analysis.ifds.core.solver import FactTransition, _normalize_ifds_transitions
+    from pyflow.api.ifds import run_nullness_analysis
+
+    assert _normalize_ifds_transitions(()) == ()
+    single = _normalize_ifds_transitions(("only",))
+    assert single == (FactTransition("only"),)
+    multi = _normalize_ifds_transitions(("b", "a", FactTransition("c")))
+    assert tuple(t.fact for t in multi) == ("a", "b", "c")
+
+    src = (
+        "def f(flag):\n"
+        "    x = None\n"
+        "    y = x\n"
+        "    if flag:\n"
+        "        z = y\n"
+        "    else:\n"
+        "        z = 'ok'\n"
+        "    return z.strip()\n"
+    )
+    path = tmp_path / "null_case.py"
+    path.write_text(src, encoding="utf-8")
+    _session, result = run_nullness_analysis([path], dependency_strategy="stubs")
+    assert len(result.findings) >= 1

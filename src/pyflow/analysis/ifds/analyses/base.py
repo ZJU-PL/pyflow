@@ -222,14 +222,42 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         return None
 
     def _heap_effect_builder(self) -> HeapEffectBuilder:
-        return HeapEffectBuilder(self._heap(), self._locations_read_by_node)
+        heap = self._heap()
+        builder = getattr(self, "_cached_heap_effect_builder", None)
+        if builder is None or getattr(self, "_cached_heap_effect_builder_heap", None) is not heap:
+            builder = HeapEffectBuilder(heap, self._locations_read_by_node)
+            self._cached_heap_effect_builder = builder
+            self._cached_heap_effect_builder_heap = heap
+        return builder
+
+    def _sync_heap_caches(self, heap: HeapAbstraction) -> int:
+        version = getattr(heap, "_state_version", 0)
+        if (
+            getattr(self, "_heap_cache_id", None) != id(heap)
+            or getattr(self, "_heap_cache_version", None) != version
+        ):
+            self._heap_cache_id = id(heap)
+            self._heap_cache_version = version
+            self._heap_effect_cache = {}
+            self._killed_locations_cache = {}
+            self._dynamic_setattr_cache = {}
+            self._dynamic_subscript_write_cache = {}
+            self._collection_mutation_cache = {}
+            self._expr_facts_cache = {}
+        return version
 
     def _heap_effect_for_operation(
         self,
         procedure: cfg_graph.Code,
         operation: object,
     ) -> HeapEffect:
-        return (
+        heap = self._heap()
+        self._sync_heap_caches(heap)
+        key = (procedure, id(operation))
+        cached = self._heap_effect_cache.get(key)
+        if cached is not None:
+            return cached
+        effect = (
             self._heap_effect_builder()
             .operation_semantics(
                 procedure,
@@ -238,6 +266,9 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             )
             .effect
         )
+        self._sync_heap_caches(heap)
+        self._heap_effect_cache[key] = effect
+        return effect
 
     def _heap_summary_for_procedure(self, procedure: cfg_graph.Code) -> HeapSummary:
         key = procedure
@@ -263,21 +294,33 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         *,
         include_semantic: bool = True,
     ) -> tuple[object, ...]:
+        heap = self._heap()
+        self._sync_heap_caches(heap)
+        cache_key = (node, include_semantic)
+        cached = self._killed_locations_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         effect = self.adapter.effect_of(node)
         operation = getattr(effect, "operation", self.adapter.operation_of(node))
-        if include_semantic:
-            self._mark_escaped_values_for_operation(node.procedure, operation)
+        heap_effect = (
+            self._heap_effect_for_operation(node.procedure, operation)
+            if operation is not None
+            else HeapEffect()
+        )
+        if include_semantic and operation is not None and heap.policy.track_escapes:
+            if heap_effect.escapes:
+                version_before = getattr(heap, "_state_version", 0)
+                heap.mark_all_escaped(heap_effect.escapes)
+                if getattr(heap, "_state_version", 0) != version_before:
+                    heap_effect = self._heap_effect_for_operation(node.procedure, operation)
         semantic_kills = (
             self._killed_locations_for_operation(node.procedure, operation)
             if include_semantic
             else ()
         )
-        strong_dynamic_kills = (
-            self._strong_dynamic_write_locations_for_operation(node.procedure, operation)
-            if include_semantic
-            else ()
-        )
-        dynamic_kills = self._dynamic_delete_locations(node.procedure, operation)
+        strong_dynamic_kills = heap_effect.strong_write_locations() if include_semantic else ()
+        dynamic_kills = heap_effect.deletes
         strong_update_slots = getattr(effect, "strong_update_slots", None)
         if strong_update_slots:
             kills = tuple(
@@ -307,7 +350,10 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
                 kills = tuple(
                     dict.fromkeys((*semantic_kills, *strong_dynamic_kills, *dynamic_kills))
                 )
-        return self._expand_kills_through_aliases(kills)
+        result = self._expand_kills_through_aliases(kills)
+        self._sync_heap_caches(heap)
+        self._killed_locations_cache[cache_key] = result
+        return result
 
     def _expand_kills_through_aliases(self, kills: tuple[object, ...]) -> tuple[object, ...]:
         heap = self._heap()
@@ -579,6 +625,19 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             access_path,
             template_fact,
         )
+
+    def _assigned_locals(self, operation: object) -> tuple[py_ast.Local, ...]:
+        cache = getattr(self, "_assigned_locals_cache", None)
+        if cache is None:
+            cache = {}
+            self._assigned_locals_cache = cache
+        key = id(operation)
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        result = assigned_locals(operation)
+        cache[key] = result
+        return result
 
     def _facts_for_expression_node(
         self,
@@ -1070,10 +1129,19 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     def _dynamic_setattr_locations(
         self, procedure: cfg_graph.Code, operation: object
     ) -> tuple[HeapLocation, ...]:
-        return self._heap_effect_builder().dynamic_setattr_locations(
+        heap = self._heap()
+        self._sync_heap_caches(heap)
+        key = (procedure, id(operation))
+        cached = self._dynamic_setattr_cache.get(key)
+        if cached is not None:
+            return cached
+        result = self._heap_effect_builder().dynamic_setattr_locations(
             procedure,
             operation,
         )
+        self._sync_heap_caches(heap)
+        self._dynamic_setattr_cache[key] = result
+        return result
 
     def _dynamic_attribute_locations(
         self,
@@ -1117,10 +1185,19 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
     def _dynamic_subscript_write_locations(
         self, procedure: cfg_graph.Code, operation: object
     ) -> tuple[HeapLocation, ...]:
-        return self._heap_effect_builder().dynamic_subscript_write_locations(
+        heap = self._heap()
+        self._sync_heap_caches(heap)
+        key = (procedure, id(operation))
+        cached = self._dynamic_subscript_write_cache.get(key)
+        if cached is not None:
+            return cached
+        result = self._heap_effect_builder().dynamic_subscript_write_locations(
             procedure,
             operation,
         )
+        self._sync_heap_caches(heap)
+        self._dynamic_subscript_write_cache[key] = result
+        return result
 
     def _dynamic_subscript_locations_for_key(
         self,
@@ -1198,11 +1275,20 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
         operation: object,
         mutator_names: frozenset[str],
     ) -> tuple[tuple[HeapLocation, ...], tuple[object, ...]]:
-        return self._heap_effect_builder().collection_mutation(
+        heap = self._heap()
+        self._sync_heap_caches(heap)
+        key = (procedure, id(operation), mutator_names)
+        cached = self._collection_mutation_cache.get(key)
+        if cached is not None:
+            return cached
+        result = self._heap_effect_builder().collection_mutation(
             procedure,
             operation,
             mutator_names,
         )
+        self._sync_heap_caches(heap)
+        self._collection_mutation_cache[key] = result
+        return result
 
     def _collection_copy_mutation(
         self,
@@ -1253,12 +1339,15 @@ class AnnotatedFactProblemBase(Generic[FactT], ABC):
             expr = operation.expr
         elif isinstance(operation, py_ast.AnnAssign):
             expr = operation.value
-        if expr is None:
+        if not isinstance(
+            expr,
+            (py_ast.BuildTuple, py_ast.BuildList, py_ast.BuildSet, py_ast.BuildMap),
+        ):
             return ()
 
         target_locations = tuple(
             location
-            for target in assigned_locals(operation)
+            for target in self._assigned_locals(operation)
             for location in self._locations_for_local(procedure, target)
         )
         if not target_locations:

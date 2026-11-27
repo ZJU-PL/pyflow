@@ -316,6 +316,7 @@ class ProjectContext:
         self._realpath_cache: Dict[str, str] = {}
         self._resolved_roots_cache: Dict[tuple[str, ...], tuple[str, ...]] = {}
         self._sys_path_mod_cache: Dict[tuple[str, str], tuple[str, ...]] = {}
+        self._sys_path_cache: Dict[tuple[object, ...], tuple[str, ...]] = {}
 
     def _realpath(self, path_str: str) -> str:
         cached = self._realpath_cache.get(path_str)
@@ -340,6 +341,7 @@ class ProjectContext:
 
     def with_source_files(self, source_files: Mapping[str, str]) -> "ProjectContext":
         self.source_files.update(source_files)
+        self._sys_path_cache.clear()
         return self
 
     def get_base_sys_path(self) -> List[str]:
@@ -355,10 +357,28 @@ class ProjectContext:
         source: Optional[str] = None,
     ) -> List[str]:
         """Build an analysis sys.path with Jedi-style project additions."""
+        base = self.get_base_sys_path()
+        script_key = str(script_path) if script_path is not None else None
+        resolved_source = (
+            source
+            if source is not None
+            else (self.source_files.get(script_key) if script_key is not None else None)
+        )
+        cache_key = (
+            script_key,
+            add_parent_paths,
+            add_init_paths,
+            resolved_source,
+            self.smart_sys_path,
+            tuple(base),
+            tuple(self.added_sys_path),
+        )
+        cached = self._sys_path_cache.get(cache_key)
+        if cached is not None:
+            return list(cached)
 
         prefixed: List[str] = []
         suffixed: List[str] = list(self.added_sys_path)
-        base = self.get_base_sys_path()
 
         if self.smart_sys_path:
             prefixed.append(str(self.path))
@@ -378,21 +398,25 @@ class ProjectContext:
                         traversed.append(str(parent_path))
                     suffixed += list(reversed(traversed))
 
-                if source is None:
-                    source = self.source_files.get(str(script_path))
-                if source is not None:
+                if resolved_source is not None:
                     script_str = str(script)
-                    mod_key = (script_str, source)
+                    mod_key = (script_str, resolved_source)
                     cached_mods = self._sys_path_mod_cache.get(mod_key)
                     if cached_mods is None:
-                        cached_mods = tuple(check_sys_path_modifications(source, script_str))
+                        cached_mods = tuple(
+                            check_sys_path_modifications(resolved_source, script_str)
+                        )
                         if len(self._sys_path_mod_cache) >= 512:
                             self._sys_path_mod_cache.clear()
                         self._sys_path_mod_cache[mod_key] = cached_mods
                     if cached_mods:
                         suffixed.extend(cached_mods)
 
-        return _remove_duplicates_from_path(prefixed + base + suffixed)
+        result = _remove_duplicates_from_path(prefixed + base + suffixed)
+        if len(self._sys_path_cache) >= 512:
+            self._sys_path_cache.clear()
+        self._sys_path_cache[cache_key] = tuple(result)
+        return result
 
     def module_name_from_path(
         self, file_path: str | os.PathLike[str], *, allow_absolute_fallback: bool = True

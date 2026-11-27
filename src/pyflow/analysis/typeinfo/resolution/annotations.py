@@ -749,6 +749,7 @@ def _get_qualified_name(node: ast.expr) -> str:
     return ""
 
 
+@functools.lru_cache(maxsize=512)
 def _is_typing_surface_name(name: str) -> bool:
     """Whether *name* is a ``typing``/``collections.abc`` construct."""
     if name in TYPE_ALIAS_TYPES or name in PROXY_CLASS_TYPES or name in PROXY_TYPES:

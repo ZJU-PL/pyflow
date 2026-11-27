@@ -1468,6 +1468,10 @@ class _CapabilityReachability:
         self.patterns = {}
         self._closures: dict = {}
         self._cached_entries = 0
+        self._children_by_mode: dict[bool, dict] = {True: {}, False: {}}
+        self._class_children_cache: dict = {}
+        self._obj_capabilities: dict = {}
+        self._dead_by_mode: dict[bool, set] = {True: set(), False: set()}
         self.super_names: set[str] = set()
         for ctx_field, points_to in state._env.items():
             if any(isinstance(obj, SuperObject) for obj in points_to):
@@ -1493,9 +1497,10 @@ class _CapabilityReachability:
         cross-root de-duplication expected by callers.
         """
         seen = set()
+        dead = self._dead_by_mode[follow_closures]
         total_cached = getattr(self, "_cached_entries", 0)
         for root in roots:
-            if root in seen:
+            if root in seen or root in dead:
                 continue
             key = (root, follow_closures)
             cached = self._closures.get(key)
@@ -1512,8 +1517,39 @@ class _CapabilityReachability:
                 if access_path is not None:
                     yield access_path, patterns, trace
 
+    def _class_attr_children(self, class_obj: ClassObject) -> tuple:
+        cached = self._class_children_cache.get(class_obj)
+        if cached is not None:
+            return cached
+        if self._is_bundled_stub_class(class_obj):
+            self._class_children_cache[class_obj] = ()
+            return ()
+        children = []
+        for label, points_to in self.fields.get(class_obj, ()):
+            edge_label = f"class attribute {label}"
+            for child in points_to:
+                if self._is_class_method(class_obj, child):
+                    continue
+                children.append((child, edge_label))
+        result = tuple(children)
+        self._class_children_cache[class_obj] = result
+        return result
+
     def _children(self, obj, follow_closures: bool):
-        """Yield ``(child, label)`` pairs reachable from ``obj``."""
+        """Return deduplicated ``(child, label)`` pairs reachable from ``obj``."""
+        cache = self._children_by_mode[follow_closures]
+        cached = cache.get(obj)
+        if cached is not None:
+            return cached
+
+        children = []
+        seen_children = set()
+
+        def _add(child, label: str) -> None:
+            if child not in seen_children:
+                seen_children.add(child)
+                children.append((child, label))
+
         closure_owner = obj
         if isinstance(obj, (GeneratorObject, CoroutineObject)):
             closure_owner = obj.func_obj
@@ -1525,12 +1561,13 @@ class _CapabilityReachability:
                 scope = getattr(captured_var, "scope", None)
                 if scope is not None and getattr(scope, "kind", None) == "module":
                     continue
+                edge_label = f"closure cell {name}"
                 for child in self.state.get_points_to(captured_var):
-                    yield child, f"closure cell {name}"
+                    _add(child, edge_label)
         if isinstance(obj, MethodObject) and obj.instance_obj is not None:
             # A bound method carries its ``self``; handing ``host.handler`` to
             # a plugin hands over everything reachable from the instance.
-            yield obj.instance_obj, "bound method receiver"
+            _add(obj.instance_obj, "bound method receiver")
         if isinstance(obj, (ClassObject, InstanceObject)):
             class_obj = obj if isinstance(obj, ClassObject) else getattr(obj, "class_obj", None)
             if class_obj is None or self._is_bundled_stub_class(class_obj):
@@ -1538,16 +1575,76 @@ class _CapabilityReachability:
                 # walking those turns a Path *instance* into dozens of
                 # spurious file capabilities.
                 if isinstance(obj, ClassObject):
-                    return
+                    result = tuple(children)
+                    cache[obj] = result
+                    return result
             else:
-                for label, points_to in self.fields.get(class_obj, ()):
-                    for child in points_to:
-                        if self._is_class_method(class_obj, child):
-                            continue
-                        yield child, f"class attribute {label}"
+                for child, edge_label in self._class_attr_children(class_obj):
+                    _add(child, edge_label)
         for label, points_to in self.fields.get(obj, ()):
+            edge_label = f"carrier field {label}"
             for child in points_to:
-                yield child, f"carrier field {label}"
+                _add(child, edge_label)
+
+        result = tuple(children)
+        cache[obj] = result
+        return result
+
+    def _capabilities_for_obj(self, obj):
+        cached = self._obj_capabilities.get(obj, False)
+        if cached is not False:
+            return cached
+        access_path = self.analysis._object_path(obj)
+        if access_path is not None:
+            access_path = _normalize_descriptor_path(access_path)
+        result = None
+        if access_path is not None and not access_path.endswith(".__set_name__"):
+            if access_path in _NON_HANDLE_PATH_TYPES or any(
+                access_path.startswith(path_type + ".<return>")
+                for path_type in _NON_HANDLE_PATH_TYPES
+            ):
+                # Pathname wrappers are values, not file handles.  Their
+                # direct operations are still reported from call events.
+                patterns = ()
+            else:
+                if access_path not in self.patterns:
+                    patterns = self.registry.reachable(access_path)
+                    if not patterns and obj in self.analysis._return_identities:
+                        # A *mapped* handle (``builtins.open.<return>``)
+                        # carries the capability of the call that produced
+                        # it.  Opaque native returns are deliberately
+                        # excluded: the value returned by
+                        # ``importlib.import_module`` is a module, not the
+                        # capability to import one.
+                        origin = access_path
+                        while ".<return>" in origin:
+                            origin = origin.replace(".<return>", "")
+                        patterns = self.registry.reachable(origin)
+                    self.patterns[access_path] = patterns
+                patterns = self.patterns[access_path]
+            if patterns and _is_network_data_path(access_path):
+                # Data extracted from a network response (``post().json()``,
+                # ``resp["token"]``) is not a new network capability.
+                patterns = tuple(
+                    pattern for pattern in patterns if pattern.capability != "network.io"
+                )
+            if patterns and access_path.count(".<return>") >= 2:
+                if access_path.startswith(("os.environ", "sys.argv")):
+                    # ``os.environ.get(...).split()`` is data derived from
+                    # an environment read, not a new environment capability.
+                    patterns = tuple(
+                        pattern
+                        for pattern in patterns
+                        if pattern.capability != "information.environment"
+                    )
+            if patterns:
+                allowed = self.analysis._return_capabilities.get(obj)
+                if allowed is not None:
+                    patterns = tuple(p for p in patterns if p.capability in allowed)
+                if patterns:
+                    result = (access_path, patterns)
+        self._obj_capabilities[obj] = result
+        return result
 
     @staticmethod
     def _is_class_method(class_obj: ClassObject, child) -> bool:
@@ -1567,67 +1664,50 @@ class _CapabilityReachability:
 
     def _closure_from(self, root, follow_closures: bool):
         """Return ``(obj, access_path, patterns, trace)`` reachable from root."""
+        dead = self._dead_by_mode[follow_closures]
+        if root in dead:
+            return []
         entries = []
         parents = {root: None}
+        rev_edges: dict = {}
         stack = [root]
         while stack:
             obj = stack.pop()
             if isinstance(obj, NativeModuleObject):
                 # Importing a module does not exercise any of its members.
                 continue
-            access_path = self.analysis._object_path(obj)
-            if access_path is not None:
-                access_path = _normalize_descriptor_path(access_path)
-            if access_path is not None and not access_path.endswith(".__set_name__"):
-                if access_path in _NON_HANDLE_PATH_TYPES or any(
-                    access_path.startswith(path_type + ".<return>")
-                    for path_type in _NON_HANDLE_PATH_TYPES
-                ):
-                    # Pathname wrappers are values, not file handles.  Their
-                    # direct operations are still reported from call events.
-                    patterns = ()
-                else:
-                    if access_path not in self.patterns:
-                        patterns = self.registry.reachable(access_path)
-                        if not patterns and obj in self.analysis._return_identities:
-                            # A *mapped* handle (``builtins.open.<return>``)
-                            # carries the capability of the call that produced
-                            # it.  Opaque native returns are deliberately
-                            # excluded: the value returned by
-                            # ``importlib.import_module`` is a module, not the
-                            # capability to import one.
-                            origin = access_path
-                            while ".<return>" in origin:
-                                origin = origin.replace(".<return>", "")
-                            patterns = self.registry.reachable(origin)
-                        self.patterns[access_path] = patterns
-                    patterns = self.patterns[access_path]
-                if patterns and _is_network_data_path(access_path):
-                    # Data extracted from a network response (``post().json()``,
-                    # ``resp["token"]``) is not a new network capability.
-                    patterns = tuple(
-                        pattern for pattern in patterns if pattern.capability != "network.io"
-                    )
-                if patterns and access_path.count(".<return>") >= 2:
-                    if access_path.startswith(("os.environ", "sys.argv")):
-                        # ``os.environ.get(...).split()`` is data derived from
-                        # an environment read, not a new environment capability.
-                        patterns = tuple(
-                            pattern
-                            for pattern in patterns
-                            if pattern.capability != "information.environment"
-                        )
-                if patterns:
-                    allowed = self.analysis._return_capabilities.get(obj)
-                    if allowed is not None:
-                        patterns = tuple(p for p in patterns if p.capability in allowed)
-                    if patterns:
-                        entries.append((obj, access_path, patterns, self._trace(obj, parents)))
+            cap = self._capabilities_for_obj(obj)
+            if cap is not None:
+                access_path, patterns = cap
+                entries.append((obj, access_path, patterns, self._trace(obj, parents)))
             for child, label in self._children(obj, follow_closures):
+                if child in dead:
+                    continue
+                preds = rev_edges.get(child)
+                if preds is None:
+                    rev_edges[child] = [obj]
+                else:
+                    preds.append(obj)
                 if child in parents:
                     continue
                 parents[child] = (obj, label)
                 stack.append(child)
+        # Because DFS visits every non-dead child of every node in ``parents``,
+        # any visited node that cannot reach a discovered capability object
+        # within ``parents`` can never reach one from any future root either.
+        if not entries:
+            dead.update(parents)
+        else:
+            live = {entry[0] for entry in entries}
+            queue = list(live)
+            while queue:
+                cur = queue.pop()
+                for pred in rev_edges.get(cur, ()):
+                    if pred not in live:
+                        live.add(pred)
+                        queue.append(pred)
+            if len(live) < len(parents):
+                dead.update(node for node in parents if node not in live)
         return entries
 
     @staticmethod

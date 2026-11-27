@@ -388,6 +388,10 @@ class _SolverBookkeeping(Generic[NodeT, FactT]):
         return self.finish(check_budget=check_budget)
 
 
+_DATACLASS_FIELD_NAMES: dict[type, tuple[str, ...]] = {}
+_STABLE_ID_RE = re.compile(r"0x[0-9a-fA-F]+|/\d+")
+
+
 def _normalize_ifds_transitions(outputs) -> tuple[FactTransition[FactT], ...]:
     """Accept raw IFDS facts or explicit FactTransition wrappers."""
     normalized: list[FactTransition[FactT]] = []
@@ -396,6 +400,8 @@ def _normalize_ifds_transitions(outputs) -> tuple[FactTransition[FactT], ...]:
             normalized.append(output)
         else:
             normalized.append(FactTransition(output))
+    if len(normalized) <= 1:
+        return tuple(normalized)
     return tuple(sorted(normalized, key=lambda transition: _stable_value_key(transition.fact)))
 
 
@@ -405,26 +411,32 @@ def _stable_value_key(value: object):
         return (type(value).__qualname__, value)
     if isinstance(value, tuple):
         return ("tuple", tuple(_stable_value_key(item) for item in value))
-    if is_dataclass(value):
+    cls = type(value)
+    dc_fields = getattr(cls, "__dataclass_fields__", None)
+    if dc_fields is not None:
+        field_names = _DATACLASS_FIELD_NAMES.get(cls)
+        if field_names is None:
+            field_names = tuple(field.name for field in fields(cls))
+            _DATACLASS_FIELD_NAMES[cls] = field_names
         return (
-            type(value).__qualname__,
-            tuple(
-                (field.name, _stable_value_key(getattr(value, field.name)))
-                for field in fields(value)
-            ),
+            cls.__qualname__,
+            tuple((name, _stable_value_key(getattr(value, name))) for name in field_names),
         )
     for attribute in ("name", "label", "state", "protocol"):
         candidate = getattr(value, attribute, None)
         if isinstance(candidate, (str, int)):
-            return (type(value).__qualname__, attribute, candidate)
-    rendered = re.sub(r"0x[0-9a-fA-F]+|/\d+", "<id>", repr(value))
-    return (type(value).__qualname__, rendered)
+            return (cls.__qualname__, attribute, candidate)
+    rendered = _STABLE_ID_RE.sub("<id>", repr(value))
+    return (cls.__qualname__, rendered)
 
 
 def _ordered_value_transitions(outputs):
+    items = tuple(outputs)
+    if len(items) <= 1:
+        return items
     return tuple(
         sorted(
-            outputs,
+            items,
             key=lambda transition: (
                 _stable_value_key(transition.fact),
                 _stable_value_key(transition.edge_function),

@@ -219,7 +219,7 @@ class InterproceduralNullnessProblem(
             expr = getattr(operation, "expr", None)
             if isinstance(operation, py_ast.AnnAssign):
                 expr = operation.value
-            targets = assigned_locals(operation)
+            targets = self._assigned_locals(operation)
             self._update_aliases_for_assignment(node.procedure, targets, expr)
 
             direct_fact = self._direct_expression_fact(expr, fact)
@@ -486,23 +486,62 @@ class InterproceduralNullnessProblem(
     def _identity_outputs(self, fact: object, killed: Sequence[object]):
         if fact == ZERO_NULLNESS:
             return (ZERO_NULLNESS,)
-        if isinstance(fact, NullFact) and any(fact.location == target for target in killed):
+        if isinstance(fact, NullFact) and fact.location in killed:
             return ()
         return (fact,)
+
+    def _expr_candidate_facts(
+        self, procedure: cfg_graph.Code, expr: object
+    ) -> tuple[frozenset[object], tuple[object, ...]]:
+        heap = self._heap()
+        self._sync_heap_caches(heap)
+        key = (procedure, id(expr))
+        cached = self._expr_facts_cache.get(key)
+        if cached is not None:
+            return cached
+        collected: list[object] = []
+
+        def visit(current) -> None:
+            if current is None or isinstance(current, py_ast.leafTypes):
+                return
+            if isinstance(current, (list, tuple)):
+                for child in current:
+                    visit(child)
+                return
+            if isinstance(current, py_ast.Code):
+                return
+            collected.extend(self._facts_for_expression_node(procedure, current))
+            current.visitChildren(visit)
+
+        visit(expr)
+        candidates = tuple(dict.fromkeys(collected))
+        entry = (frozenset(candidates), candidates)
+        self._sync_heap_caches(heap)
+        self._expr_facts_cache[key] = entry
+        return entry
 
     def _expr_is_nullable(self, procedure: cfg_graph.Code, expr: object, fact: object) -> bool:
         if fact == ZERO_NULLNESS:
             return self._expr_contains_explicit_null(expr)
-        return self._expression_matches(
-            expr,
-            lambda current: any(
-                self._fact_prefix_matches(fact, candidate)
-                for candidate in self._facts_for_expression_node(procedure, current)
-            ),
-        )
+        candidate_set, candidates = self._expr_candidate_facts(procedure, expr)
+        if not candidates:
+            return False
+        if fact in candidate_set:
+            return True
+        return any(self._fact_prefix_matches(fact, candidate) for candidate in candidates)
 
     def _expr_contains_explicit_null(self, expr: object) -> bool:
-        return self._expression_matches(expr, self._is_explicit_null_expression)
+        cache = getattr(self, "_explicit_null_cache", None)
+        if cache is None:
+            cache = {}
+            self._explicit_null_cache = cache
+        key = id(expr)
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        result = self._expression_matches(expr, self._is_explicit_null_expression)
+        cache[key] = result
+        return result
 
     def _is_explicit_null_expression(self, expr: object) -> bool:
         return isinstance(expr, py_ast.Existing) and getattr(expr.object, "pyobj", object()) is None

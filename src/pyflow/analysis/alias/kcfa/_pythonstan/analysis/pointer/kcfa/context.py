@@ -5,7 +5,7 @@ policies including call-string, object, type, receiver, and hybrid contexts.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple, Optional, Any, TypeVar, Generic, Union, Literal, TYPE_CHECKING
 
 from pyflow.analysis.alias.kcfa._pythonstan.analysis.pointer.kcfa.object import (
@@ -41,10 +41,17 @@ class CallSite:
     statement: IRStatement
     scope_name: Optional[str] = None
     index: int = 0
+    _cached_hash: int = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.statement, IRStatement):
             raise ValueError(f"CallSite.statement must be IRStatement, got {type(self.statement)}")
+        object.__setattr__(
+            self, "_cached_hash", hash((self.statement, self.scope_name, self.index))
+        )
+
+    def __hash__(self) -> int:
+        return self._cached_hash
 
     @property
     def site_id(self) -> str:
@@ -124,6 +131,10 @@ class CallStringContext(AbstractContext["CallSite"]):
 
     call_sites: Tuple[CallSite, ...] = ()
     k: int = 2
+    _cached_hash: int = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", hash((self.call_sites, self.k)))
 
     def to_string(self) -> str:
         if not self.call_sites:
@@ -144,10 +155,14 @@ class CallStringContext(AbstractContext["CallSite"]):
         return len(self.call_sites)
 
     def __hash__(self) -> int:
-        return hash((self.call_sites, self.k))
+        return self._cached_hash
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, CallStringContext):
+        if self is other:
+            return True
+        if type(other) is not CallStringContext:
+            return False
+        if self._cached_hash != other._cached_hash:
             return False
         return self.call_sites == other.call_sites and self.k == other.k
 
@@ -163,6 +178,10 @@ class ObjectContext(AbstractContext[Union["CallSite", "AbstractObject", "AllocSi
 
     alloc_sites: Tuple[Union["CallSite", "AbstractObject", "AllocSite"], ...] = ()
     depth: int = 2
+    _cached_hash: int = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", hash((self.alloc_sites, self.depth)))
 
     def to_string(self) -> str:
         if not self.alloc_sites:
@@ -188,10 +207,14 @@ class ObjectContext(AbstractContext[Union["CallSite", "AbstractObject", "AllocSi
         return ObjectContext(new_sites, self.depth)
 
     def __hash__(self) -> int:
-        return hash((self.alloc_sites, self.depth))
+        return self._cached_hash
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, ObjectContext):
+        if self is other:
+            return True
+        if type(other) is not ObjectContext:
+            return False
+        if self._cached_hash != other._cached_hash:
             return False
         return self.alloc_sites == other.alloc_sites and self.depth == other.depth
 
@@ -207,6 +230,10 @@ class TypeContext(AbstractContext[Union["CallSite", "AbstractObject"]]):
 
     types: Tuple[Union["CallSite", "AbstractObject"], ...] = ()
     depth: int = 2
+    _cached_hash: int = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", hash((self.types, self.depth)))
 
     def to_string(self) -> str:
         if not self.types:
@@ -224,10 +251,14 @@ class TypeContext(AbstractContext[Union["CallSite", "AbstractObject"]]):
         return TypeContext(new_types, self.depth)
 
     def __hash__(self) -> int:
-        return hash((self.types, self.depth))
+        return self._cached_hash
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, TypeContext):
+        if self is other:
+            return True
+        if type(other) is not TypeContext:
+            return False
+        if self._cached_hash != other._cached_hash:
             return False
         return self.types == other.types and self.depth == other.depth
 
@@ -243,6 +274,10 @@ class ReceiverContext(AbstractContext[Union["CallSite", "AllocSite"]]):
 
     receivers: Tuple[Union["CallSite", "AllocSite"], ...] = ()
     depth: int = 2
+    _cached_hash: int = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", hash((self.receivers, self.depth)))
 
     def to_string(self) -> str:
         if not self.receivers:
@@ -261,10 +296,14 @@ class ReceiverContext(AbstractContext[Union["CallSite", "AllocSite"]]):
         return ReceiverContext(new_receivers, self.depth)
 
     def __hash__(self) -> int:
-        return hash((self.receivers, self.depth))
+        return self._cached_hash
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, ReceiverContext):
+        if self is other:
+            return True
+        if type(other) is not ReceiverContext:
+            return False
+        if self._cached_hash != other._cached_hash:
             return False
         return self.receivers == other.receivers and self.depth == other.depth
 
@@ -280,6 +319,10 @@ class ParamContext(AbstractContext[Tuple[Any, ...]]):
 
     params: Tuple[Union[CallSite, Tuple[Any, ...]], ...] = ()
     depth: int = 2
+    _cached_hash: int = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", hash((self.params, self.depth)))
 
     def to_string(self) -> str:
         if not self.params:
@@ -297,10 +340,14 @@ class ParamContext(AbstractContext[Tuple[Any, ...]]):
         return ParamContext(new_params, self.depth)
 
     def __hash__(self) -> int:
-        return hash((self.params, self.depth))
+        return self._cached_hash
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, ParamContext):
+        if self is other:
+            return True
+        if type(other) is not ParamContext:
+            return False
+        if self._cached_hash != other._cached_hash:
             return False
         return self.params == other.params and self.depth == other.depth
 
@@ -320,6 +367,14 @@ class HybridContext(AbstractContext[Tuple["CallSite", Optional["AbstractObject"]
     alloc_sites: Tuple["AbstractObject", ...] = ()
     call_k: int = 1
     obj_depth: int = 1
+    _cached_hash: int = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "_cached_hash",
+            hash((self.call_sites, self.alloc_sites, self.call_k, self.obj_depth)),
+        )
 
     def to_string(self) -> str:
         call_part = (
@@ -362,10 +417,14 @@ class HybridContext(AbstractContext[Tuple["CallSite", Optional["AbstractObject"]
         return HybridContext(new_calls, new_allocs, self.call_k, self.obj_depth)
 
     def __hash__(self) -> int:
-        return hash((self.call_sites, self.alloc_sites, self.call_k, self.obj_depth))
+        return self._cached_hash
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, HybridContext):
+        if self is other:
+            return True
+        if type(other) is not HybridContext:
+            return False
+        if self._cached_hash != other._cached_hash:
             return False
         return (
             self.call_sites == other.call_sites
@@ -380,6 +439,10 @@ class SummaryContext(AbstractContext[Any]):
     """Explicit marker for summary objects produced by widening."""
 
     inner: AbstractContext[Any]
+    _cached_hash: int = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", hash(("summary", self.inner)))
 
     def to_string(self) -> str:
         return f"S[{self.inner.to_string()}]"
@@ -391,10 +454,14 @@ class SummaryContext(AbstractContext[Any]):
         return SummaryContext(self.inner.append(call_site))
 
     def __hash__(self) -> int:
-        return hash(("summary", self.inner))
+        return self._cached_hash
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, SummaryContext):
+        if self is other:
+            return True
+        if type(other) is not SummaryContext:
+            return False
+        if self._cached_hash != other._cached_hash:
             return False
         return self.inner == other.inner
 
@@ -414,9 +481,13 @@ class Ctx(Generic[T]):
     context: "AbstractContext[Any]"
     scope: "Scope"
     content: T
+    _cached_hash: int = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_cached_hash", hash((self.content, self.scope, self.context)))
 
     def __hash__(self) -> int:
-        return hash((self.content, self.scope, self.context))
+        return self._cached_hash
 
     def old__eq__(self, other: Any) -> bool:
         if not isinstance(other, Ctx):
@@ -447,6 +518,7 @@ class Scope:
     context: "AbstractContext"
     _parent: Optional["Scope"]
     _module: Optional["Scope"]
+    _cached_hash: int = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         if not isinstance(self.stmt, IRScope):
@@ -455,12 +527,17 @@ class Scope:
             raise ValueError("Parent is required for non-module scopes")
         if self._module is not None and not isinstance(self._module.stmt, IRModule):
             raise ValueError(f"Module shoud be IRModule, but got {type(self._module.stmt)}!")
+        object.__setattr__(self, "_cached_hash", hash((self.stmt, self.context, self.obj)))
 
     def __hash__(self) -> int:
-        return hash((self.stmt, self.context, self.obj))
+        return self._cached_hash
 
     def __eq__(self, other: "Scope") -> bool:
-        if not isinstance(other, Scope):
+        if self is other:
+            return True
+        if type(other) is not Scope:
+            return False
+        if self._cached_hash != other._cached_hash:
             return False
         return self.stmt == other.stmt and self.context == other.context and self.obj == other.obj
 
