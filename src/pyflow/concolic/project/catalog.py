@@ -80,8 +80,10 @@ def discover_targets(
     files = (project_root,) if project_root.is_file() else tuple(_python_files(project_root))
     targets: list[FunctionTarget] = []
     for path in files:
+        from pyflow.language.source_compat import parse_python_source
+
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            tree = parse_python_source(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError, UnicodeError):
             continue
         module = _module_name(project_root, path)

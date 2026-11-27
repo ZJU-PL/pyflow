@@ -493,8 +493,12 @@ class CFGSupergraphAdapter:
             filename = self._procedure_filename(procedure)
             if filename not in trees:
                 try:
+                    from pyflow.language.source_compat import parse_python_source
+
                     trees[filename] = (
-                        source_ast.parse(read_python_source(filename)) if filename else None
+                        parse_python_source(read_python_source(filename), filename=str(filename))
+                        if filename
+                        else None
                     )
                 except (OSError, UnicodeError, SyntaxError):
                     trees[filename] = None

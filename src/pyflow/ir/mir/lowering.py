@@ -183,7 +183,8 @@ class PythonToMIR:
         entry.finish()
         for module in list(self.modules.values()):
             self.compile_module(module)
-        self.program.validate()
+        self._check_budget()
+        self.program.validate(_trusted_templates=self.runtime._template_validated_cfgs)
         return self.program
 
     def _check_budget(self, node=None):

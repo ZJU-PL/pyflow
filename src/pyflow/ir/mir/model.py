@@ -181,7 +181,9 @@ class Program:
     cfgs: dict[str, CFG]
     entry: str
 
-    def validate(self) -> None:
+    def validate(
+        self, *, _trusted_templates: dict[str, tuple[CFG, tuple[str, ...]]] | None = None
+    ) -> None:
         """Check graph references and the core grammar without requiring an AST.
 
         Unreachable nodes and a structurally unreachable exit are allowed: an
@@ -194,6 +196,15 @@ class Program:
         for name, cfg in cfgs.items():
             if name != cfg.name:
                 raise MIRValidationError(f"CFG key {name!r} does not match {cfg.name!r}")
+            if _trusted_templates is not None:
+                trusted = _trusted_templates.get(name)
+                if trusted is not None and trusted[0] is cfg:
+                    for target_body in trusted[1]:
+                        if target_body not in cfgs:
+                            raise MIRValidationError(
+                                f"CFG {name!r}: Unknown lambda body CFG: {target_body!r}"
+                            )
+                    continue
             nodes = cfg.nodes
             if cfg.entry not in nodes or cfg.exit not in nodes:
                 raise MIRValidationError(f"CFG {name!r} has a missing entry or exit node")

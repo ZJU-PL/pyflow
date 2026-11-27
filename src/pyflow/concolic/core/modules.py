@@ -24,7 +24,9 @@ from .runtime import (
 def _load_module(path: Path, cache: dict[Path, _ModuleValue]) -> _ModuleValue:
     if path in cache:
         return cache[path]
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    from pyflow.language.source_compat import parse_python_source
+
+    tree = parse_python_source(path.read_text(encoding="utf-8"), filename=str(path))
     module = _ModuleValue(path, {}, {}, {}, loading=True)
     cache[path] = module
     for statement in tree.body:

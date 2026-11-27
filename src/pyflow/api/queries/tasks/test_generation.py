@@ -115,9 +115,11 @@ class TestGenerationQueries:
             return None
 
         filename, lineno = location
+        from pyflow.language.source_compat import parse_python_source
+
         try:
             source = Path(filename).read_text(encoding="utf-8")
-            tree = ast.parse(source, filename=filename)
+            tree = parse_python_source(source, filename=filename)
         except (OSError, SyntaxError, ValueError):
             return None
 

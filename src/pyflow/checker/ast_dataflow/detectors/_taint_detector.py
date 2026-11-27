@@ -598,9 +598,11 @@ class ASTDataflowTaintDetector(Detector):
         vararg_names: Dict[str, Optional[str]] = {}
         kwarg_names: Dict[str, Optional[str]] = {}
         diagnostics: List[CheckerDiagnostic] = []
+        from pyflow.language.source_compat import parse_python_source
+
         for fname, src in session.sources_by_name.items():
             try:
-                parsed_tree = ast.parse(textwrap.dedent(src))
+                parsed_tree = parse_python_source(textwrap.dedent(src))
                 function_trees[fname] = parsed_tree
                 param_names[fname] = self._extract_param_names(parsed_tree, fname)
                 vararg, kwarg = self._extract_var_kw_names(parsed_tree, fname)

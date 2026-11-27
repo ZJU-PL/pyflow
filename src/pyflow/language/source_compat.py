@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import ast
+import io
 import re
+import tokenize
 import warnings
 
 _EXCEPT_CLAUSE = re.compile(
     r"^(?P<indent>\s*)except(?P<star>\*?)\s+(?P<rest>[^#\r\n]+?)\s*:(?P<tail>[ \t]*(?:#[^\r\n]*)?)$",
+    re.MULTILINE,
+)
+_LAZY_IMPORT = re.compile(
+    r"^(?P<indent>[ \t]*)lazy[ \t]+(?=(?:import|from)[ \t])",
     re.MULTILINE,
 )
 _IDENT_RE = re.compile(r"^[A-Za-z_]\w*$")
@@ -83,19 +89,28 @@ def _rewrite_except_clause(match: re.Match[str]) -> str:
 
 
 def normalize_legacy_python_syntax(source: str) -> str:
-    """Repair Python 2 ``except E, e:`` and Python 3.14 PEP 758 ``except E1, E2:``."""
-    return _EXCEPT_CLAUSE.sub(_rewrite_except_clause, source)
+    """Repair Python 2 ``except E, e:``, PEP 758 ``except E1, E2:``, and PEP 810 ``lazy import``."""
+    normalized = _EXCEPT_CLAUSE.sub(_rewrite_except_clause, source)
+    return _LAZY_IMPORT.sub(r"\g<indent>", normalized)
 
 
-def parse_python_source(source: str, filename: str = "<unknown>") -> ast.Module:
+def parse_python_source(source: str | bytes, filename: str = "<unknown>") -> ast.Module:
     """Parse Python source with syntax compatibility normalization and quiet warnings."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SyntaxWarning)
         try:
             return ast.parse(source, filename)
         except SyntaxError:
-            normalized = normalize_legacy_python_syntax(source)
-            if normalized == source:
+            if isinstance(source, bytes):
+                try:
+                    encoding, _ = tokenize.detect_encoding(io.BytesIO(source).readline)
+                except (SyntaxError, LookupError):
+                    encoding = "utf-8"
+                text = source.decode(encoding, errors="replace")
+            else:
+                text = source
+            normalized = normalize_legacy_python_syntax(text)
+            if normalized == text:
                 raise
             return ast.parse(normalized, filename)
 

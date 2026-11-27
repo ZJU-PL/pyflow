@@ -9,6 +9,8 @@ from typing import Iterable, Iterator, Mapping
 
 from packaging.utils import canonicalize_name
 
+from pyflow.language.source_compat import parse_python_source
+
 from .input_safety import load_json_file
 from .models import SupplyChainFinding, SupplyChainScan
 
@@ -98,7 +100,7 @@ def analyze_reachability(
         try:
             if source.stat().st_size > max_file_size:
                 continue
-            tree = ast.parse(source.read_bytes(), filename=str(source))
+            tree = parse_python_source(source.read_bytes(), filename=str(source))
         except (OSError, UnicodeError, SyntaxError, ValueError) as exc:
             findings.append(
                 SupplyChainFinding(

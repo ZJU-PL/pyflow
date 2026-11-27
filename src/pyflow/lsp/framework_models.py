@@ -90,7 +90,9 @@ class FrameworkModels:
                 source = self.sources.get(str(path))
                 if source is None:
                     source = read_python_source(path)
-                tree = ast.parse(source, filename=str(path))
+                from pyflow.language.source_compat import parse_python_source
+
+                tree = parse_python_source(source, filename=str(path))
                 imports = {}
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Import):

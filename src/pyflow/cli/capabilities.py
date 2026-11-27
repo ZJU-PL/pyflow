@@ -38,9 +38,11 @@ def import_depth(value: str) -> int:
 
 def _has_relative_import(path: Path) -> bool:
     """Return True when a file uses package-relative imports."""
+    from pyflow.language.source_compat import parse_python_source
+
     try:
         with tokenize.open(path) as handle:
-            tree = ast.parse(handle.read(), filename=str(path))
+            tree = parse_python_source(handle.read(), filename=str(path))
     except (OSError, SyntaxError, UnicodeError):
         return False
     return any(isinstance(node, ast.ImportFrom) and node.level > 0 for node in ast.walk(tree))
@@ -80,8 +82,12 @@ def _project_root_for_file(path: Path) -> Path:
 
 def _absolute_import_roots(path: Path) -> set[str]:
     """Return top-level names of absolute imports in ``path``."""
+    from pyflow.language.source_compat import parse_python_source
+
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        tree = parse_python_source(
+            path.read_text(encoding="utf-8", errors="replace"), filename=str(path)
+        )
     except (OSError, SyntaxError, UnicodeError):
         return set()
     names: set[str] = set()
@@ -96,9 +102,11 @@ def _absolute_import_roots(path: Path) -> set[str]:
 
 def _has_registry_call(path: Path, registry) -> bool:
     """Return True when an AST call matches a capability registry path/name."""
+    from pyflow.language.source_compat import parse_python_source
+
     try:
         with tokenize.open(path) as handle:
-            tree = ast.parse(handle.read(), filename=str(path))
+            tree = parse_python_source(handle.read(), filename=str(path))
     except (OSError, SyntaxError, UnicodeError):
         return False
     names: set[str] = {
@@ -164,9 +172,11 @@ def _has_registry_call(path: Path, registry) -> bool:
 
 def _has_capability_module_import(path: Path, registry) -> bool:
     """Return True when a file imports a top-level capability registry module."""
+    from pyflow.language.source_compat import parse_python_source
+
     try:
         with tokenize.open(path) as handle:
-            tree = ast.parse(handle.read(), filename=str(path))
+            tree = parse_python_source(handle.read(), filename=str(path))
     except (OSError, SyntaxError, UnicodeError):
         return False
     roots = {pattern.access_path.split(".", 1)[0] for pattern in registry.patterns}
@@ -184,9 +194,11 @@ def _has_capability_module_import(path: Path, registry) -> bool:
 
 def _is_safe_reexport_only(path: Path, registry) -> bool:
     """True for modules with no calls and no capability-module imports."""
+    from pyflow.language.source_compat import parse_python_source
+
     try:
         with tokenize.open(path) as handle:
-            tree = ast.parse(handle.read(), filename=str(path))
+            tree = parse_python_source(handle.read(), filename=str(path))
     except (OSError, SyntaxError, UnicodeError):
         return False
     capability_roots = {pattern.access_path.split(".", 1)[0] for pattern in registry.patterns}

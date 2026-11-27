@@ -1377,8 +1377,10 @@ class IRModule(IRScope, IRStatement):
         if content is None:
             with tokenize.open(filename) as f:
                 content = f.read()
-        mod_ast = ast.parse(content, filename)
-        mod = cls(mod_ast, name=name, filename=filename)
+        from pyflow.language.source_compat import parse_python_source
+
+        mod_ast = parse_python_source(content, filename)
+        mod = cls(name, mod_ast, name=name, filename=filename)
         return mod
 
 

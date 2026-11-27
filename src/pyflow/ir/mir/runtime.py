@@ -11,6 +11,7 @@ from .builder import Builder, field
 from .model import (
     Alloc,
     Binary,
+    CFG,
     Delete,
     DictExpr,
     Lambda,
@@ -18,9 +19,112 @@ from .model import (
     ListExpr,
     Literal,
     NewObject,
+    Node,
     Not,
+    Program,
     Var,
 )
+
+_TEMPLATE_SELF = "<$MIR_TEMPLATE_SELF$>"
+
+
+class _HelperTemplate:
+    """Cached structural template for one `(kind, operator)` runtime helper CFG."""
+
+    __slots__ = ("nodes", "self_patches", "sub_requests", "sub_patches")
+
+    def __init__(self, nodes, self_patches, sub_requests, sub_patches):
+        self.nodes = nodes
+        self.self_patches = self_patches
+        self.sub_requests = sub_requests
+        self.sub_patches = sub_patches
+
+
+_HELPER_TEMPLATES: dict[tuple[str, object], _HelperTemplate] = {}
+
+
+def _build_helper_template(runtime_cls, kind: str, operator: object) -> _HelperTemplate:
+    template_program = Program({}, "<template>")
+    sub_requests: list[tuple[str, str, object]] = []
+    sub_placeholders: dict[tuple[str, str, object], str] = {}
+
+    class _TemplateRecorder(runtime_cls):
+        def helper(self, sub_kind, sub_owner, sub_operator=None):
+            if not sub_owner.startswith(_TEMPLATE_SELF):
+                raise RuntimeError(f"Unexpected non-local template helper owner: {sub_owner!r}")
+            suffix = sub_owner[len(_TEMPLATE_SELF) :]
+            req = (sub_kind, suffix, sub_operator)
+            placeholder = sub_placeholders.get(req)
+            if placeholder is None:
+                placeholder = f"<$MIR_TEMPLATE_SUB:{len(sub_requests)}$>"
+                sub_placeholders[req] = placeholder
+                sub_requests.append(req)
+            return placeholder
+
+    recorder = _TemplateRecorder(template_program)
+    b = Builder(template_program, _TEMPLATE_SELF, synthetic=True)
+    recorder.prologue(b)
+    getattr(recorder, "build_" + kind)(b, operator)
+    b.finish()
+
+    # Validate the template CFG once against dummy placeholder targets so
+    # instances cloned during compilation are guaranteed structurally valid.
+    for idx in range(len(sub_requests)):
+        placeholder = f"<$MIR_TEMPLATE_SUB:{idx}$>"
+        template_program.cfgs[placeholder] = CFG(
+            name=placeholder,
+            nodes={
+                0: Node(0, b.cfg.nodes[0].instruction, (1,)),
+                1: Node(1, b.cfg.nodes[1].instruction, ()),
+            },
+            entry=0,
+            exit=1,
+            is_synthetic=True,
+            filename="",
+        )
+    template_program.entry = _TEMPLATE_SELF
+    template_program.validate()
+
+    placeholder_to_idx = {f"<$MIR_TEMPLATE_SUB:{idx}$>": idx for idx in range(len(sub_requests))}
+    self_patches = []
+    sub_patches = []
+    for nid, node in b.cfg.nodes.items():
+        inst = node.instruction
+        if isinstance(inst, Alloc) and isinstance(inst.value, Lambda):
+            lam = inst.value
+            if lam.body == _TEMPLATE_SELF:
+                self_patches.append(
+                    (
+                        nid,
+                        inst.target,
+                        lam.args_param,
+                        lam.kwargs_param,
+                        lam.parent_param,
+                        lam.return_var,
+                        node.successors,
+                        node.lineno,
+                    )
+                )
+            elif lam.body in placeholder_to_idx:
+                sub_patches.append(
+                    (
+                        nid,
+                        placeholder_to_idx[lam.body],
+                        inst.target,
+                        lam.args_param,
+                        lam.kwargs_param,
+                        lam.parent_param,
+                        lam.return_var,
+                        node.successors,
+                        node.lineno,
+                    )
+                )
+    return _HelperTemplate(
+        nodes=b.cfg.nodes,
+        self_patches=tuple(self_patches),
+        sub_requests=tuple(sub_requests),
+        sub_patches=tuple(sub_patches),
+    )
 
 
 class Runtime:
@@ -67,6 +171,7 @@ class Runtime:
         self.program = program
         self.serial = 0
         self.helpers = {}
+        self._template_validated_cfgs = {}
 
     @staticmethod
     def builtin(name):
@@ -164,15 +269,46 @@ class Runtime:
         # One instance per requesting CFG and protocol keeps helper merging
         # from joining unrelated call sites in the context-insensitive solver.
         key = (owner, kind, operator)
-        if key in self.helpers:
-            return self.helpers[key]
+        existing = self.helpers.get(key)
+        if existing is not None:
+            return existing
         self.serial += 1
         name = f"{owner}.$mir_{kind}_{self.serial}"
         self.helpers[key] = name
-        b = Builder(self.program, name, synthetic=True)
-        self.prologue(b)
-        getattr(self, "build_" + kind)(b, operator)
-        b.finish()
+        tmpl_key = (kind, operator)
+        tmpl = _HELPER_TEMPLATES.get(tmpl_key)
+        if tmpl is None:
+            tmpl = _build_helper_template(type(self), kind, operator)
+            _HELPER_TEMPLATES[tmpl_key] = tmpl
+        nodes = dict(tmpl.nodes)
+        cfg = CFG(
+            name=name,
+            nodes=nodes,
+            entry=0,
+            exit=1,
+            is_synthetic=True,
+            filename="",
+        )
+        self.program.cfgs[name] = cfg
+        lambda_targets: list[str] = []
+        if tmpl.self_patches:
+            lambda_targets.append(name)
+            for nid, target, a, k, p, r, succs, lineno in tmpl.self_patches:
+                nodes[nid] = Node(nid, Alloc(target, Lambda(a, k, p, name, r)), succs, lineno)
+        if tmpl.sub_requests:
+            sub_names = [
+                self.helper(sub_kind, name + suffix, sub_op)
+                for sub_kind, suffix, sub_op in tmpl.sub_requests
+            ]
+            lambda_targets.extend(sub_names)
+            for nid, sub_idx, target, a, k, p, r, succs, lineno in tmpl.sub_patches:
+                nodes[nid] = Node(
+                    nid,
+                    Alloc(target, Lambda(a, k, p, sub_names[sub_idx], r)),
+                    succs,
+                    lineno,
+                )
+        self._template_validated_cfgs[name] = (cfg, tuple(lambda_targets))
         return name
 
     def invoke(self, b, kind, args, operator=None, unique=True):

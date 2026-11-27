@@ -812,7 +812,9 @@ def optimize_source(
     if level not in (0, 1, 2):
         raise ValueError("optimization level must be 0, 1, or 2")
 
-    tree = ast.parse(source, filename=filename)
+    from pyflow.language.source_compat import parse_python_source
+
+    tree = parse_python_source(source, filename=filename)
     optimized = tree
     constant_folds = 0
     dead_branches_removed = 0

@@ -141,8 +141,9 @@ def _discover_python_files(input_path: Path, recursive: bool) -> list[Path]:
 
 def _convert_functions(source: str, filename: str) -> dict[str, object]:
     from pyflow.frontend.conversion.ast import ASTConverter
+    from pyflow.language.source_compat import parse_python_source
 
-    tree = ast.parse(source, filename=filename)
+    tree = parse_python_source(source, filename=filename)
     converter = ASTConverter(verbose=False)
     result: dict[str, object] = {}
 
@@ -247,9 +248,16 @@ def _collect_param_names(code) -> list[str]:
 
 
 def _analyze_file_flow_sensitive(filepath: Path, verbose: bool) -> None:
-    source = filepath.read_text()
+    from pyflow.frontend.source import read_python_source
+    from pyflow.language.source_compat import parse_python_source
+
+    source = read_python_source(filepath)
     codes = _convert_functions(source, str(filepath))
-    source_names = {node.id for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Name)}
+    source_names = {
+        node.id
+        for node in ast.walk(parse_python_source(source, filename=str(filepath)))
+        if isinstance(node, ast.Name)
+    }
 
     if not codes:
         print(f"  (no functions found to analyze)")
@@ -449,8 +457,10 @@ def _collect_variable_names(source: str) -> set[str]:
     imported names (``from x import y``), functions, classes, parameters and
     exception variables from the report even though their bindings exist.
     """
+    from pyflow.language.source_compat import parse_python_source
+
     names: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(parse_python_source(source)):
         if isinstance(node, ast.Name):
             names.add(node.id)
         elif isinstance(node, ast.alias):

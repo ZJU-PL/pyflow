@@ -46,8 +46,9 @@ class TypeEvidenceIndex:
 
 def collect_python_type_info(source: str, *, filename: str | None = None) -> TypeEvidenceIndex:
     """Collect source-level type evidence from Python syntax."""
+    from pyflow.language.source_compat import parse_python_source
 
-    tree = py_ast.parse(source, filename=filename or "<unknown>")
+    tree = parse_python_source(source, filename=filename or "<unknown>")
     collector = _PythonTypeCollector()
     collector.visit(tree)
     return collector.result

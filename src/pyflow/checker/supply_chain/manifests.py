@@ -2723,8 +2723,10 @@ def _components_from_setup_py(
     text = _read_text(path, findings, limits, "setup.py")
     if text is None:
         return []
+    from pyflow.language.source_compat import parse_python_source
+
     try:
-        tree = ast.parse(text, filename=str(path))
+        tree = parse_python_source(text, filename=str(path))
     except (SyntaxError, ValueError) as exc:
         findings.append(
             SupplyChainFinding(

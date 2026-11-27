@@ -1052,8 +1052,10 @@ class SourceIndex:
         return self.module_identity.module_name_from_path(path) or Path(path).stem
 
     def _index_file(self, path: str, source: str) -> None:
+        from pyflow.language.source_compat import parse_python_source
+
         try:
-            tree = ast.parse(source, filename=path)
+            tree = parse_python_source(source, filename=path)
         except (SyntaxError, RecursionError):
             return
         module = self._module_name(path)
@@ -1553,8 +1555,10 @@ class SourceIndex:
         }
         text = self.text_for_uri(uri) or ""
         lines = text.splitlines()
+        from pyflow.language.source_compat import parse_python_source
+
         try:
-            tree = ast.parse(text)
+            tree = parse_python_source(text)
         except (SyntaxError, RecursionError):
             tree = None
         for node in ast.walk(tree) if tree is not None else ():
@@ -1687,11 +1691,13 @@ class SourceIndex:
         return repr(new_name) if source_range in self._string_literal_ranges else new_name
 
     def diagnostics_for_uri(self, uri: str) -> list[dict[str, object]]:
+        from pyflow.language.source_compat import parse_python_source
+
         text = self.text_for_uri(uri)
         if text is None:
             return []
         try:
-            ast.parse(text, filename=uri_to_path(uri))
+            parse_python_source(text, filename=uri_to_path(uri))
         except (SyntaxError, RecursionError) as error:
             line = max((getattr(error, "lineno", 1) or 1) - 1, 0)
             character = max((getattr(error, "offset", 1) or 1) - 1, 0)

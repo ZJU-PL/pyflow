@@ -65,9 +65,14 @@ class Builder:
         return index
 
     def connect(self, sources: Iterable[int], target: int):
+        nodes = self.cfg.nodes
         for source in sources:
-            node = self.cfg.nodes[source]
-            node.successors = tuple(dict.fromkeys((*node.successors, target)))
+            node = nodes[source]
+            succs = node.successors
+            if not succs:
+                node.successors = (target,)
+            elif target not in succs:
+                node.successors = (*succs, target)
 
     def emit(self, instruction):
         node = self.node(instruction)

@@ -434,7 +434,9 @@ class SecurityNodeVisitor:
         Returns:
             Dictionary with "SEVERITY" and "CONFIDENCE" score arrays
         """
-        f_ast = ast.parse(data)
+        from pyflow.language.source_compat import parse_python_source
+
+        f_ast = parse_python_source(data, filename=self.fname or "<unknown>")
         self.generic_visit(f_ast)
         # Run file-level tests after traversal
         self.context = {

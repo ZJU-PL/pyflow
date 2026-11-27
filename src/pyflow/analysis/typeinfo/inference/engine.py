@@ -65,6 +65,7 @@ from pyflow.analysis.typeinfo.inference.models import (
     SourceSpan,
 )
 from pyflow.language.modules.project_resolution import ProjectContext
+from pyflow.language.source_compat import parse_python_source
 
 ExternalSymbolResolver = Callable[[str], ProperType | None]
 MethodKindResolver = Callable[[str], str | None]
@@ -74,7 +75,7 @@ DeclaredReturnResolver = Callable[[str], bool | None]
 @functools.lru_cache(maxsize=256)
 def _cached_parse(source: str, filename: str) -> ast.Module:
     """Parse a module once per process; inference never mutates the tree."""
-    return ast.parse(source, filename=filename)
+    return parse_python_source(source, filename=filename)
 
 
 @dataclass(frozen=True)

@@ -63,7 +63,9 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
 
 @lru_cache(maxsize=256)
 def _source_scopes(path: str, modified: int):
-    tree = ast.parse(read_python_source(path))
+    from pyflow.language.source_compat import parse_python_source
+
+    tree = parse_python_source(read_python_source(path), filename=path)
     scopes = []
 
     def visit(node, parents=()):

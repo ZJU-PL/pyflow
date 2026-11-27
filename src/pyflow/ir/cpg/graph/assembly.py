@@ -475,9 +475,10 @@ class _GraphAssemblyMixin:
                 continue
             try:
                 import ast as _ast
+                from pyflow.language.source_compat import parse_python_source
 
                 with open(path, "r", encoding="utf-8", errors="replace") as source_file:
-                    module_ast = _ast.parse(source_file.read(), filename=path)
+                    module_ast = parse_python_source(source_file.read(), filename=path)
             except (OSError, SyntaxError, ValueError):
                 import_cache[path] = (set(), set())
                 continue

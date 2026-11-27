@@ -11,6 +11,7 @@ from typing import Dict, Set, List, Tuple, Any
 from collections import defaultdict
 
 from .callgraph import CallGraph
+from pyflow.language.source_compat import parse_python_source
 
 
 def extract_call_graph(source_code: str, module_name: str = "main") -> CallGraph:
@@ -23,7 +24,7 @@ def extract_call_graph(source_code: str, module_name: str = "main") -> CallGraph
     graph = CallGraph()
     graph.add_node(module_name)
     try:
-        tree = ast.parse(source_code)
+        tree = parse_python_source(source_code)
     except SyntaxError:
         return graph
 

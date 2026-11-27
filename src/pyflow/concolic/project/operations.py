@@ -106,8 +106,10 @@ def discover_operations(root: str | Path) -> OperationCatalog:
     counts: Counter[tuple[str, OperationSupport]] = Counter()
     locations: dict[tuple[str, OperationSupport], set[str]] = defaultdict(set)
     for path in files:
+        from pyflow.language.source_compat import parse_python_source
+
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            tree = parse_python_source(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError, UnicodeError):
             continue
         aliases = _import_aliases(tree)
