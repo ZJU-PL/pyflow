@@ -19,7 +19,10 @@ from .source_candidates import record_source_candidate
 from pyflow.ir.core import (
     AnalysisFacts,
     Capabilities,
+    ContextualKey,
+    FactResult,
     MissingAnalysisFact,
+    Precision,
     build_semantics,
     index_code,
 )
@@ -195,6 +198,19 @@ class FoldRewrite(TypeDispatcher):
             self.fact_replacements[source] = replacement
         return replacement
 
+    def snapshotFactState(self):
+        return (
+            dict(self.fact_sources),
+            dict(self.fact_replacements),
+            set(self.created),
+        )
+
+    def restoreFactState(self, state):
+        fact_sources, fact_replacements, created = state
+        self.fact_sources = dict(fact_sources)
+        self.fact_replacements = dict(fact_replacements)
+        self.created = set(created)
+
     def factNode(self, node):
         return self.fact_sources.get(node, node)
 
@@ -231,6 +247,48 @@ class FoldRewrite(TypeDispatcher):
         build_semantics(catalog, codes=(procedure.code_id,))
         if self.fact_replacements:
             catalog.commit_revision(preserved_capabilities=catalog.facts.capabilities())
+        self._backfillExistingReferenceFacts(catalog)
+
+    def _backfillExistingReferenceFacts(self, catalog):
+        if not (
+            catalog.facts.has(Capabilities.REFERENCES) and catalog.facts.has(Capabilities.CONTEXTS)
+        ):
+            return
+        facts = AnalysisFacts(catalog)
+        try:
+            contexts = facts.contexts(self.code)
+        except MissingAnalysisFact:
+            return
+        if not contexts:
+            return
+        _ops, lcls = tools.codeOpsLocals(self.code)
+        updates = {}
+        for lcl in lcls:
+            if not isinstance(lcl, ast.Existing):
+                continue
+            if not catalog.has_node(lcl, self.code):
+                continue
+            node_id = catalog.node_id(lcl, self.code)
+            source = self.fact_sources.get(lcl)
+            for context in contexts:
+                context_id = catalog.context_id(self.code, context)
+                key = ContextualKey(node_id, context_id)
+                if catalog.facts.query(Capabilities.REFERENCES, key).precision != Precision.UNKNOWN:
+                    continue
+                values = None
+                if isinstance(source, ast.Local):
+                    try:
+                        values = facts.references(self.code, source, context)
+                    except MissingAnalysisFact:
+                        values = None
+                if values is None:
+                    if self.storeGraph is not None:
+                        values = frozenset((self.storeGraphForExistingObject(lcl.object),))
+                    else:
+                        values = frozenset()
+                updates[key] = FactResult.exact(values, "fold")
+        if updates:
+            catalog.facts.merge_producer(Capabilities.REFERENCES, "fold", updates)
 
     def getExistingNames(self, ref):
         if isinstance(ref, ast.Local):
@@ -396,6 +454,7 @@ class FoldRewrite(TypeDispatcher):
     def localToExisting(self, lcl, obj):
         node = ast.Existing(obj)
         node.annotation = lcl.annotation
+        self.recordFactSource(lcl, node)
         return node
 
     def existingFromNode(self, cobj):
@@ -445,7 +504,9 @@ class FoldRewrite(TypeDispatcher):
                     return const
                 elif const is not top:
                     # Reach for the constant definition
-                    return self.existingFromObj(const)
+                    existing = self.existingFromObj(const)
+                    self.recordFactSource(node, existing)
+                    return existing
 
         return node
 
@@ -459,12 +520,16 @@ class FoldRewrite(TypeDispatcher):
         if self.descriptive():
             return node
         result = self.annotateFolded(fold.foldBinaryOpAST(self.extractor, node))
+        if result is not node:
+            self.recordFactSource(node, result)
         self.logCreated(result)
         return result
 
     @dispatch(ast.Is)
     def visitIs(self, node):
         result = self.annotateFolded(fold.foldIsAST(self.extractor, node))
+        if result is not node:
+            self.recordFactSource(node, result)
         self.logCreated(result)
         return result
 
@@ -473,6 +538,8 @@ class FoldRewrite(TypeDispatcher):
         if self.descriptive():
             return node
         result = self.annotateFolded(fold.foldUnaryPrefixOpAST(self.extractor, node))
+        if result is not node:
+            self.recordFactSource(node, result)
         self.logCreated(result)
         return result
 
@@ -484,6 +551,8 @@ class FoldRewrite(TypeDispatcher):
         if self.descriptive():
             return node
         result = self.annotateFolded(fold.foldBoolAST(self.extractor, node))
+        if result is not node:
+            self.recordFactSource(node, result)
         self.logCreated(result)
         return result
 
@@ -492,6 +561,8 @@ class FoldRewrite(TypeDispatcher):
         if self.descriptive():
             return node
         result = self.annotateFolded(fold.foldNotAST(self.extractor, node))
+        if result is not node:
+            self.recordFactSource(node, result)
         self.logCreated(result)
         return result
 
@@ -500,6 +571,7 @@ class FoldRewrite(TypeDispatcher):
             return node
         result = self.callRewrite(self, node)
         if result is not None:
+            self.recordFactSource(node, result)
             self.logCreated(result)
             return self(result)
         return node
@@ -522,6 +594,7 @@ class FoldRewrite(TypeDispatcher):
                 )
                 copy_call_argument_metadata(node, result)
                 result.annotation = node.annotation
+                self.recordFactSource(node, result)
                 return result
         return node
 
@@ -539,6 +612,7 @@ class FoldRewrite(TypeDispatcher):
                 fold.foldCallAST(self.extractor, node, foldFunc, node.args)
             )
             if result is not node:
+                self.recordFactSource(node, result)
                 self.logCreated(result)
                 return result
 
@@ -626,6 +700,17 @@ class FoldTraverse(TypeDispatcher):
         recorder = getattr(self.strategy, "recordFactSource", None)
         if recorder is not None:
             recorder(original, replacement)
+
+    def snapshotFactState(self):
+        snapshot = getattr(self.strategy, "snapshotFactState", None)
+        return snapshot() if snapshot is not None else None
+
+    def restoreFactState(self, state):
+        if state is None:
+            return
+        restore = getattr(self.strategy, "restoreFactState", None)
+        if restore is not None:
+            restore(state)
 
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):

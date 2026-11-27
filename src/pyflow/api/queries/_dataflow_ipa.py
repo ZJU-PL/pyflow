@@ -13,7 +13,13 @@ class IpaAnalyzer:
     def get_function_summaries(
         self, context, function: Optional[Union[str, object]] = None
     ) -> List[IpaFunctionSummary]:
-        from pyflow.ir.core import AnalysisFacts
+        from pyflow.ir.core import AnalysisFacts, Capabilities, MissingAnalysisFact
+
+        catalog = context.program.ir
+        if catalog is None or not catalog.facts.has(Capabilities.IPA_SUMMARIES):
+            raise MissingAnalysisFact(
+                f"{Capabilities.IPA_SUMMARIES}: missing {Capabilities.IPA_SUMMARIES}"
+            )
 
         codes = (
             (context.resolve_function(function),)
@@ -21,9 +27,15 @@ class IpaAnalyzer:
             else tuple(context.program.liveCode)
         )
         summaries: List[IpaFunctionSummary] = []
-        facts = AnalysisFacts(context.program.ir)
-        for code in sorted(codes, key=lambda item: str(context.program.ir.procedure(item).code_id)):
-            for summary in sorted(facts.ipa_summaries(code), key=lambda item: item.context):
+        facts = AnalysisFacts(catalog)
+        for code in sorted(codes, key=lambda item: str(catalog.procedure(item).code_id)):
+            try:
+                code_summaries = facts.ipa_summaries(code)
+            except MissingAnalysisFact:
+                if function is not None:
+                    raise
+                continue
+            for summary in sorted(code_summaries, key=lambda item: item.context):
                 summaries.append(
                     IpaFunctionSummary(
                         name=context.code_name(code),

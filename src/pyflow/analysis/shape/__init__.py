@@ -382,7 +382,8 @@ class RegionBasedShapeAnalysis(object):
         for obj, count in maxObjRefs.items():
             print(obj, count)
 
-            print(obj, count, fieldShares[obj])
+        for field, count in maxFieldRefs.items():
+            print(field, count, fieldShares.get(field, False))
 
     def dumpStatistics(self):
         print("Entries:", len(self.environment._secondary))
@@ -429,10 +430,19 @@ def evaluate(compiler):
         rbsa.buildStructures(interface.entryCode())
 
         for ep in interface.entryPoint:
+            selfarg_obj = (
+                ep.selfarg.getObject(compiler.extractor)
+                if hasattr(ep.selfarg, "getObject")
+                else None
+            )
+            arg_objs = [
+                arg.getObject(compiler.extractor) if hasattr(arg, "getObject") else None
+                for arg in ep.args
+            ]
             rbsa.addEntryPoint(
                 ep.code,
-                ep.selfarg.getObject(compiler.extractor),
-                [arg.getObject(compiler.extractor) for arg in ep.args],
+                selfarg_obj,
+                arg_objs,
             )
 
         rbsa.handleAllocations()
@@ -440,7 +450,7 @@ def evaluate(compiler):
         rbsa.dumpStatistics()
 
         lut = collections.defaultdict(set)
-        for point, context, index in sorted(rbsa.environment._secondary.keys()):
+        for point, context, index in sorted(rbsa.environment._secondary.keys(), key=repr):
             # if index.currentSet.containsParameter(): continue
             if index.object in rbsa.aborted:
                 continue
@@ -449,19 +459,20 @@ def evaluate(compiler):
         for obj, indexes in lut.items():
             print(obj)
             prevCode = None
-            for code, rc in sorted(indexes):
+            for code, rc in sorted(indexes, key=repr):
                 if rc and not rc.containsParameter():
                     if prevCode != code:
                         print("\t", code)
                         prevCode = code
 
                     print("\t\t", rc)
-            print(print)
+            print()
         print("ABORTED")
         for obj in rbsa.aborted:
             print("\t", obj)
 
-        rbsa.summarize()
+        if hasattr(rbsa, "summarize"):
+            rbsa.summarize()
 
         rbsa.dumpStatistics()
         return rbsa

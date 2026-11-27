@@ -33,6 +33,9 @@ def _supports_inline_default_value(default_expr):
     return isinstance(default_expr, ast.Existing) or pyobj is MISSING_DEFAULT
 
 
+_EXPRESSION_CONTEXT = object()
+
+
 class CodeInliningAnalysis(TypeDispatcher):
     """Determines the technical feasibility of inlining functions.
 
@@ -45,12 +48,48 @@ class CodeInliningAnalysis(TypeDispatcher):
         self.canInline = {}
         self.invokeCount = {}
         self.numOps = {}
+        self.returnArity = {}
 
-    @dispatch(ast.leafTypes, ast.Local, ast.Existing, ast.Code)
+    @dispatch(
+        ast.leafTypes,
+        ast.Local,
+        ast.Existing,
+        ast.Code,
+        ast.DoNotCare,
+        ast.Break,
+        ast.Continue,
+        ast.CodeParameters,
+        ast.GlobalDecl,
+        ast.NonlocalDecl,
+        ast.TypeParam,
+        ast.TypeParams,
+        ast.TypeAlias,
+    )
     def visitLeaf(self, node):
         pass
 
-    @dispatch(ast.Suite, list, ast.Condition, ast.Assign, ast.Discard, ast.TypeSwitchCase)
+    @dispatch(list, tuple)
+    def visitSequence(self, node):
+        for item in node:
+            self(item)
+
+    @dispatch(
+        ast.Suite,
+        ast.Condition,
+        ast.Assign,
+        ast.Discard,
+        ast.TypeSwitchCase,
+        ast.ExceptionHandler,
+        ast.InputBlock,
+        ast.OutputBlock,
+        ast.Input,
+        ast.Output,
+        ast.AnnAssign,
+        ast.Delete,
+        ast.Assert,
+        ast.Print,
+        ast.EndFinally,
+    )
     def visitOK(self, node):
         node.visitChildren(self)
 
@@ -64,6 +103,7 @@ class CodeInliningAnalysis(TypeDispatcher):
         ast.Check,
     )
     def visitOp(self, node):
+        node.visitChildren(self)
         self.ops += 1
 
         invokes = self.facts.merged_call_targets(self.code, node)
@@ -83,12 +123,19 @@ class CodeInliningAnalysis(TypeDispatcher):
 
     @dispatch(ast.Return)
     def visitReturn(self, node):
+        node.visitChildren(self)
+        arity = len(node.exprs)
+        if self._return_arity is None:
+            self._return_arity = arity
+        elif self._return_arity != arity:
+            self.inlinable = False
+
         if self.terminal:
             # Return after return
             self.inlinable = False
         elif self.level > 0:
             # No returns from inside loops/trys/etc.
-            # The would require manually unwinding the stack if inlined.
+            # They would require manually unwinding the stack if inlined.
             self.inlinable = False
 
         # No more ops after return
@@ -127,16 +174,55 @@ class CodeInliningAnalysis(TypeDispatcher):
         self(node.conditional)
         self.processSwitch(node.cases)
 
-    @dispatch(ast.For, ast.While)
+    @dispatch(ast.For, ast.AsyncFor, ast.While)
     def visitControlFlow(self, node):
         self.level += 1
         node.visitChildren(self)
         self.level -= 1
 
+    @dispatch(ast.TryExceptFinally, ast.TryStar)
+    def visitTry(self, node):
+        # Exception handling in inlined callees is not supported; still traverse
+        # children so invoke counts and op counts remain accurate.
+        self.inlinable = False
+        self.level += 1
+        node.visitChildren(self)
+        self.level -= 1
+
+    @dispatch(
+        ast.Yield,
+        ast.YieldFrom,
+        ast.AsyncYield,
+        ast.Await,
+        ast.Raise,
+        ast.MakeFunction,
+        ast.FunctionDef,
+        ast.ClassDef,
+        ast.GetCell,
+        ast.GetCellDeref,
+        ast.SetCellDeref,
+        ast.Cell,
+    )
+    def visitUnsupportedForInlining(self, node):
+        self.inlinable = False
+        node.visitChildren(self)
+
+    @defaultdispatch
+    def visitOther(self, node):
+        if isinstance(node, ast.PythonASTNode):
+            node.visitChildren(self)
+            if isinstance(node, (ast.Expression, ast.SimpleStatement)):
+                self.ops += 1
+                if self.terminal:
+                    self.inlinable = False
+            return
+        return None
+
     def process(self, node):
         self.code = node
         self.level = 0
         self.ops = 0
+        self._return_arity = None
 
         # Terminal indicates
         self.terminal = False
@@ -150,11 +236,12 @@ class CodeInliningAnalysis(TypeDispatcher):
             and not node.annotation.descriptive
         )
 
-        if self.inlinable:
+        if node.isStandardCode():
             self(node.ast)
 
         self.canInline[node] = self.inlinable
         self.numOps[node] = self.ops
+        self.returnArity[node] = self._return_arity if self.terminal else None
 
 
 class OpInliningTransform(TypeDispatcher):
@@ -187,6 +274,19 @@ class OpInliningTransform(TypeDispatcher):
         if not isinstance(replacement, ast.PythonASTNode):
             return
         assert original is not replacement, original
+        if (
+            self.dst is None
+            or self.originalNode is None
+            or self.source_code is None
+            or self.catalog is None
+        ):
+            return
+        if hasattr(self.catalog, "has_node"):
+            if not (
+                self.catalog.has_node(self.originalNode, self.dst)
+                and self.catalog.has_node(original, self.source_code)
+            ):
+                return
         call_id = self.catalog.node_id(self.originalNode, self.dst)
         source_id = self.catalog.node_id(original, self.source_code)
         self.provenance_seeds.append(
@@ -205,6 +305,17 @@ class OpInliningTransform(TypeDispatcher):
     @dispatch(ast.leafTypes)
     def visitLeaf(self, node):
         return node
+
+    @dispatch(list, tuple)
+    def visitContainer(self, node):
+        items = []
+        for child in node:
+            rewritten = self(child)
+            if isinstance(node, list) and isinstance(rewritten, list):
+                items.extend(rewritten)
+            else:
+                items.append(rewritten)
+        return tuple(items) if isinstance(node, tuple) else items
 
     @defaultdispatch
     def default(self, node):
@@ -319,19 +430,42 @@ class CodeInliningTransform(TypeDispatcher):
     # May contain inlinable nodes
     @dispatch(
         ast.Suite,
-        list,
         ast.Condition,
         ast.Switch,
         ast.For,
+        ast.AsyncFor,
         ast.While,
         ast.TypeSwitch,
         ast.TypeSwitchCase,
+        ast.TryExceptFinally,
+        ast.TryStar,
+        ast.ExceptionHandler,
     )
-    def visitOK(self, node):
-        return node.rewriteChildren(self)
+    def visitOK(self, node, returnargs=_EXPRESSION_CONTEXT):
+        before = self.modified
+        rewritten = node.rewriteChildren(self)
+        return rewritten if self.modified != before else node
+
+    @dispatch(list, tuple)
+    def visitContainer(self, node, returnargs=_EXPRESSION_CONTEXT):
+        items = []
+        changed = False
+        for child in node:
+            rewritten = self(child)
+            if isinstance(node, list) and isinstance(rewritten, list):
+                items.extend(rewritten)
+                changed = True
+            else:
+                if rewritten is not child:
+                    changed = True
+                items.append(rewritten)
+        if not changed:
+            return node
+        return tuple(items) if isinstance(node, tuple) else items
 
     # Contains no inlinable nodes
     @dispatch(
+        ast.leafTypes,
         ast.Load,
         ast.Store,
         ast.Check,
@@ -339,50 +473,75 @@ class CodeInliningTransform(TypeDispatcher):
         ast.Local,
         ast.Existing,
         ast.Code,
-        ast.Return,
-        ast.BinaryOp,
-        type(None),
-        str,
-        int,
+        ast.DoNotCare,
+        ast.Break,
+        ast.Continue,
+        ast.CodeParameters,
+        ast.GlobalDecl,
+        ast.NonlocalDecl,
+        ast.TypeParam,
+        ast.TypeParams,
+        ast.TypeAlias,
     )
-    def visitInlineLeaf(self, node, returnargs=None):
+    def visitInlineLeaf(self, node, returnargs=_EXPRESSION_CONTEXT):
+        return node
+
+    @defaultdispatch
+    def visitOther(self, node, returnargs=_EXPRESSION_CONTEXT):
+        if isinstance(node, ast.PythonASTNode):
+            node.visitChildren(self)
         return node
 
     @dispatch(ast.Assign)
-    def visitAssign(self, node):
+    def visitAssign(self, node, returnargs=_EXPRESSION_CONTEXT):
         result = self(node.expr, node.lcls)
         return result if isinstance(result, list) else node
 
     @dispatch(ast.Discard)
-    def visitDiscard(self, node):
+    def visitDiscard(self, node, returnargs=_EXPRESSION_CONTEXT):
         result = self(node.expr, None)
         return result if isinstance(result, list) else node
 
     @dispatch(ast.DirectCall)
-    def visitDirectCall(self, node, returnargs=None):
+    def visitDirectCall(self, node, returnargs=_EXPRESSION_CONTEXT):
         self.processInvocations(node)
 
-        if not node.kargs and not node.vargs and not node.kwds:
-            return self.tryInline(node, node.selfarg, node.args, returnargs)
-        else:
-            return None
+        if (
+            returnargs is not _EXPRESSION_CONTEXT
+            and not node.kargs
+            and not node.vargs
+            and not node.kwds
+        ):
+            inlined = self.tryInline(node, node.selfarg, node.args, returnargs)
+            if inlined is not None:
+                return inlined
+        node.visitChildren(self)
+        return node
 
     @dispatch(ast.Call)
-    def visitCall(self, node, returnargs=None):
+    def visitCall(self, node, returnargs=_EXPRESSION_CONTEXT):
         self.processInvocations(node)
 
-        if not node.kargs and not node.vargs and not node.kwds:
-            return self.tryInline(node, node.expr, node.args, returnargs)
-        else:
-            return None
+        if (
+            returnargs is not _EXPRESSION_CONTEXT
+            and not node.kargs
+            and not node.vargs
+            and not node.kwds
+        ):
+            inlined = self.tryInline(node, node.expr, node.args, returnargs)
+            if inlined is not None:
+                return inlined
+        node.visitChildren(self)
+        return node
 
     @dispatch(ast.MethodCall)
-    def visitMethodCall(self, node, returnargs=None):
+    def visitMethodCall(self, node, returnargs=_EXPRESSION_CONTEXT):
         self.processInvocations(node)
 
         # TODO inline method calls?  This may require a bit of effort,
         # primarily in finding the correct value(s) for selfarg...
-        return None
+        node.visitChildren(self)
+        return node
 
     def tryInline(self, node, selfarg, args, returnargs):
         # Don't inline anything into descriptive stubs
@@ -402,7 +561,7 @@ class CodeInliningTransform(TypeDispatcher):
                 # Must only invoke one code
                 if allCode is None:
                     # It must be possible to inline the code
-                    if not self.analysis.canInline[code]:
+                    if not self.analysis.canInline.get(code, False):
                         return None
                     allCode = code
                 elif allCode != code:
@@ -416,13 +575,11 @@ class CodeInliningTransform(TypeDispatcher):
                 for code, _context in invs:
                     if allCode is None:
                         # It must be possible to inline the code
-                        if not self.analysis.canInline[code]:
+                        if not self.analysis.canInline.get(code, False):
                             return None
                         allCode = code
                     elif allCode != code:
                         return None
-
-                map.append(multi)
 
         # No invocation
         if allCode is None:
@@ -433,39 +590,44 @@ class CodeInliningTransform(TypeDispatcher):
             return None
 
         # Only one calling point, or it's a small function
-        tooManyInvokes = self.analysis.invokeCount[allCode] > self.maxInvokes
-        tooManyOps = self.analysis.numOps[allCode] > self.maxOps
+        tooManyInvokes = self.analysis.invokeCount.get(allCode, 0) > self.maxInvokes
+        tooManyOps = self.analysis.numOps.get(allCode, 0) > self.maxOps
 
         if not self.exhaustive and tooManyInvokes and tooManyOps:
             return None
 
-        positional_params = list(allCode.codeparameters.posonlyparams) + list(
-            allCode.codeparameters.params
-        )
-        if len(args) < len(positional_params) and allCode.codeparameters.defaults:
-            default_offset = len(positional_params) - len(allCode.codeparameters.defaults)
+        p = allCode.codeparameters
+        if isinstance(p.selfparam, ast.Local) and selfarg is None:
+            return None
+
+        positional_params = list(p.posonlyparams) + list(p.params)
+        if len(args) > len(positional_params):
+            return None
+        num_defaults = len(p.defaults) if p.defaults else 0
+        if len(args) < len(positional_params) - num_defaults:
+            return None
+        if len(args) < len(positional_params) and p.defaults:
+            default_offset = len(positional_params) - len(p.defaults)
             start = max(len(args), default_offset)
             for index in range(start, len(positional_params)):
-                default_expr = allCode.codeparameters.defaults[index - default_offset]
+                default_expr = p.defaults[index - default_offset]
                 if not _supports_inline_default_value(default_expr):
                     return None
+
+        if returnargs is not None:
+            expected_arity = self.analysis.returnArity.get(allCode)
+            if expected_arity is None or expected_arity != len(returnargs):
+                return None
 
         # Prevent the inlining of potential intrinsics.
         if self.intrinsics(None, node) is not None:
             return None
 
-        # Bug #12 fix: the original code modified numOps *before* calling
-        # opinline.process().  If process() raised an exception the op counts
-        # were permanently corrupted, causing subsequent inlining decisions to
-        # be based on wrong sizes.  We now perform the actual inlining first
-        # and only update the counts if it succeeds.
         result = self.opinline.process(self.code, node, allCode, selfarg, args, returnargs)
 
-        # Inlining succeeded — update op counts.
-        # Eliminate the call (-1) and add the inlined body's ops.
-        # This is approximate: post-inlining simplification may reduce the count.
-        self.analysis.numOps[self.code] -= 1
-        self.analysis.numOps[self.code] += self.analysis.numOps[allCode]
+        self.analysis.numOps[self.code] = (
+            self.analysis.numOps.get(self.code, 0) - 1 + self.analysis.numOps.get(allCode, 0)
+        )
 
         self.modified = True
 
@@ -494,9 +656,6 @@ class CodeInliningTransform(TypeDispatcher):
                 result = self(node.ast)
                 if self.modified:
                     node.ast = result
-                    # Always done immediately after inlining, so if we inline
-                    # this function, less needs to be processed.
-                    simplify.evaluateCode(self.compiler, self.prgm, node)
                     self.changed = True
             else:
                 ops, lcls = getOps(node)
@@ -505,33 +664,6 @@ class CodeInliningTransform(TypeDispatcher):
 
             self.code = None
             self.trace.remove(node)
-
-
-# translator.intrinsics removed - no longer needed
-
-
-def evaluate(compiler, prgm):
-    """
-    Main entry point for code inlining optimization.
-
-    Performs function inlining by replacing function calls with the
-    function body at the call site. The optimization:
-    1. Analyzes functions to determine inlinability
-    2. Checks constraints (no returns in loops, no *args, etc.)
-    3. Inlines small, frequently-called functions
-    4. Processes in reverse postorder to handle dependencies
-
-    This is a whole-program optimization that requires call graph
-    information to determine which functions can be inlined.
-
-    Args:
-        compiler: Compiler instance
-        prgm: Program to optimize
-
-    Note:
-        Currently disabled in the optimization pipeline due to
-        limitations with complex calling conventions.
-    """
 
 
 def evaluate(compiler, prgm):

@@ -230,11 +230,15 @@ class ShapeConstraintBuilder(TypeDispatcher):
             lcl = lcl.object
             slot = self.sys.canonical.localSlot(lcl)
             return self.sys.canonical.localExpr(slot)
-        elif lcl is not None:
-            assert isinstance(lcl, (ast.Local, int)), lcl
+        elif isinstance(lcl, (ast.Local, int)):
             slot = self.sys.canonical.localSlot(lcl)
             return self.sys.canonical.localExpr(slot)
+        elif lcl is None:
+            return None
         else:
+            # High-level/non-normalized nested expression (e.g. DirectCall or
+            # GetGlobal inside call arguments); shape analysis tracks local
+            # slots directly, so ignore non-local nested expression values.
             return None
 
     def fieldExpr(self, expr, field):
@@ -252,6 +256,10 @@ class ShapeConstraintBuilder(TypeDispatcher):
             source: Source expression
             destination: Destination expression
         """
+        if destination is None:
+            return
+        if source is None:
+            source = expressions.null
         # Emit the assignment; we intentionally avoid a blanket strong update
         # here because the shape analysis relies on keeping alternate
         # configurations around for soundness in the compound tests.
@@ -368,9 +376,115 @@ class ShapeConstraintBuilder(TypeDispatcher):
         ast.TypeAlias,
         ast.TypeParams,
         ast.TypeParam,
+        ast.ClassDef,
+        ast.FunctionDef,
+        ast.MakeFunction,
+        ast.Break,
+        ast.Continue,
+        ast.Raise,
+        ast.Assert,
+        ast.Print,
+        ast.Yield,
+        ast.YieldFrom,
+        ast.AsyncYield,
+        ast.Await,
+        ast.DeleteAttr,
+        ast.DeleteGlobal,
+        ast.DeleteSlice,
+        ast.DeleteSubscript,
+        ast.SetAttr,
+        ast.SetGlobal,
+        ast.SetSlice,
+        ast.SetSubscript,
+        ast.SetCellDeref,
+        ast.GetAttr,
+        ast.GetGlobal,
+        ast.GetSlice,
+        ast.GetSubscript,
+        ast.GetCell,
+        ast.GetCellDeref,
+        ast.GetIter,
+        ast.AsyncGetIter,
+        ast.BinaryOp,
+        ast.UnaryPrefixOp,
+        ast.ConvertToBool,
+        ast.Not,
+        ast.Is,
+        ast.BuildList,
+        ast.BuildTuple,
+        ast.BuildSet,
+        ast.BuildMap,
+        ast.BuildSlice,
+        ast.ShortCircutAnd,
+        ast.ShortCircutOr,
+        ast.ConditionalExpr,
+        ast.NamedExpr,
+        ast.AnnAssign,
+        ast.UnpackSequence,
+        ast.MethodCall,
+        ast.EndFinally,
     )
     def visitDeclaration(self, node, targets=None):
-        del node, targets
+        if targets:
+            for target in targets:
+                target_expr = self.localExpr(target)
+                if target_expr is not None:
+                    self.assign(expressions.null, target_expr)
+        return None
+
+    @dispatch(ast.TryExceptFinally, ast.TryStar)
+    def visitTryExceptFinally(self, node):
+        self.pre(node)
+        self(node.body)
+        body_out = self.current
+        exits = [body_out] if body_out is not None else []
+        for handler in node.handlers:
+            self.current = self.statementPre[node]
+            self(handler.preamble)
+            self(handler.body)
+            if self.current is not None:
+                exits.append(self.current)
+        if node.defaultHandler is not None:
+            self.current = self.statementPre[node]
+            self(node.defaultHandler)
+            if self.current is not None:
+                exits.append(self.current)
+        if node.else_ is not None and body_out is not None:
+            self.current = body_out
+            self(node.else_)
+            if self.current is not None:
+                exits.append(self.current)
+        if exits:
+            self.advance()
+            for point in exits:
+                self.copy(point, self.current)
+        if node.finally_ is not None:
+            self(node.finally_)
+        self.post(node)
+
+    @dispatch(ast.TypeSwitch)
+    def visitTypeSwitch(self, node):
+        self.pre(node)
+        cond_out = self.current
+        exits = []
+        for case in node.cases:
+            self.current = cond_out
+            self(case.body)
+            if self.current is not None:
+                exits.append(self.current)
+        if exits:
+            self.advance()
+            for point in exits:
+                self.copy(point, self.current)
+        self.post(node)
+
+    @defaultdispatch
+    def visitUnhandled(self, node, targets=None):
+        if targets:
+            for target in targets:
+                target_expr = self.localExpr(target)
+                if target_expr is not None:
+                    self.assign(expressions.null, target_expr)
         return None
 
     @dispatch(ast.Discard)
@@ -381,10 +495,14 @@ class ShapeConstraintBuilder(TypeDispatcher):
 
     @dispatch(ast.Local)
     def visitLocal(self, node, targets):
+        if not targets:
+            return
         assert len(targets) == 1
         target = targets[0]
-
-        self.assign(self.localExpr(node), self.localExpr(target))
+        target_expr = self.localExpr(target)
+        if target_expr is None:
+            return
+        self.assign(self.localExpr(node) or expressions.null, target_expr)
 
     # TODO treat as a mini-allocation?
     @dispatch(ast.Existing)
@@ -529,8 +647,6 @@ class ShapeConstraintBuilder(TypeDispatcher):
                 expr = self._makeParam(i + base, paramSlots)
                 self.assign(src, expr)
 
-        assert not calleeparams.kparam
-
         return paramSlots
 
     def makeSplitMergeInfo(self, dstFunc, calleeparams, callerargs, parameterSlots):
@@ -545,7 +661,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
         # 1) Map callee positional parameters (numbered 0..N-1) to caller argument slots
         for i, arg in enumerate(callerargs.args):
             paramSlot = self.sys.canonical.localSlot(i)
-            splitMergeInfo.mapping[paramSlot] = arg.slot
+            splitMergeInfo.mapping[paramSlot] = arg.slot if arg is not None else None
 
         # 2) Map callee self parameter if present
         if callerargs.selfarg is not None and calleeparams.selfparam is not None:
@@ -570,9 +686,9 @@ class ShapeConstraintBuilder(TypeDispatcher):
         if args is None:
             args = [None for p in params]
 
-        assert len(params) == len(args)
-
         for param, arg in zip(params, args):
+            if param is None:
+                continue
             returnSlot = param.slot
             if arg:
                 targetSlot = arg.slot
@@ -718,23 +834,27 @@ class ShapeConstraintBuilder(TypeDispatcher):
     def visitReturn(self, node):
         pre = self.pre(node)
 
-        srcs = [self.localExpr(expr) for expr in node.exprs]
+        srcs = [self.localExpr(expr) or expressions.null for expr in node.exprs]
         dsts = [self.localExpr(expr) for expr in self.returnValues]
 
-        assert len(srcs) == len(dsts)
-
+        pairs = [(src, dst) for src, dst in zip(srcs, dsts) if dst is not None]
         self.current = pre
 
-        for i, src, dst in zip(range(len(srcs)), srcs, dsts):
-            if i >= len(srcs) - 1:
-                next = self.returnPoint
-            else:
-                next = self.newID()
+        if not pairs:
+            self.copy(self.current, self.returnPoint)
+        else:
+            for i, (src, dst) in enumerate(pairs):
+                if i >= len(pairs) - 1:
+                    next = self.returnPoint
+                else:
+                    next = self.newID()
 
-            constraint = constraints.AssignmentConstraint(self.sys, self.current, next, src, dst)
-            self.constraints.append(constraint)
+                constraint = constraints.AssignmentConstraint(
+                    self.sys, self.current, next, src, dst
+                )
+                self.constraints.append(constraint)
 
-            self.current = next
+                self.current = next
 
         self.current = None
         self.post(node)

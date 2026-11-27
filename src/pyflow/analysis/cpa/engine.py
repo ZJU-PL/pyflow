@@ -528,7 +528,11 @@ class InterproceduralDataflow(object):
                 catalog.facts.import_producer(
                     previous_catalog.facts,
                     "ipa",
-                    (Capabilities.CONTEXTS, Capabilities.CALL_TARGETS),
+                    (
+                        Capabilities.CONTEXTS,
+                        Capabilities.CALL_TARGETS,
+                        Capabilities.IPA_SUMMARIES,
+                    ),
                 )
             prgm.ir = catalog
             session = getattr(prgm, "session", None)

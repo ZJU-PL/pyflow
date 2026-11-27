@@ -99,6 +99,29 @@ class FactStore:
             )
         return revision
 
+    def merge_producer(
+        self,
+        capability: str,
+        producer: str,
+        updates: dict[Hashable, FactResult],
+    ) -> int:
+        """Merge additional facts into a single producer's snapshot."""
+        if not updates:
+            return self._revision
+        self._revision += 1
+        revision = self._revision
+        existing = self._snapshots.get(capability, {}).get(producer)
+        merged = (
+            dict(existing.facts)
+            if existing is not None and existing.ir_revision == self._ir_revision
+            else {}
+        )
+        merged.update(updates)
+        self._snapshots.setdefault(capability, {})[producer] = _Snapshot(
+            revision, self._ir_revision, producer, merged
+        )
+        return revision
+
     def replace_many(
         self,
         producer: str,

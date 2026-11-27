@@ -108,6 +108,8 @@ class Compactor(TypeDispatcher):
         allexit = None
 
         for suite in suites:
+            if not isinstance(suite, graph.Suite) or not suite.validExitName("normal"):
+                return False, None
             argexit = suite.getExit("normal")
             if argexit:
                 if allexit:
@@ -123,7 +125,12 @@ class Compactor(TypeDispatcher):
         t = self.getSwitchExit(node, "true")
         f = self.getSwitchExit(node, "false", ignoreRegion=True)
 
-        if node.region is not t.region or node.region is not f.region:
+        if (
+            not isinstance(t, graph.Suite)
+            or not isinstance(f, graph.Suite)
+            or node.region is not t.region
+            or node.region is not f.region
+        ):
             return
 
         ok, exit = self.getCommonExit(t, f)
@@ -167,7 +174,8 @@ class Compactor(TypeDispatcher):
         exits = [self.getSwitchExit(node, i) for i in range(len(node.original.cases))]
 
         for e in exits:
-            assert node.region is e.region
+            if not isinstance(e, graph.Suite) or node.region is not e.region:
+                return
 
         ok, exit = self.getCommonExit(*exits)
         if not ok:
@@ -260,8 +268,8 @@ class Compactor(TypeDispatcher):
                 # Could be a break
                 if node.region not in self.breaks:
                     self.breaks[node.region] = next
-                else:
-                    assert self.breaks[node.region] is next, "Inconsistent loop breaks."
+                elif self.breaks[node.region] is not next:
+                    raise StructuralAnalysisError("inconsistent loop breaks cannot be reduced")
 
                 node.ops.append(ast.Break())
                 node.killExit("normal")
@@ -326,10 +334,18 @@ class Compactor(TypeDispatcher):
             # 			print("body", body.ops)
             # 			print("else", else_.ops)
 
+            if not isinstance(body, graph.Suite):
+                raise StructuralAnalysisError("loop body could not be compacted to a Suite")
+
             if node in self.breaks:
+                if not isinstance(else_, graph.Suite):
+                    raise StructuralAnalysisError(
+                        "loop else branch could not be compacted to a Suite"
+                    )
                 b = self.breaks[node]
                 ee = else_.getExit("normal")
-                assert ee is None or ee is b
+                if ee is not None and ee is not b:
+                    raise StructuralAnalysisError("loop else exit does not match loop break target")
                 else_.killExit("normal")
 
             else:
@@ -392,6 +408,12 @@ class Compactor(TypeDispatcher):
     @dispatch(graph.Exit, graph.Entry)
     def visitTerminal(self, node):
         pass
+
+    @defaultdispatch
+    def visitUnsupportedBlock(self, node):
+        raise StructuralAnalysisError(
+            f"unsupported CFG block {type(node).__name__} cannot be reconstructed as structured AST"
+        )
 
 
 def processLoop(dj):
@@ -460,7 +482,10 @@ def evaluate(compiler, g):
 
     # Check if body is an Exit object (which has no normal exit) or if it's a Suite with no normal exit
     if hasattr(body, "exitNames") and "normal" in body.exitNames:
-        assert body.getExit("normal") is None, "could not reduce?"
+        if body.getExit("normal") is not None:
+            raise StructuralAnalysisError(
+                "CFG could not be reduced to structured AST; inspect the CFG or SSA directly"
+            )
 
     # Handle the case where body is an Exit object (no ops) or a Suite object (with ops)
     if hasattr(body, "ops"):

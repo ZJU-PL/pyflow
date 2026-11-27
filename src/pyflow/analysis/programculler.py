@@ -155,6 +155,7 @@ class CallGraphFinder(Finder):
                 # traversal because that would query facts under a fabricated
                 # context and can turn a conservative recovery into a crash.
                 self.liveFunc.add(nested_code)
+                self.invokes.setdefault(nested_code, set())
                 continue
             child = (nested_code, nested_context)
             self.invokesContext[node].add(child)
@@ -217,6 +218,9 @@ def findLiveCode(prgm):
     G = cgf.invokes
     head = None
     G[head] = entry
+    for targets in list(G.values()):
+        for target in targets:
+            G.setdefault(target, set())
 
     prgm.liveCode = cgf.liveFunc
 

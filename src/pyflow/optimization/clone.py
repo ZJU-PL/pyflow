@@ -157,8 +157,9 @@ class ProgramCloner(object):
                 self.unifier.init(context)
 
         # Merge entry points that must have the same implementation.
-        for entryPoint, contexts in interface.groupedEntryContexts().items():
-            self.doUnify(entryPoint.code, set(contexts), False)
+        if getattr(interface, "translated", False):
+            for entryPoint, contexts in interface.groupedEntryContexts().items():
+                self.doUnify(entryPoint.code, set(contexts), False)
 
         while self.unifier.dirty:
             current = self.unifier.dirty.pop()

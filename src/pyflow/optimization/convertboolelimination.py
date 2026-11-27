@@ -34,15 +34,52 @@ class InferBoolean(TypeDispatcher):
         self.lut = {}
         self.converts = []
 
-    @dispatch(str, type(None), ast.Return, ast.Local, ast.Store, ast.Discard)
+    @dispatch(
+        ast.leafTypes,
+        ast.Local,
+        ast.Existing,
+        ast.Code,
+        ast.DoNotCare,
+        ast.Break,
+        ast.Continue,
+        ast.GlobalDecl,
+        ast.NonlocalDecl,
+        ast.TypeParam,
+        ast.TypeParams,
+        ast.TypeAlias,
+    )
     def visitLeaf(self, node):
         pass
+
+    @dispatch(list, tuple)
+    def visitSequence(self, node):
+        for item in node:
+            self(item)
 
     @dispatch(ast.Suite)
     def visitSuite(self, node):
         node.visitChildren(self)
 
-    @dispatch(ast.Switch, ast.Condition)
+    @dispatch(ast.ConvertToBool)
+    def visitConvertToBool(self, node):
+        self.converts.append(node)
+        node.visitChildren(self)
+
+    @dispatch(
+        ast.Switch,
+        ast.Condition,
+        ast.TypeSwitch,
+        ast.TypeSwitchCase,
+        ast.For,
+        ast.AsyncFor,
+        ast.While,
+        ast.TryExceptFinally,
+        ast.TryStar,
+        ast.ExceptionHandler,
+        ast.ShortCircutAnd,
+        ast.ShortCircutOr,
+        ast.ConditionalExpr,
+    )
     def visitBranching(self, node):
         # Conservative barrier: this lightweight analysis is not path-sensitive.
         # Avoid propagating boolean facts across control-flow joins where a
@@ -53,22 +90,53 @@ class InferBoolean(TypeDispatcher):
 
     @dispatch(ast.Assign)
     def visitAssign(self, node):
-        if isinstance(node.expr, ast.ConvertToBool):
-            self.converts.append(node.expr)
+        self(node.expr)
 
         for lcl in node.lcls:
             self.undef(lcl)
 
-        if node.expr.alwaysReturnsBoolean() and len(node.lcls) == 1:
+        if (
+            hasattr(node.expr, "alwaysReturnsBoolean")
+            and node.expr.alwaysReturnsBoolean()
+            and len(node.lcls) == 1
+        ):
             self.define(node.lcls[0])
+
+    @dispatch(ast.Delete)
+    def visitDelete(self, node):
+        self.undef(node.lcl)
+
+    @dispatch(ast.UnpackSequence)
+    def visitUnpackSequence(self, node):
+        self(node.expr)
+        for target in node.targets:
+            self.undef(target)
+
+    @dispatch(ast.AnnAssign)
+    def visitAnnAssign(self, node):
+        if node.value is not None:
+            self(node.value)
+        self.undef(node.target)
+
+    @dispatch(ast.NamedExpr)
+    def visitNamedExpr(self, node):
+        self(node.value)
+        self.undef(node.target)
 
     @dispatch(ast.CodeParameters)
     def visitCodeParameters(self, node):
         self.undef(node.selfparam)
+        for p in node.posonlyparams:
+            self.undef(p)
         for p in node.params:
             self.undef(p)
         self.undef(node.vparam)
         self.undef(node.kparam)
+
+    @defaultdispatch
+    def visitOther(self, node):
+        if isinstance(node, ast.PythonASTNode):
+            node.visitChildren(self)
 
     def process(self, code):
         code.visitChildrenForced(self)
@@ -80,7 +148,7 @@ class InferBoolean(TypeDispatcher):
         self.lut[lcl] = False
 
     def isBoolean(self, expr):
-        if expr.alwaysReturnsBoolean():
+        if hasattr(expr, "alwaysReturnsBoolean") and expr.alwaysReturnsBoolean():
             return True
 
         return self.lut.get(expr, False)
@@ -104,7 +172,10 @@ def evaluateCode(compiler, code):
         # Eliminate ConvertToBool nodes that take booleans as arguments
         replace = {}
         for convert in infer.converts:
-            if convert.expr.alwaysReturnsBoolean():
+            if (
+                hasattr(convert.expr, "alwaysReturnsBoolean")
+                and convert.expr.alwaysReturnsBoolean()
+            ):
                 replace[convert] = convert.expr
 
         if replace:

@@ -91,6 +91,17 @@ class ForwardFlowTraverse(TypeDispatcher):
             recorder(original, replacement)
         return replacement
 
+    def _snapshot_fact_state(self):
+        snapshot = getattr(self.rewrite, "snapshotFactState", None)
+        return snapshot() if snapshot is not None else None
+
+    def _restore_fact_state(self, state):
+        if state is None:
+            return
+        restore = getattr(self.rewrite, "restoreFactState", None)
+        if restore is not None:
+            restore(state)
+
     def processExpr(self, node, fact_source=None):
         if fact_source is not None and node is not fact_source:
             self.recordFactSource(fact_source, node)
@@ -395,11 +406,15 @@ class ForwardFlowTraverse(TypeDispatcher):
         b = None
         loopbags = {}
 
-        # Iterate until convergence
+        # Iterate until convergence. Snapshot rewrite fact-remapping state before
+        # the loop so discarded non-final iterations cannot leak stale entries
+        # into the IR catalog remap.
+        fact_state = self._snapshot_fact_state()
         while 1:
             iterations += 1
             if conditionEntry is None:
                 break
+            self._restore_fact_state(fact_state)
             self.flow.restore(conditionEntry.split())
 
             condition = self(node.condition)
@@ -494,11 +509,14 @@ class ForwardFlowTraverse(TypeDispatcher):
         b = None
         loopbags = {}
 
-        # Iterate until convergence
+        # Iterate until convergence. Snapshot rewrite fact-remapping state before
+        # the loop so discarded non-final iterations cannot leak stale entries.
+        fact_state = self._snapshot_fact_state()
         while 1:
             iterations += 1
             if current is None:
                 break
+            self._restore_fact_state(fact_state)
             self.flow.restore(current.split())
 
             # The loop index is freshly assigned on each iteration by
@@ -661,17 +679,24 @@ class ForwardFlowTraverse(TypeDispatcher):
         self.flow.pop()
         self.flow.saveBags()
 
-        # Evaluate each contour seperately to maintain precision.
-        if normalF is not None:
-            self.flow.restore(normalF)
-            self(node.finally_)
-            normalF = self.flow.pop()
+        # Evaluate each contour separately to maintain flow-state precision.
+        # The rewritten ASTs produced by these contour passes are discarded
+        # (``finally_`` above is the kept AST), so preserve fact-remapping state
+        # so throwaway nodes cannot overwrite the live ``finally_`` remaps.
+        finally_fact_state = self._snapshot_fact_state()
+        try:
+            if normalF is not None:
+                self.flow.restore(normalF)
+                self(node.finally_)
+                normalF = self.flow.pop()
 
-        for name, frame in mergedbags.items():
-            frame = frame.split() if frame is not None else None
-            self.flow.restore(frame)
-            self(node.finally_)
-            self.flow.save(name)
+            for name, frame in mergedbags.items():
+                frame = frame.split() if frame is not None else None
+                self.flow.restore(frame)
+                self(node.finally_)
+                self.flow.save(name)
+        finally:
+            self._restore_fact_state(finally_fact_state)
 
         self.flow.restore(normalF)
 

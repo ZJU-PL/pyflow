@@ -544,34 +544,65 @@ class BuildDataflowNetwork(TypeDispatcher):
         """Terminal nodes don't need processing."""
         pass
 
-    @dispatch(ast.DirectCall)
+    @dispatch(ast.DirectCall, ast.Call, ast.MethodCall)
     def visitDirectCall(self, node):
         """
-        Process direct call nodes.
+        Process call nodes.
 
         For each call target, processes the called code in a new context.
         This enables inter-procedural analysis with context sensitivity.
         """
+        node.visitChildren(self)
         targets = set()
         for code, context in self.facts.merged_call_targets(self.currentCode, node):
             targets.add(code)
 
         self.pushContext(node)
         for target in targets:
-            self.processCode(target)
+            if target not in self._activeCodes:
+                self.processCode(target)
         self.popContext()
 
         self.constraints += 1
 
-    @dispatch(ast.leafTypes, ast.CodeParameters)
+    @dispatch(
+        ast.leafTypes,
+        ast.CodeParameters,
+        ast.DoNotCare,
+        ast.Break,
+        ast.Continue,
+        ast.Code,
+        ast.Import,
+        ast.GlobalDecl,
+        ast.NonlocalDecl,
+        ast.TypeParam,
+        ast.TypeParams,
+        ast.TypeAlias,
+    )
     def visitLeaf(self, node):
         pass
 
-    @dispatch(ast.Suite, ast.Switch, ast.Condition, ast.Assign, ast.Discard)
+    @dispatch(list, tuple)
+    def visitSequence(self, node):
+        for item in node:
+            self(item)
+
+    @dispatch(
+        ast.Suite,
+        ast.Switch,
+        ast.Condition,
+        ast.Assign,
+        ast.Discard,
+        ast.TryExceptFinally,
+        ast.TryStar,
+        ast.ExceptionHandler,
+        ast.TypeSwitch,
+        ast.TypeSwitchCase,
+    )
     def visitOK(self, node):
         node.visitChildren(self)
 
-    @dispatch(ast.For, ast.While)
+    @dispatch(ast.For, ast.AsyncFor, ast.While)
     def visitFor(self, node):
         """
         Process loop nodes.
@@ -584,6 +615,11 @@ class BuildDataflowNetwork(TypeDispatcher):
         node.visitChildren(self)
         self.loopLevel -= 1
 
+    @defaultdispatch
+    def visitOther(self, node):
+        if isinstance(node, ast.PythonASTNode):
+            node.visitChildren(self)
+
     def processCode(self, node):
         """
         Process a code node and build the data flow network.
@@ -594,6 +630,11 @@ class BuildDataflowNetwork(TypeDispatcher):
         Args:
             node: Code node to process
         """
+        if not hasattr(self, "_activeCodes"):
+            self._activeCodes = set()
+        if node in self._activeCodes:
+            return
+        self._activeCodes.add(node)
         self.contexts += 1
         if node not in self.contextLUT:
             self.contextLUT[node] = 1
@@ -602,9 +643,12 @@ class BuildDataflowNetwork(TypeDispatcher):
 
         previous = self.currentCode
         self.currentCode = node
-        for child in node.children():
-            self(child)
-        self.currentCode = previous
+        try:
+            for child in node.children():
+                self(child)
+        finally:
+            self.currentCode = previous
+            self._activeCodes.discard(node)
 
 
 class Operation(object):
@@ -1075,7 +1119,7 @@ def checkRecursive(compiler):
     return recursive
 
 
-def evaluate(compiler):
+def evaluate(compiler, prgm=None):
     """
     Main entry point for flow-sensitive data flow analysis.
 
@@ -1087,22 +1131,24 @@ def evaluate(compiler):
 
     Args:
         compiler: Compiler instance with program to analyze
+        prgm: Optional Program instance (falls back to ``compiler.program`` or ``compiler``)
 
     Returns:
         True if analysis completed successfully, False if recursion detected
     """
+    program = prgm if prgm is not None else getattr(compiler, "program", compiler)
     with compiler.console.scope("fsdf"):
 
         # Check for recursive calls
-        if checkRecursive(compiler):
+        if checkRecursive(program):
             compiler.console.output("recursive call detected, cannot analyze")
             return False
 
         # Build data flow network
-        facts = AnalysisFacts(compiler.ir)
-        bdfn = BuildDataflowNetwork(facts, compiler.ir)
+        facts = AnalysisFacts(program.ir)
+        bdfn = BuildDataflowNetwork(facts, program.ir)
 
-        for code in compiler.interface.entryCode():
+        for code in program.interface.entryCode():
             bdfn.processCode(code)
 
         # Report statistics
