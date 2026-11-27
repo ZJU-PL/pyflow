@@ -7,7 +7,9 @@ facade backed by the shared :class:`TypeSystem`.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+import time
 from typing import Iterable
 
 from pyflow.analysis.typeinfo.core.typesystem import (
@@ -63,6 +65,8 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         enable_static_inference: bool = True,
         call_model_providers: Iterable[CallModelProvider] = (),
         inference_options: InferenceOptions | None = None,
+        max_transitive_collected_modules: int | None = 128,
+        max_transitive_inference_seconds: float | None = 2.0,
     ) -> None:
         self.project_context = project_context or ProjectContext(None)
         self.type_system = TypeSystem()
@@ -82,9 +86,14 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._collecting_modules: set[str] = set()
         self._collection_stack: list[str] = []
         self._max_collection_depth = 32
+        self._max_transitive_collected_modules = max_transitive_collected_modules
+        self._transitive_collected_count = 0
         self._max_transitive_inferred_modules = 16
         self._transitive_inferred_count = 0
+        self._max_transitive_inference_seconds = max_transitive_inference_seconds
+        self._transitive_inference_deadline: float | None = None
         self._depth_limit_warning_emitted = False
+        self._collection_budget_warning_emitted = False
         self.enable_static_inference = enable_static_inference
         self.inference_options = (
             inference_options
@@ -106,6 +115,7 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._active_project_lookups: set[str] = set()
         self._refreshing_inference = False
         self._refreshing_import_facts = False
+        self._imports_dirty = False
         self._last_refreshed_import_modules: frozenset[str] = frozenset()
         self._needs_refresh = False
         self._collection_diagnostics: list[StubDiagnostic] = []
@@ -123,6 +133,36 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._lazy_stub_imports: set[tuple[str, str]] = set()
         self._documented_parameters: dict[tuple[str, str], set[str]] = {}
         self._documented_returns: set[tuple[str, str]] = set()
+
+    def _can_collect_transitively(self, module_name: str | None = None) -> bool:
+        """Whether transitive dependency collection may still load additional modules."""
+        if module_name is not None and (
+            module_name in self._collected_modules or module_name in self._collecting_modules
+        ):
+            return False
+        if len(self._collection_stack) >= self._max_collection_depth:
+            return False
+        if (
+            self._max_transitive_collected_modules is not None
+            and self._transitive_collected_count >= self._max_transitive_collected_modules
+        ):
+            if not self._collection_budget_warning_emitted and self._collection_stack:
+                self._collection_budget_warning_emitted = True
+                self._add_collection_diagnostic(
+                    StubDiagnostic(
+                        code="type_collection_budget_exceeded",
+                        category="type_inference",
+                        module_name=self._collection_stack[-1],
+                        message=(
+                            "Stopped lazy project collection at the module budget "
+                            f"({self._max_transitive_collected_modules} transitive modules); "
+                            "the inferred type closure is partial"
+                        ),
+                        severity="warning",
+                    )
+                )
+            return False
+        return True
 
     def collect_module(
         self,
@@ -144,9 +184,21 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                 return
         if module_name in self._collected_modules or module_name in self._collecting_modules:
             return
-        if not self._collecting_modules:
+        is_transitive = bool(self._collecting_modules)
+        if is_transitive:
+            if not self._can_collect_transitively():
+                return
+            self._transitive_collected_count += 1
+        else:
             self._depth_limit_warning_emitted = False
-            self._transitive_inferred_count = 0
+            if (
+                self._max_transitive_inference_seconds is not None
+                and self._max_transitive_inference_seconds > 0
+                and self._transitive_inference_deadline is None
+            ):
+                self._transitive_inference_deadline = (
+                    time.monotonic() + self._max_transitive_inference_seconds
+                )
         self._collecting_modules.add(module_name)
         self._collection_stack.append(module_name)
         completed = False
@@ -156,6 +208,7 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                     source, path = self._load_module_source(module_name, path)
                 if source is not None and not (path is not None and str(path).endswith(".pyi")):
                     self._collect_source_module(module_name, source, path)
+                    self._imports_dirty = True
             except Exception as exc:
                 self._record_collection_failure(module_name, "type_source_failed", exc, path)
 
@@ -167,12 +220,12 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                         resolved_stub.path,
                         resolved_stub.info,
                     )
+                    self._imports_dirty = True
             except Exception as exc:
                 self._record_collection_failure(module_name, "type_stub_failed", exc, path)
 
             self._collected_modules.add(module_name)
             self._invalidate_external_symbol_cache(module_name)
-            self._reexport_cache.clear()
             completed = True
         finally:
             self._collecting_modules.discard(module_name)
@@ -187,7 +240,8 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                 self._known_class_cache.clear()
                 self._reexport_cache.clear()
                 if (
-                    self._refresh_import_facts()
+                    self._imports_dirty
+                    and self._refresh_import_facts()
                     and self.enable_static_inference
                     and module_name in self._last_refreshed_import_modules
                 ):
@@ -441,6 +495,10 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         if transitive and (
             len(self._collection_stack) >= 4
             or self._transitive_inferred_count >= self._max_transitive_inferred_modules
+            or (
+                self._transitive_inference_deadline is not None
+                and time.monotonic() >= self._transitive_inference_deadline
+            )
         ):
             return
         cached = self._module_sources.get(module_name)
@@ -450,13 +508,21 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._deferred_inference_modules.discard(module_name)
         if len(self._collection_stack) >= self._max_collection_depth:
             return
+        infer_options: InferenceOptions | None = None
         if transitive:
             self._transitive_inferred_count += 1
+            if self._transitive_inference_deadline is not None:
+                remaining = max(0.05, self._transitive_inference_deadline - time.monotonic())
+                existing = self.inference_options.max_seconds
+                limit = (
+                    min(existing, remaining) if existing is not None and existing > 0 else remaining
+                )
+                infer_options = replace(self.inference_options, max_seconds=limit)
         self._collecting_modules.add(module_name)
         self._collection_stack.append(module_name)
         try:
             self._refresh_import_facts(module_name=module_name)
-            self._collect_inferred_source_facts(module_name, *cached)
+            self._collect_inferred_source_facts(module_name, *cached, options=infer_options)
         except Exception as exc:
             self._record_collection_failure(module_name, "type_source_failed", exc, cached[1])
         finally:

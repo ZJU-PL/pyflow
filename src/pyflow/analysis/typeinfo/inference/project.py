@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 import hashlib
 import time
 
@@ -216,13 +217,22 @@ class ProjectTypeInferenceEngine:
                     for dep in (imports.get(module_name, set()) | observed_deps[module_name])
                     if dep in source_set and dep != module_name
                 }
+                module_options = self.options
+                if deadline is not None:
+                    remaining = max(0.05, deadline - time.monotonic())
+                    effective_limit = (
+                        min(module_options.max_seconds, remaining)
+                        if module_options.max_seconds is not None and module_options.max_seconds > 0
+                        else remaining
+                    )
+                    module_options = replace(module_options, max_seconds=effective_limit)
                 engine = StaticTypeInferenceEngine(
                     self.project_context,
                     type_system=self.type_system,
                     external_symbol_resolver=resolve_ext,
                     external_declared_return=resolve_decl,
                     call_model_providers=self.call_model_providers,
-                    options=self.options,
+                    options=module_options,
                 )
                 try:
                     results[module_name] = engine.infer_source(
@@ -248,6 +258,9 @@ class ProjectTypeInferenceEngine:
                         snapshot_before[dep] = current_fingerprints.get(dep)
                 seen_dep_fingerprints[module_name] = snapshot_before
                 current_fingerprints[module_name] = self._module_fingerprint(results[module_name])
+                if engine._time_budget_exceeded:
+                    time_limited = True
+                    break
 
             if time_limited:
                 break

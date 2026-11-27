@@ -147,6 +147,7 @@ class TypeFactBridge:
         source_files: Mapping[str, str] | None = None,
         module_sources: Mapping[str, tuple[str, str | None]] | None = None,
         enable_static_inference: bool = True,
+        max_transitive_collected_modules: int | None = 128,
     ) -> None:
         self._service = service
         self._project_context = project_context
@@ -154,6 +155,7 @@ class TypeFactBridge:
         self._source_files = dict(source_files or {})
         self._module_sources = dict(module_sources or {})
         self._enable_static_inference = enable_static_inference
+        self._max_transitive_collected_modules = max_transitive_collected_modules
         self._failed_modules: set[str] = set()
         self._annotation_cache: dict[tuple[str, str], PublishedTypeFact | None] = {}
         self._return_cache: dict[tuple[str, str], PublishedTypeFact | None] = {}
@@ -171,6 +173,7 @@ class TypeFactBridge:
             self._service = TypeInfoService(
                 context,
                 enable_static_inference=self._enable_static_inference,
+                max_transitive_collected_modules=self._max_transitive_collected_modules,
             )
         return self._service
 

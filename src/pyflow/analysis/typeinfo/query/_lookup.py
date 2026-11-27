@@ -61,13 +61,11 @@ class _TypeLookupMixin:
             if (
                 module_name not in self._collected_modules
                 and module_name not in self._collecting_modules
-                and len(self._collection_stack) < self._max_collection_depth
+                and self._can_collect_transitively(module_name)
                 and self._module_should_be_collected(module_name)
             ):
                 self.collect_module(module_name)
         elif module_name not in self._collected_modules:
-            if use_cache:
-                self._reexport_cache[key] = None
             return None
         target = self._module_imports.get(module_name, {}).get(name)
         if target is None:
@@ -102,7 +100,7 @@ class _TypeLookupMixin:
             separator
             and module_name not in self._collected_modules
             and module_name not in self._collecting_modules
-            and len(self._collection_stack) < self._max_collection_depth
+            and self._can_collect_transitively(module_name)
             and self._module_should_be_collected(module_name)
         ):
             self.collect_module(module_name)
@@ -498,7 +496,9 @@ class _TypeLookupMixin:
                             )
                         )
                     return ANY
-                if self._module_should_be_collected(candidate):
+                if self._can_collect_transitively(candidate) and self._module_should_be_collected(
+                    candidate
+                ):
                     self.collect_module(candidate)
                     break
 

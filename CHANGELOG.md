@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed case-alias module duplication, try/except MRO self-cycles, and
+  unbounded TypeInfo transitive collection / single-file runtime budgets
+  uncovered across `top100` repositories (`xtekky--gpt4free`, `keras`,
+  `transformers`, `unsloth`, `daily_stock_analysis`, `hermes-agent`, Wave 3):
+  - Pruned shadowed self-bases in `ConstraintCallGraphBuilder` when a class
+    shadows an imported or conditional fallback class in the same module
+    (e.g., `except ImportError: class BaseModel: ...; class BaseModel(BaseModel):`).
+  - Enforced PEP 235 exact-case filename matching in `ProjectContext.find_module`
+    (with positive-only directory entry caching) and added inode-based module
+    deduplication in `ConstraintCallGraphBuilder._load_modules` so case-insensitive
+    filesystems and symlink aliases map to a single canonical module.
+  - Added `InferenceOptions.max_seconds` per-file deadline checks with the
+    `inference-time-budget-exceeded` diagnostic and propagated remaining
+    `ProjectTypeInferenceEngine` time budgets into each module inference pass.
+  - Added `max_transitive_collected_modules` and `max_transitive_inference_seconds`
+    budgets to `TypeInfoService` and `TypeFactBridge` (bounded to `48` inside
+    `ConstraintCallGraphBuilder`), skipped star-import expansion and eager
+    third-party re-collection past budget, avoided clearing `_reexport_cache`
+    on nested collection exits, and restricted `_fill_missing_attribute_joins`
+    to valid identifier keys so subscript assignments like `box.items['k'] = 1`
+    do not trigger bogus external attribute lookups.
+
 - Fixed PEP 560 `typing.Generic` MRO conflicts, TypeInfo hot-path overhead,
   unbounded `ProjectTypeInferenceEngine` discovery, and CLI file-encoding
   handling (Wave 2 `top100` audit):

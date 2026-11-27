@@ -1172,11 +1172,13 @@ class ValueInference(InferenceComponent):
         pre-branch value when it can be resolved.
         """
         for present, missing in ((left, right), (right, left)):
-            for key, value in list(present.items()):
+            if not any("." in key for key in present):
+                continue
+            for key, value in present.items():
                 if "." not in key or key in missing:
                     continue
                 base_name, _, attribute = key.partition(".")
-                if "." in attribute:
+                if not base_name.isidentifier() or not attribute.isidentifier():
                     continue
                 base = baseline.get(base_name) or self.engine._module_environment.get(base_name)
                 if base is None:

@@ -21,6 +21,8 @@ from typing import Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, 
 
 from .imports import iter_import_nodes_in_scope
 
+_UNSET_DIR_CACHE = object()
+
 _CONTAINS_POTENTIAL_PROJECT = (
     "setup.py",
     ".git",
@@ -359,9 +361,39 @@ class ProjectContext:
         self._find_module_cache_order: List[tuple[object, ...]] = []
         self._max_find_module_cache = 8192
         self._realpath_cache: Dict[str, str] = {}
+        self._dir_entries_cache: Dict[str, Optional[frozenset[str]]] = {}
         self._resolved_roots_cache: Dict[tuple[str, ...], tuple[str, ...]] = {}
         self._sys_path_mod_cache: Dict[tuple[str, str], tuple[str, ...]] = {}
         self._sys_path_cache: Dict[tuple[object, ...], tuple[str, ...]] = {}
+
+    def _dir_has_entry(self, directory: str, name: str) -> bool:
+        """Exact-case directory membership check without stale negative caching."""
+        cached = self._dir_entries_cache.get(directory)
+        if cached is not None and name in cached:
+            return True
+        try:
+            entries = frozenset(os.listdir(directory))
+        except OSError:
+            self._dir_entries_cache.pop(directory, None)
+            return False
+        if len(self._dir_entries_cache) >= 8192:
+            self._dir_entries_cache.clear()
+        self._dir_entries_cache[directory] = entries
+        return name in entries
+
+    def _dir_entries(self, directory: str) -> Optional[frozenset[str]]:
+        """Legacy helper returning directory entry set when readable."""
+        cached = self._dir_entries_cache.get(directory)
+        if cached is not None:
+            return cached
+        try:
+            entries: Optional[frozenset[str]] = frozenset(os.listdir(directory))
+        except OSError:
+            return None
+        if len(self._dir_entries_cache) >= 8192:
+            self._dir_entries_cache.clear()
+        self._dir_entries_cache[directory] = entries
+        return entries
 
     def _realpath(self, path_str: str) -> str:
         cached = self._realpath_cache.get(path_str)
@@ -626,12 +658,18 @@ class ProjectContext:
             blocked = False
             for part in parts[:-1]:
                 package_dir = os.path.join(parent, part)
+                if not self._dir_has_entry(parent, part):
+                    blocked = True
+                    break
                 has_package_init = any(
-                    os.path.isfile(os.path.join(package_dir, filename))
+                    self._dir_has_entry(package_dir, filename)
+                    and os.path.isfile(os.path.join(package_dir, filename))
                     for filename in ("__init__.py", "__init__.pyi")
                 )
                 has_module_file = any(
-                    os.path.isfile(f"{package_dir}{suffix}") for suffix in (".py", ".pyi")
+                    self._dir_has_entry(parent, f"{part}{suffix}")
+                    and os.path.isfile(f"{package_dir}{suffix}")
+                    for suffix in (".py", ".pyi")
                 )
                 if has_package_init or (os.path.isdir(package_dir) and not has_module_file):
                     parent = package_dir
@@ -641,14 +679,21 @@ class ProjectContext:
             if blocked:
                 continue
 
-            base = os.path.join(parent, parts[-1])
-            init_file = next(
-                (
-                    os.path.join(base, filename)
-                    for filename in ("__init__.py", "__init__.pyi")
-                    if os.path.isfile(os.path.join(base, filename))
-                ),
-                None,
+            leaf = parts[-1]
+            base = os.path.join(parent, leaf)
+            has_leaf_dir = self._dir_has_entry(parent, leaf)
+            init_file = (
+                next(
+                    (
+                        os.path.join(base, filename)
+                        for filename in ("__init__.py", "__init__.pyi")
+                        if self._dir_has_entry(base, filename)
+                        and os.path.isfile(os.path.join(base, filename))
+                    ),
+                    None,
+                )
+                if has_leaf_dir
+                else None
             )
             if init_file is not None:
                 result = ModuleResolution(
@@ -663,7 +708,8 @@ class ProjectContext:
                 (
                     f"{base}{suffix}"
                     for suffix in (".py", ".pyi")
-                    if os.path.isfile(f"{base}{suffix}")
+                    if self._dir_has_entry(parent, f"{leaf}{suffix}")
+                    and os.path.isfile(f"{base}{suffix}")
                 ),
                 None,
             )
@@ -671,7 +717,7 @@ class ProjectContext:
                 result = ModuleResolution(module_name, os.path.abspath(module_file))
                 break
 
-            if os.path.isdir(base):
+            if has_leaf_dir and os.path.isdir(base):
                 namespace_paths.append(os.path.abspath(base))
         else:
             if namespace_paths:

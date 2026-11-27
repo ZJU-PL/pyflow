@@ -253,6 +253,7 @@ class ConstraintCallGraphBuilder(
                 project_context=self.project_context,
                 source_files=self.additional_sources,
                 enable_static_inference=False,
+                max_transitive_collected_modules=48,
             )
             bridge.register_module_source(
                 self.entry_module_name,

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import functools
+import time
 import tokenize
 from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable
@@ -103,6 +104,7 @@ class InferenceOptions:
     diagnostic_severity: dict[str, str] = field(default_factory=dict)
     max_specializations_per_function: int = 32
     max_type_depth: int = 12
+    max_seconds: float | None = None
 
 
 class StaticTypeInferenceEngine:
@@ -218,6 +220,8 @@ class StaticTypeInferenceEngine:
         self._reset()
         self._module_name = module_name
         self._filename = filename or f"<{module_name}>"
+        if self.options.max_seconds is not None:
+            self._deadline = time.monotonic() + max(0.0, float(self.options.max_seconds))
         try:
             self._tree = _cached_parse(source, self._filename)
         except SyntaxError as exc:
@@ -249,6 +253,8 @@ class StaticTypeInferenceEngine:
         converged = False
         iterations = 0
         for iterations in range(1, self.options.max_iterations + 1):
+            if self._time_budget_exceeded_now():
+                break
             before = self._function_rules._fingerprint()
             self._diagnostics = list(self._persistent_diagnostics)
             self._diagnostic_keys = set(self._persistent_keys)
@@ -275,6 +281,8 @@ class StaticTypeInferenceEngine:
             # snapshot; newly registered functions participate next iteration.
             self._function_rules._refresh_mutual_recursion()
             for function in list(self._functions.values()):
+                if self._time_budget_exceeded_now():
+                    break
                 self._function_rules._analyse_function(function)
 
             self._function_rules._commit_pending_evidence()
@@ -284,11 +292,20 @@ class StaticTypeInferenceEngine:
             # summaries (unannotated ``__iter__``/property methods otherwise
             # look like ``Callable[..., Any]`` during the checks).
             self._declaration_rules._refresh_class_member_signatures()
+            if self._time_budget_exceeded:
+                break
             if self._function_rules._fingerprint() == before:
                 converged = True
                 break
 
-        if not converged:
+        if self._time_budget_exceeded:
+            self._add_diagnostic(
+                "inference-time-budget-exceeded",
+                f"Inference reached the {self.options.max_seconds}s time budget",
+                severity="warning",
+                affects_completeness=True,
+            )
+        elif not converged:
             self._add_diagnostic(
                 "inference-did-not-converge",
                 f"Inference reached the {self.options.max_iterations}-iteration limit",
@@ -296,18 +313,19 @@ class StaticTypeInferenceEngine:
             )
 
         self._declaration_rules._refresh_class_member_signatures()
-        if self.options.check_assignments:
-            self._check_assignments()
-        if self.options.check_untyped_decorators:
-            self._member_rules.check_untyped_decorators()
-        if self.options.check_overrides:
-            self._member_rules.check_overrides()
-        if self.options.check_member_access:
-            # Checking must happen after the fixed point: during the first pass
-            # ``self.attr`` assignments from ``__init__`` are not committed yet
-            # and every receiver would look incomplete.  mypy also types first
-            # and checks the final symbol table.
-            self._check_member_access()
+        if not self._time_budget_exceeded:
+            if self.options.check_assignments:
+                self._check_assignments()
+            if self.options.check_untyped_decorators:
+                self._member_rules.check_untyped_decorators()
+            if self.options.check_overrides:
+                self._member_rules.check_overrides()
+            if self.options.check_member_access:
+                # Checking must happen after the fixed point: during the first pass
+                # ``self.attr`` assignments from ``__init__`` are not committed yet
+                # and every receiver would look incomplete.  mypy also types first
+                # and checks the final symbol table.
+                self._check_member_access()
 
         symbols = self._build_symbols(module_environment)
         return ModuleInferenceResult(
@@ -731,6 +749,16 @@ class StaticTypeInferenceEngine:
         self._mutual_recursion = set()
         self._recursion_graph_size = -1
         self._collect_specializations = True
+        self._deadline: float | None = None
+        self._time_budget_exceeded = False
+
+    def _time_budget_exceeded_now(self) -> bool:
+        if self._time_budget_exceeded:
+            return True
+        if self._deadline is not None and time.monotonic() >= self._deadline:
+            self._time_budget_exceeded = True
+            return True
+        return False
 
     def _record_expression(self, node: ast.AST, value: AbstractTypeValue) -> None:
         span = _span(node)

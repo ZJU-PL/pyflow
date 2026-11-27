@@ -118,6 +118,11 @@ _SPECS: tuple[DiagnosticSpec, ...] = (
         "The fixed-point solver hit its iteration limit.",
     ),
     DiagnosticSpec(
+        "inference-time-budget-exceeded",
+        "coverage",
+        "The fixed-point solver hit its time budget.",
+    ),
+    DiagnosticSpec(
         "call-model-error",
         "plugin",
         "A registered call-model provider raised an exception.",

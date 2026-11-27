@@ -1327,3 +1327,60 @@ def test_project_inference_respects_max_modules_and_time_budget(tmp_path: Path) 
         time_budget_seconds=1e-9,
     ).infer_project(["a"], discover_imports=True)
     assert any(d.code == "project-inference-time-budget-exceeded" for d in timed_out.diagnostics)
+
+
+def test_static_inference_max_seconds_emits_budget_diagnostic() -> None:
+    from pyflow.analysis.typeinfo.inference.engine import (
+        InferenceOptions,
+        StaticTypeInferenceEngine,
+    )
+
+    result = StaticTypeInferenceEngine(options=InferenceOptions(max_seconds=0.0)).infer_source(
+        "m", "x = 1\ndef f():\n    return x\n"
+    )
+    assert any(d.code == "inference-time-budget-exceeded" for d in result.diagnostics)
+
+
+def test_typeinfo_service_caps_transitive_collected_modules(tmp_path: Path) -> None:
+    (tmp_path / "d.py").write_text("D: int = 4\n", encoding="utf-8")
+    (tmp_path / "c.py").write_text("from d import D\nC: int = D\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("from c import C\nB: int = C\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text("from b import B\nA: int = B\n", encoding="utf-8")
+
+    service = TypeInfoService(
+        ProjectContext(tmp_path),
+        max_transitive_collected_modules=1,
+    )
+    service.collect_module("a")
+    assert len(service._collected_modules) <= 2
+    assert any(d.code == "type_collection_budget_exceeded" for d in service.diagnostics())
+
+
+def test_branch_subscript_assignment_skips_invalid_external_attr_lookup() -> None:
+    from pyflow.analysis.typeinfo.inference.engine import StaticTypeInferenceEngine
+
+    queried: list[str] = []
+
+    def resolver(name: str):
+        queried.append(name)
+        return None
+
+    engine = StaticTypeInferenceEngine(external_symbol_resolver=resolver)
+    engine.infer_source(
+        "m",
+        "class Box:\n"
+        "    def __init__(self):\n"
+        "        self.items = {}\n"
+        "def f(flag: bool, box: Box):\n"
+        "    if flag:\n"
+        "        box.items['k'] = 1\n",
+    )
+    assert not any("[" in name for name in queried)
+
+
+def test_project_context_finds_dynamically_added_module_with_exact_case(tmp_path: Path) -> None:
+    ctx = ProjectContext(tmp_path)
+    assert ctx.find_module("newly_added") is None
+    (tmp_path / "newly_added.py").write_text("X = 1\n", encoding="utf-8")
+    assert ctx.find_module("newly_added") is not None
+    assert ctx.find_module("NEWLY_ADDED") is None

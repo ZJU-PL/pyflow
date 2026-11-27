@@ -661,11 +661,39 @@ class _SymbolAnalysisMixin:
                     queue.append(dependent)
                     pending.add(dependent)
 
+    def _shadowed_class_names_in_module(self, module_name: str) -> Set[str]:
+        """Return class short names in *module_name* that also have an import or prior class binding."""
+        module_info = self.modules.get(module_name)
+        if module_info is None:
+            return set()
+        imported_or_redefined: Set[str] = set()
+        seen_classes: Set[str] = set()
+        for stmt in ast.walk(module_info.tree):
+            if isinstance(stmt, ast.Import):
+                for alias in stmt.names:
+                    imported_or_redefined.add(alias.asname or alias.name.split(".", 1)[0])
+            elif isinstance(stmt, ast.ImportFrom):
+                for alias in stmt.names:
+                    if alias.name != "*":
+                        imported_or_redefined.add(alias.asname or alias.name)
+            elif isinstance(stmt, ast.ClassDef):
+                if stmt.name in seen_classes:
+                    imported_or_redefined.add(stmt.name)
+                else:
+                    seen_classes.add(stmt.name)
+        return imported_or_redefined
+
     def _resolve_class_bases(self) -> None:
         """Resolve class base expressions to qualnames used by MRO lookup."""
         self._mro_cache.clear()
+        shadowed_by_module = {
+            module_name: self._shadowed_class_names_in_module(module_name)
+            for module_name in self.modules
+        }
         for class_info in self.classes.values():
             bindings = self.module_bindings.get(class_info.module, {})
+            shadowed_names = shadowed_by_module.get(class_info.module, ())
+            class_short_name = class_info.qualname.rsplit(".", 1)[-1]
             resolved: list[str] = []
             candidates = []
             for base_expr in class_info.bases_raw:
@@ -680,10 +708,13 @@ class _SymbolAnalysisMixin:
                         names.add(value.name)
                     elif value.kind == "func" and "." in value.name:
                         names.add(value.name)
-                if len(names) > 1 and class_info.qualname in names:
+                if class_info.qualname in names and (
+                    len(names) > 1 or class_short_name in shadowed_names
+                ):
                     # A flow-insensitive binding for a class shadowing an imported
-                    # base with the same name (e.g. ``from _impl import Foo;
-                    # class Foo(Foo):``) includes itself alongside the real base.
+                    # or fallback base with the same name (e.g. ``from _impl import Foo;
+                    # class Foo(Foo):`` or ``except ImportError: class BaseModel: ...;
+                    # class BaseModel(BaseModel):``) includes itself instead of the prior binding.
                     names.discard(class_info.qualname)
                 candidates.append(names)
                 resolved.extend(sorted(names))

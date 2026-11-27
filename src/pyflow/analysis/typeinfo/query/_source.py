@@ -126,6 +126,8 @@ class _SourceCollectionMixin:
                     break
                 changed_modules = next_changed_modules
         finally:
+            if module_name is None:
+                self._imports_dirty = False
             self._last_refreshed_import_modules = frozenset(changed_all)
             self._refreshing_import_facts = False
         return changed_any
@@ -239,7 +241,7 @@ class _SourceCollectionMixin:
                 module_aliases[node.name] = qualified_name
 
         is_third_party = self._third_party_typed(module_name) is True
-        collect_missing = not is_third_party
+        collect_missing = not is_third_party and len(self._collection_stack) <= 3
         grouped_functions: dict[str, list[FunctionTypeInfo]] = {}
         statements = list(_module_statements(tree))
         for node in statements:
@@ -340,13 +342,7 @@ class _SourceCollectionMixin:
                 head = raw_annotation.split("[", 1)[0].rsplit(".", 1)[-1]
                 member_type_opt: ProperType | None = None
                 if head in {"TypeAlias", "TypeAliasType"} and node.value is not None:
-                    raw_annotation = _annotation_to_str(node.value)
-                    member_type_opt = self._resolve_annotation(
-                        raw_annotation,
-                        module_name=module_name,
-                        imports=imports,
-                        collect_missing=collect_missing,
-                    )
+                    continue
                 elif head in {"Final", "ClassVar"}:
                     inner = _strip_annotation_wrapper(raw_annotation, head)
                     if inner not in {None, "", "Any"}:
@@ -426,6 +422,7 @@ class _SourceCollectionMixin:
             imported_type = self._lookup_project_type(
                 qualified_name,
                 allow_synthetic=False,
+                collect_missing=collect_missing,
             )
             if imported_type is None:
                 imported_type = BuiltinTypeLookup()(qualified_name)
@@ -455,6 +452,8 @@ class _SourceCollectionMixin:
         module_name: str,
         source: str,
         path: str | None,
+        *,
+        options: InferenceOptions | None = None,
     ) -> None:
         self._module_sources[module_name] = (source, path)
         pushed = module_name not in self._collecting_modules
@@ -467,7 +466,7 @@ class _SourceCollectionMixin:
                 type_system=self.type_system,
                 external_symbol_resolver=self._resolve_inference_external_symbol,
                 call_model_providers=self.call_model_providers,
-                options=self.inference_options,
+                options=options or self.inference_options,
             )
             result = engine.infer_source(module_name, source, filename=path)
         finally:
@@ -626,7 +625,8 @@ class _SourceCollectionMixin:
                     continue
                 for alias in node.names:
                     if alias.name == "*":
-                        self.collect_module(source_module)
+                        if self._can_collect_transitively(source_module):
+                            self.collect_module(source_module)
                         exported_names = self._module_all.get(source_module)
                         if exported_names is None:
                             exported_names = frozenset(

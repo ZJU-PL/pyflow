@@ -1,5 +1,6 @@
 """Regressions from whole-project constraint call graph scans."""
 
+from pathlib import Path
 import textwrap
 import warnings
 
@@ -7,6 +8,7 @@ import pytest
 
 from pyflow.analysis.callgraph.constraint_based.engine import ConstraintCallGraphBuilder
 from pyflow.analysis.callgraph.constraint_based.model import AnalysisOptions, make_class
+from pyflow.language.modules.project_resolution import ProjectContext
 
 
 @pytest.mark.parametrize("context_sensitive", [False, True])
@@ -492,3 +494,62 @@ def test_pep560_redundant_generic_base_avoids_inconsistent_mro():
     assert "main.CacheStore" not in builder._invalid_mro_classes
     assert "main.BaseTool" not in builder._invalid_mro_classes
     assert "main.ComponentBase.configure" in graph.get("main.use", set())
+
+
+def test_try_except_fallback_class_avoids_self_mro_cycle():
+    source = textwrap.dedent("""
+        try:
+            from nonexistent_dep import BaseModel
+        except ImportError:
+            class BaseModel:
+                pass
+
+        class BaseModel(BaseModel):
+            def ok(self):
+                return 1
+
+        def use():
+            return BaseModel().ok()
+    """)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        builder = ConstraintCallGraphBuilder(source)
+        graph = builder.build().get()
+    assert not any("Inconsistent MRO" in str(w.message) for w in caught)
+    assert "main.BaseModel" not in builder._invalid_mro_classes
+    assert "main.BaseModel" not in builder.classes["main.BaseModel"].bases
+    assert "main.BaseModel.ok" in graph.get("main.use", set())
+
+
+def test_case_sensitive_module_lookup_and_inode_alias_dedup(tmp_path: Path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    target = pkg / "functional.py"
+    target.write_text("def helper():\n    return 1\n", encoding="utf-8")
+
+    ctx = ProjectContext(tmp_path)
+    assert ctx.find_module("pkg.functional") is not None
+    # On case-insensitive filesystems (macOS APFS), mismatched casing must not resolve.
+    assert ctx.find_module("pkg.Functional") is None
+
+    alias = pkg / "functional_alias.py"
+    try:
+        alias.hardlink_to(target)
+    except (OSError, NotImplementedError):
+        return
+    entry = tmp_path / "main.py"
+    entry.write_text(
+        "import pkg.functional\nimport pkg.functional_alias\npkg.functional.helper()\n",
+        encoding="utf-8",
+    )
+    builder = ConstraintCallGraphBuilder(
+        entry.read_text(encoding="utf-8"),
+        entry_path=str(entry),
+        project_root=str(tmp_path),
+        canonical_entry_names=True,
+    )
+    builder.build()
+    loaded = [name for name in builder.modules if "functional" in name]
+    assert loaded == ["pkg.functional"]
+    assert builder.module_aliases.get("pkg.functional_alias") == "pkg.functional"

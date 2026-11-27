@@ -209,9 +209,23 @@ class _ModuleAnalysisMixin:
 
         entry_path = os.path.realpath(self.entry_path)
         modules_by_path = {entry_path: entry_name}
+        modules_by_inode: Dict[tuple[int, int], str] = {}
+        try:
+            st = os.stat(entry_path)
+            modules_by_inode[(st.st_dev, st.st_ino)] = entry_name
+        except OSError:
+            pass
         for source_path, source in sorted(self.additional_sources.items()):
             normalized_path = os.path.realpath(source_path)
             if normalized_path in modules_by_path:
+                continue
+            file_inode: Optional[tuple[int, int]] = None
+            try:
+                st = os.stat(normalized_path)
+                file_inode = (st.st_dev, st.st_ino)
+            except OSError:
+                pass
+            if file_inode is not None and file_inode in modules_by_inode:
                 continue
             module_name = self.project_context.module_name_from_path(normalized_path)
             if module_name in self.modules:
@@ -223,6 +237,8 @@ class _ModuleAnalysisMixin:
                 continue
             self.modules[module_name] = ModuleInfo(module_name, tree, normalized_path)
             modules_by_path[normalized_path] = module_name
+            if file_inode is not None:
+                modules_by_inode[file_inode] = module_name
 
         if not self.options.follow_imports:
             return
@@ -317,8 +333,17 @@ class _ModuleAnalysisMixin:
                 ):
                     continue
                 normalized_path = os.path.realpath(imported_path)
-                if normalized_path in modules_by_path:
-                    self.module_aliases[imported] = modules_by_path[normalized_path]
+                file_inode = None
+                try:
+                    st = os.stat(normalized_path)
+                    file_inode = (st.st_dev, st.st_ino)
+                except OSError:
+                    pass
+                existing_mod = modules_by_path.get(normalized_path)
+                if existing_mod is None and file_inode is not None:
+                    existing_mod = modules_by_inode.get(file_inode)
+                if existing_mod is not None:
+                    self.module_aliases[imported] = existing_mod
                     continue
                 try:
                     with tokenize.open(imported_path) as handle:
@@ -334,6 +359,8 @@ class _ModuleAnalysisMixin:
 
                 self.modules[imported] = ModuleInfo(imported, tree, imported_path)
                 modules_by_path[normalized_path] = imported
+                if file_inode is not None:
+                    modules_by_inode[file_inode] = imported
                 queue.append(imported)
 
     def _iter_imported_modules(self, module_info: ModuleInfo) -> Iterable[str]:
