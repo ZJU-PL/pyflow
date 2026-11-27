@@ -119,7 +119,9 @@ def _analyze_file(
         )
     elif args.algorithm in {"pycg", "pycg-mir"}:
         analysis_seconds = getattr(args, "mir_max_seconds", None) or (
-            max(0.001, args.max_seconds - 5.0) if getattr(args, "max_seconds", None) else 30.0
+            max(0.001, args.max_seconds - min(5.0, args.max_seconds * 0.2))
+            if getattr(args, "max_seconds", None)
+            else 30.0
         )
         timeout = getattr(args, "max_seconds", None) or analysis_seconds + 5.0
         if getattr(args, "mir_max_seconds", None) is not None and timeout <= analysis_seconds:

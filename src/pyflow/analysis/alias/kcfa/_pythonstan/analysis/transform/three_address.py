@@ -425,7 +425,6 @@ class ThreeAddressTransformer(NodeTransformer):
         blk = self.visit_stmt_list(body)
         for ins in blk:
             ast.copy_location(ins, node)
-            ast.fix_missing_locations(ins)
         blk.insert(0, list_init)
         return blk, list_l
 
@@ -449,7 +448,6 @@ class ThreeAddressTransformer(NodeTransformer):
         blk = self.visit_stmt_list(body)
         for ins in blk:
             ast.copy_location(ins, node)
-            ast.fix_missing_locations(ins)
         blk.insert(0, set_init)
         return blk, set_l
 
@@ -464,7 +462,6 @@ class ThreeAddressTransformer(NodeTransformer):
         blk = self.visit_stmt_list(body)
         for ins in blk:
             ast.copy_location(ins, node)
-            ast.fix_missing_locations(ins)
         fn = ast.FunctionDef(
             name=fn_name.id,
             args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
@@ -497,7 +494,6 @@ class ThreeAddressTransformer(NodeTransformer):
         blk = self.visit_stmt_list(body)
         for ins in blk:
             ast.copy_location(ins, node)
-            ast.fix_missing_locations(ins)
         blk.insert(0, dict_init)
         return blk, dict_l
 
@@ -1089,18 +1085,37 @@ class ThreeAddressTransformer(NodeTransformer):
         return t_blk
 
     def visit_If(self, node):
-        type_checking_value = self._type_checking_constant(node.test)
-        if type_checking_value is not None:
-            branch = node.body if type_checking_value else node.orelse
-            return self.visit_stmt_list(branch)
+        # Flatten chained ``if / elif / ... / else`` iteratively so long
+        # dispatch ladders (hundreds of ``elif`` branches) do not overflow
+        # Python's recursion limit.
+        frames = []
+        current = node
+        tail_orelse: list[ast.stmt] = []
+        while True:
+            type_checking_value = self._type_checking_constant(current.test)
+            if type_checking_value is not None:
+                branch = current.body if type_checking_value else current.orelse
+                if len(branch) == 1 and isinstance(branch[0], ast.If):
+                    current = branch[0]
+                    continue
+                tail_orelse = self.visit_stmt_list(branch)
+                break
+            t_blk, t_val = self.split_expr(current.test)
+            b_blk = self.visit_stmt_list(current.body)
+            frames.append((current, t_blk, t_val, b_blk))
+            if len(current.orelse) == 1 and isinstance(current.orelse[0], ast.If):
+                current = current.orelse[0]
+                continue
+            tail_orelse = self.visit_stmt_list(current.orelse)
+            break
 
-        t_blk, t_val = self.split_expr(node.test)
-        b_blk = self.visit_stmt_list(node.body)
-        o_blk = self.visit_stmt_list(node.orelse)
-        ins = ast.If(test=t_val, body=b_blk, orelse=o_blk)
-        ast.copy_location(ins, node)
-        t_blk.append(ins)
-        return t_blk
+        o_blk = tail_orelse
+        for if_node, t_blk, t_val, b_blk in reversed(frames):
+            ins = ast.If(test=t_val, body=b_blk, orelse=o_blk)
+            ast.copy_location(ins, if_node)
+            t_blk.append(ins)
+            o_blk = t_blk
+        return o_blk
 
     def _type_checking_constant(self, node):
         """Evaluate the statically false ``typing.TYPE_CHECKING`` sentinel."""
@@ -1663,7 +1678,8 @@ class ThreeAddressTransformer(NodeTransformer):
         return blk
 
     def visit_FunctionDef(self, node):
-        ast.fix_missing_locations(node)
+        if getattr(node, "lineno", None) is None:
+            ast.fix_missing_locations(node)
         blk, args = self.visit_arguments(node.args)
         ins = ast.FunctionDef(
             name=node.name,
@@ -1804,11 +1820,27 @@ class ThreeAddressTransformer(NodeTransformer):
     def visit_Continue(self, node):
         return node
 
+    @staticmethod
+    def _fix_locations_and_mark(root):
+        ast.fix_missing_locations(root)
+        stack = [root]
+        while stack:
+            cur = stack.pop()
+            cur._kcfa_locs_fixed = True
+            for field in cur._fields:
+                value = getattr(cur, field, None)
+                if isinstance(value, ast.AST):
+                    stack.append(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, ast.AST):
+                            stack.append(item)
+
     def visit_Expression(self, node):
         self.reset()
         expr = ast.Expression(body=self.visit_Expr(node.body))
         ast.copy_location(expr, node)
-        ast.fix_missing_locations(expr)
+        self._fix_locations_and_mark(expr)
         return expr
 
     def visit_Module(self, node):
@@ -1836,12 +1868,12 @@ class ThreeAddressTransformer(NodeTransformer):
         stmts = const_stmts + stmts
         mod = ast.Module(body=stmts, type_ignores=node.type_ignores)
         ast.copy_location(mod, node)
-        ast.fix_missing_locations(mod)
+        self._fix_locations_and_mark(mod)
         return mod
 
     def visit_Interactive(self, node):
         self.reset()
         inter = ast.Interactive(body=self.visit_stmt_list(node.body))
         ast.copy_location(inter, node)
-        ast.fix_missing_locations(inter)
+        self._fix_locations_and_mark(inter)
         return inter

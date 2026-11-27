@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pyflow.frontend.source import read_python_source
 
+import ast as py_stdlib_ast
 from collections import defaultdict
 from dataclasses import dataclass
 import os
@@ -99,17 +100,41 @@ def analyze_constraint_callgraph_edges(
 ) -> ConstraintCallgraphAnalysis:
     """Compute constraint edges and expose whether the bounded pass converged."""
     source_paths = tuple(Path(path).resolve() for path in paths)
+    if not source_paths and entry_path is None:
+        return ConstraintCallgraphAnalysis({}, 0, False)
+
+    def _try_parse_source(path: Path) -> str | None:
+        try:
+            text = normalize_legacy_python_syntax(read_python_source(path))
+            py_stdlib_ast.parse(text, filename=str(path))
+            return text
+        except (OSError, UnicodeError, SyntaxError, ValueError):
+            return None
+
+    parsed_sources: dict[Path, str] = {}
+    for path in source_paths:
+        text = _try_parse_source(path)
+        if text is not None:
+            parsed_sources[path] = text
+
     if entry_path is None:
-        if not source_paths:
-            return ConstraintCallgraphAnalysis({}, 0, False)
-        analysis_entry = source_paths[0]
+        analysis_entry = next(iter(parsed_sources), None)
     else:
-        analysis_entry = Path(entry_path).resolve()
-    source = normalize_legacy_python_syntax(read_python_source(analysis_entry))
+        resolved_entry = Path(entry_path).resolve()
+        if resolved_entry not in parsed_sources:
+            text = _try_parse_source(resolved_entry)
+            if text is not None:
+                parsed_sources[resolved_entry] = text
+        analysis_entry = (
+            resolved_entry if resolved_entry in parsed_sources else next(iter(parsed_sources), None)
+        )
+
+    if analysis_entry is None:
+        return ConstraintCallgraphAnalysis({}, 0, False)
+
+    source = parsed_sources[analysis_entry]
     additional_sources = {
-        str(path): normalize_legacy_python_syntax(read_python_source(path))
-        for path in source_paths
-        if path != analysis_entry
+        str(path): text for path, text in parsed_sources.items() if path != analysis_entry
     }
     builder = ConstraintCallGraphBuilder(
         source,

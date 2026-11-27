@@ -70,35 +70,52 @@ def _type_ignore_lines(text):
     import tokenize
 
     ignored = set()
-    for token in tokenize.generate_tokens(io.StringIO(text).readline):
-        if token.type == tokenize.COMMENT and re.search(r"#\s*type:\s*ignore\b", token.string):
-            ignored.add(token.start[0] - 1)
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.COMMENT and re.search(r"#\s*type:\s*ignore\b", token.string):
+                ignored.add(token.start[0] - 1)
+    except (tokenize.TokenError, IndentationError):
+        pass
     return ignored
 
 
-def _undefined_suppressions(text, tree):
+def _comment_suppressions(text):
+    """Collect ``# type: ignore`` and undefined-name comment lines in a single token pass."""
     import io
     import re
     import tokenize
 
-    ignored = set()
-    for token in tokenize.generate_tokens(io.StringIO(text).readline):
-        if token.type != tokenize.COMMENT:
-            continue
-        comment = token.string
-        directive = re.search(r"#\s*type:\s*ignore(?:\[([^]]+)\])?", comment)
-        if directive and (
-            directive.group(1) is None
-            or {"name-defined", "undefined-name"}
-            & {code.strip() for code in directive.group(1).split(",")}
-        ):
-            ignored.add(token.start[0] - 1)
-        directive = re.search(r"#\s*noqa(?::\s*([A-Za-z0-9, ]+))?", comment, re.I)
-        if directive and (
-            directive.group(1) is None
-            or "F821" in {code.strip().upper() for code in directive.group(1).split(",")}
-        ):
-            ignored.add(token.start[0] - 1)
+    type_ignored = set()
+    undef_ignored = set()
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type != tokenize.COMMENT:
+                continue
+            comment = token.string
+            line0 = token.start[0] - 1
+            if re.search(r"#\s*type:\s*ignore\b", comment):
+                type_ignored.add(line0)
+            directive = re.search(r"#\s*type:\s*ignore(?:\[([^]]+)\])?", comment)
+            if directive and (
+                directive.group(1) is None
+                or {"name-defined", "undefined-name"}
+                & {code.strip() for code in directive.group(1).split(",")}
+            ):
+                undef_ignored.add(line0)
+            directive = re.search(r"#\s*noqa(?::\s*([A-Za-z0-9, ]+))?", comment, re.I)
+            if directive and (
+                directive.group(1) is None
+                or "F821" in {code.strip().upper() for code in directive.group(1).split(",")}
+            ):
+                undef_ignored.add(line0)
+    except (tokenize.TokenError, IndentationError):
+        pass
+    return type_ignored, undef_ignored
+
+
+def _undefined_suppressions(text, tree, *, ignored=None):
+    if ignored is None:
+        _, ignored = _comment_suppressions(text)
     guarded = set()
 
     def catches(handler):
@@ -227,21 +244,24 @@ def document_diagnostics(index, uri, *, include_security=False):
         return []
     path = uri_to_path(uri)
     module = index.module_for_uri(uri) or "__document__"
-    type_ignored = _type_ignore_lines(text)
-    tree = ast.parse(text)
+    from pyflow.language.source_compat import parse_python_source
 
-    def function_has_ignored_return(line0: int) -> bool:
+    try:
+        tree = parse_python_source(text, path)
+    except SyntaxError:
+        return []
+    type_ignored, undef_ignored = _comment_suppressions(text)
+
+    ignored_return_func_lines: set[int] = set()
+    if type_ignored:
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            if node.lineno - 1 != line0:
                 continue
             if any(
                 isinstance(child, ast.Return) and (child.lineno - 1) in type_ignored
                 for child in ast.walk(node)
             ):
-                return True
-        return False
+                ignored_return_func_lines.add(node.lineno - 1)
 
     result = []
     try:
@@ -263,7 +283,7 @@ def document_diagnostics(index, uri, *, include_security=False):
                 continue
             span = diagnostic.span
             if span is not None and (
-                (span.lineno - 1) in type_ignored or function_has_ignored_return(span.lineno - 1)
+                (span.lineno - 1) in type_ignored or (span.lineno - 1) in ignored_return_func_lines
             ):
                 continue
             result.append(
@@ -312,10 +332,15 @@ def document_diagnostics(index, uri, *, include_security=False):
         "__path__",
         "__cached__",
     }
-    ignored, guarded = _undefined_suppressions(text, tree)
+    ignored, guarded = _undefined_suppressions(text, tree, ignored=undef_ignored)
     implicit = _implicit_name_positions(text, tree)
     if not wildcard_imports:
-        for reference in index.references:
+        file_refs = (
+            index.references_for_uri(uri)
+            if hasattr(index, "references_for_uri")
+            else index.references
+        )
+        for reference in file_refs:
             if (
                 reference.location.uri == uri
                 and reference.symbol_id is None

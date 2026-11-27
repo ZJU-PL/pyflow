@@ -178,13 +178,26 @@ def _run_worker(
     options: dict[str, Any],
     audit_wall: bool = True,
 ) -> ScanAttempt:
-    request = {
-        "path": str(target.path),
-        "entry": target.entry,
-        "inputs": list(inputs),
-        "options": options,
-        "audit_wall": audit_wall,
-    }
+    from .worker import encode_worker_value
+
+    try:
+        payload = json.dumps(
+            {
+                "path": str(target.path),
+                "entry": target.entry,
+                "inputs": [encode_worker_value(value) for value in inputs],
+                "options": options,
+                "audit_wall": audit_wall,
+            }
+        )
+    except (TypeError, ValueError) as exc:
+        return ScanAttempt(
+            complexity,
+            inputs,
+            ScanStatus.INPUT_GENERATION_FAILED,
+            0.0,
+            f"unserializable synthesized input: {exc}",
+        )
     started = monotonic()
     process = subprocess.Popen(
         [sys.executable, "-m", "pyflow.concolic.project.worker"],
@@ -195,7 +208,7 @@ def _run_worker(
         **_worker_process_group_options(),
     )
     try:
-        stdout, stderr = process.communicate(json.dumps(request), timeout=timeout)
+        stdout, stderr = process.communicate(payload, timeout=timeout)
     except subprocess.TimeoutExpired:
         _terminate_worker_process_group(process)
         return ScanAttempt(

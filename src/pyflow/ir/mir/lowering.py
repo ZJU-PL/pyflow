@@ -853,16 +853,18 @@ class PythonToMIR:
         self.scope, self.exception_target = scope, self.b.cfg.exit
         self.loop_targets, self.finalizers, self.active_exception = [], [], None
         self.generator_state = None
-        b, rt = self.b, self.runtime
-        b.assign("$builtins", field(Var("$parent"), "$builtins"))
-        b.assign("$global", field(Var("$parent"), "$global"))
-        b.assign("$modules", field(Var("$parent"), "$modules"))
-        b.emit(Env("$env"))
-        b.assign("$return", rt.none)
-        self.parameters(node.args, defaults_ref.name, kw_defaults_ref.name)
-        self.statements(body)
-        b.finish()
-        self._restore(state)
+        try:
+            b, rt = self.b, self.runtime
+            b.assign("$builtins", field(Var("$parent"), "$builtins"))
+            b.assign("$global", field(Var("$parent"), "$global"))
+            b.assign("$modules", field(Var("$parent"), "$modules"))
+            b.emit(Env("$env"))
+            b.assign("$return", rt.none)
+            self.parameters(node.args, defaults_ref.name, kw_defaults_ref.name)
+            self.statements(body)
+            b.finish()
+        finally:
+            self._restore(state)
         declared_defaults = bool(node.args.defaults) or any(
             default is not None for default in node.args.kw_defaults
         )
@@ -1040,11 +1042,17 @@ class PythonToMIR:
         self.finalizers = saved
 
     def statement(self, node):
+        saved_state = self._state()
+        saved_loop_len = len(self.loop_targets)
+        saved_fin_len = len(self.finalizers)
         try:
             return self._statement(node)
         except LoweringError as error:
             if not self.inspection_only:
                 raise
+            self._restore(saved_state)
+            del self.loop_targets[saved_loop_len:]
+            del self.finalizers[saved_fin_len:]
             self.diagnostics.append(
                 {
                     "code": "mir-opaque-statement",
@@ -1198,8 +1206,10 @@ class PythonToMIR:
             yes, no = b.branch(self.truth(self.expression(node.test)))
             b.use(yes)
             self.loop_targets.append((head, done, len(self.finalizers)))
-            self.statements(node.body)
-            self.loop_targets.pop()
+            try:
+                self.statements(node.body)
+            finally:
+                self.loop_targets.pop()
             b.jump(head)
             b.use(no)
             self.statements(node.orelse)
@@ -1305,8 +1315,10 @@ class PythonToMIR:
             saved,
             class_object=cls,
         )
-        self.statements(node.body)
-        self.scope = saved
+        try:
+            self.statements(node.body)
+        finally:
+            self.scope = saved
         # __set_name__ is invoked by class creation, even without instantiation.
         for name in sorted(_Bindings(node.body).locals):
             present, absent = b.branch(Binary("in", Literal(name), cls))
@@ -1341,8 +1353,10 @@ class PythonToMIR:
         self.exception_target = saved
         self.store(node.target, value)
         self.loop_targets.append((head, done, len(self.finalizers)))
-        self.statements(node.body)
-        self.loop_targets.pop()
+        try:
+            self.statements(node.body)
+        finally:
+            self.loop_targets.pop()
         b.jump(head)
         b.use({exhausted})
         stopped = rt.contains_class(
@@ -1471,13 +1485,15 @@ class PythonToMIR:
             self.exception_target = saved_target
 
         self.finalizers.append(cleanup)
-        if item.optional_vars is not None:
-            self.store(item.optional_vars, value)
-        if rest:
-            self.with_statement(ast.With(items=rest, body=node.body))
-        else:
-            self.statements(node.body)
-        self.finalizers.pop()
+        try:
+            if item.optional_vars is not None:
+                self.store(item.optional_vars, value)
+            if rest:
+                self.with_statement(ast.With(items=rest, body=node.body))
+            else:
+                self.statements(node.body)
+        finally:
+            self.finalizers.pop()
         self.exception_target = outer
         cleanup()
         b.jump(done)
@@ -1513,52 +1529,55 @@ class PythonToMIR:
         self.b = Builder(self.program, name, self.module.filename, synthetic=True)
         self.scope, self.exception_target = scope, self.b.cfg.exit
         self.loop_targets, self.finalizers, self.active_exception = [], [], None
-        b, rt = self.b, self.runtime
-        b.assign("$builtins", field(Var("$parent"), "$builtins"))
-        b.assign("$global", field(Var("$parent"), "$global"))
-        b.assign("$modules", field(Var("$parent"), "$modules"))
-        b.emit(Env("$env"))
-        b.assign("$return", rt.none)
-        kind = (
-            "dict"
-            if isinstance(node, ast.DictComp)
-            else "set" if isinstance(node, ast.SetComp) else "list"
-        )
-        result = rt.sequence(b, (), kind)
+        try:
+            b, rt = self.b, self.runtime
+            b.assign("$builtins", field(Var("$parent"), "$builtins"))
+            b.assign("$global", field(Var("$parent"), "$global"))
+            b.assign("$modules", field(Var("$parent"), "$modules"))
+            b.emit(Env("$env"))
+            b.assign("$return", rt.none)
+            kind = (
+                "dict"
+                if isinstance(node, ast.DictComp)
+                else "set" if isinstance(node, ast.SetComp) else "list"
+            )
+            result = rt.sequence(b, (), kind)
 
-        def descend(index):
-            generator = node.generators[index]
-            iterable = field(Var("$args"), 1) if index == 0 else self.expression(generator.iter)
-            iterator = self.call(rt.builtin("iter"), (iterable,))
+            def descend(index):
+                generator = node.generators[index]
+                iterable = field(Var("$args"), 1) if index == 0 else self.expression(generator.iter)
+                iterator = self.call(rt.builtin("iter"), (iterable,))
 
-            def body(value):
-                self.store(generator.target, value)
-                skipped = []
-                for condition in generator.ifs:
-                    yes, no = b.branch(self.truth(self.expression(condition)))
-                    skipped.append(no)
-                    b.use(yes)
-                if index + 1 < len(node.generators):
-                    descend(index + 1)
-                elif isinstance(node, ast.DictComp):
-                    self.special(
-                        result,
-                        "__setitem__",
-                        (self.expression(node.key), self.expression(node.value)),
-                    )
-                else:
-                    value = self.expression(node.elt)
-                    self.call(
-                        self.get_attribute(result, "add" if kind == "set" else "append"), (value,)
-                    )
-                b.join(b.tails, *skipped)
+                def body(value):
+                    self.store(generator.target, value)
+                    skipped = []
+                    for condition in generator.ifs:
+                        yes, no = b.branch(self.truth(self.expression(condition)))
+                        skipped.append(no)
+                        b.use(yes)
+                    if index + 1 < len(node.generators):
+                        descend(index + 1)
+                    elif isinstance(node, ast.DictComp):
+                        self.special(
+                            result,
+                            "__setitem__",
+                            (self.expression(node.key), self.expression(node.value)),
+                        )
+                    else:
+                        value = self.expression(node.elt)
+                        self.call(
+                            self.get_attribute(result, "add" if kind == "set" else "append"),
+                            (value,),
+                        )
+                    b.join(b.tails, *skipped)
 
-            self.iterate(iterator, body)
+                self.iterate(iterator, body)
 
-        descend(0)
-        b.ret(result)
-        b.finish()
-        self._restore(state)
+            descend(0)
+            b.ret(result)
+            b.finish()
+        finally:
+            self._restore(state)
         value = outer.invoke(name, (initial,))
         self.checked()
         return value
@@ -1646,8 +1665,9 @@ class PythonToMIR:
 
 
 def _source(path):
-    with tokenize.open(path) as handle:
-        return handle.read()
+    from pyflow.frontend.source import read_python_source
+
+    return read_python_source(path)
 
 
 def _module_name(path, root):
@@ -1731,7 +1751,9 @@ def _discover(
         if module_name in modules and not modules[module_name].opaque:
             return
         try:
-            tree = ast.parse(text, filename=file)
+            from pyflow.language.source_compat import parse_python_source
+
+            tree = parse_python_source(text, file)
         except SyntaxError as exc:
             raise LoweringError(exc.msg, file, exc.lineno) from exc
         package = (
@@ -1794,7 +1816,21 @@ def _discover(
             components = target.split(".")
             for index in range(1, len(components)):
                 ensure(".".join(components[:index]), node)
-            load(_source(path) if path.is_file() else "", target, str(path), depth + 1)
+            try:
+                load(_source(path) if path.is_file() else "", target, str(path), depth + 1)
+            except (LoweringError, OSError, UnicodeError):
+                if import_policy != "opaque":
+                    raise
+                for index in range(1, len(target.split(".")) + 1):
+                    prefix = ".".join(target.split(".")[:index])
+                    if prefix not in modules:
+                        modules[prefix] = Module(
+                            prefix,
+                            ast.Module(body=[], type_ignores=[]),
+                            "",
+                            prefix.rpartition(".")[0],
+                            opaque=True,
+                        )
             return True
 
         for node in ast.walk(tree):

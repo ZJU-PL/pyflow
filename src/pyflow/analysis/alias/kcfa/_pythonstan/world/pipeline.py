@@ -113,7 +113,12 @@ class Pipeline:
                     if get_import is not None:
                         mod_ns, mod_path = get_import
 
-                        new_mod = World().scope_manager.add_module(mod_ns, mod_path)
+                        try:
+                            new_mod = World().scope_manager.add_module(mod_ns, mod_path)
+                        except (SyntaxError, UnicodeError, OSError):
+                            if self._is_project_internal_import(stmt):
+                                World().unresolved_imports.append((mod, stmt))
+                            continue
                         if new_mod is None:
                             continue
 

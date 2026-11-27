@@ -13,8 +13,11 @@ import sys
 import sysconfig
 import tokenize
 from dataclasses import replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Iterator, cast
+
+from pyflow.language.source_compat import parse_python_source
 
 from pyflow.analysis.typeinfo.resolution.annotations import (
     BuiltinTypeLookup,
@@ -66,6 +69,15 @@ from pyflow.analysis.typeinfo.resolution.typing_syntax import (
 from pyflow.language.modules.project_resolution import ProjectContext
 
 
+@lru_cache(maxsize=1)
+def _stdlib_root() -> Path | None:
+    try:
+        stdlib = sysconfig.get_paths().get("stdlib")
+        return Path(stdlib).resolve() if stdlib else None
+    except (KeyError, OSError, ValueError):
+        return None
+
+
 class TypeInfoService:
     """Collect and query lightweight type information for Python modules."""
 
@@ -113,6 +125,7 @@ class TypeInfoService:
         self._module_stub_aliases: dict[str, dict[str, StubAliasInfo]] = {}
         self._module_type_aliases: dict[str, dict[str, ProperType]] = {}
         self._resolving_stub_aliases: set[tuple[str, str]] = set()
+        self._active_project_lookups: set[str] = set()
         self._refreshing_inference = False
         self._refreshing_import_facts = False
         self._needs_refresh = False
@@ -153,6 +166,7 @@ class TypeInfoService:
             self._depth_limit_warning_emitted = False
         self._collecting_modules.add(module_name)
         self._collection_stack.append(module_name)
+        completed = False
         try:
             try:
                 if source is None:
@@ -180,6 +194,7 @@ class TypeInfoService:
                 self._record_collection_failure(module_name, "type_stub_failed", exc, path)
 
             self._collected_modules.add(module_name)
+            completed = True
         finally:
             self._collecting_modules.discard(module_name)
             if self._collection_stack and self._collection_stack[-1] == module_name:
@@ -188,7 +203,7 @@ class TypeInfoService:
                 self._collection_stack = [
                     name for name in self._collection_stack if name != module_name
                 ]
-            if not self._collecting_modules:
+            if completed and not self._collecting_modules:
                 self.type_system.invalidate_subtype_caches()
                 self._known_class_cache.clear()
                 if self._refresh_import_facts() and self.enable_static_inference:
@@ -197,22 +212,23 @@ class TypeInfoService:
                         self._collect_inferred_source_facts(module_name, *cached)
             # Inference may replace the result while recursively resolving a
             # dependency. Attach collection diagnostics to the final result.
-            for diagnostic in self._collection_diagnostics:
-                if diagnostic.module_name != module_name:
-                    continue
-                result = self._inference_results.setdefault(
-                    module_name, ModuleInferenceResult(module_name, converged=False)
-                )
-                item = InferenceDiagnostic(
-                    diagnostic.code,
-                    diagnostic.message,
-                    severity=diagnostic.severity,
-                    affects_completeness=True,
-                )
-                if item not in result.diagnostics:
-                    result.diagnostics.append(item)
+            if completed:
+                for diagnostic in self._collection_diagnostics:
+                    if diagnostic.module_name != module_name:
+                        continue
+                    result = self._inference_results.setdefault(
+                        module_name, ModuleInferenceResult(module_name, converged=False)
+                    )
+                    item = InferenceDiagnostic(
+                        diagnostic.code,
+                        diagnostic.message,
+                        severity=diagnostic.severity,
+                        affects_completeness=True,
+                    )
+                    if item not in result.diagnostics:
+                        result.diagnostics.append(item)
 
-    def _refresh_import_facts(self) -> bool:
+    def _refresh_import_facts(self, *, module_name: str | None = None) -> bool:
         """Resolve stub import aliases after cyclic stub collections finish."""
         if self._refreshing_import_facts:
             return False
@@ -221,13 +237,24 @@ class TypeInfoService:
         try:
             for _ in range(3):
                 changed = False
-                for facts in list(self._module_facts.values()):
+                if module_name is not None:
+                    items = (
+                        [(module_name, self._module_facts[module_name])]
+                        if module_name in self._module_facts
+                        else []
+                    )
+                else:
+                    items = list(self._module_facts.items())
+                for mod_name, facts in items:
+                    if self._third_party_kind.get(mod_name) == "typed":
+                        continue
                     for name, fact in list(facts.items()):
                         if fact.source != "import" or not fact.raw_annotation:
                             continue
                         resolved = self._lookup_project_type(
                             fact.raw_annotation,
                             allow_synthetic=False,
+                            collect_missing=False,
                         )
                         if resolved is not None and resolved != fact.typ:
                             facts[name] = TypeFact(
@@ -276,6 +303,25 @@ class TypeInfoService:
         facts = self._module_facts.get(module_name, {})
         fact = facts.get(name)
         if fact is not None:
+            if (
+                fact.source == "import"
+                and fact.typ is ANY
+                and fact.raw_annotation
+                and fact.raw_annotation != f"{module_name}.{name}"
+            ):
+                resolved = self._lookup_project_type(
+                    fact.raw_annotation,
+                    allow_synthetic=False,
+                )
+                if resolved is not None and resolved != fact.typ:
+                    fact = TypeFact(
+                        name=fact.name,
+                        typ=resolved,
+                        raw_annotation=fact.raw_annotation,
+                        source=fact.source,
+                        kind=fact.kind,
+                    )
+                    facts[name] = fact
             return fact
         if "." not in name:
             return None
@@ -370,6 +416,8 @@ class TypeInfoService:
         module_name: str,
         name: str,
         seen: set[tuple[str, str]] | None = None,
+        *,
+        collect_missing: bool = True,
     ) -> tuple[str, str] | None:
         """Follow ``from x import y`` aliases to the defining module member."""
         seen = set() if seen is None else seen
@@ -377,7 +425,10 @@ class TypeInfoService:
         if key in seen:
             return None
         seen.add(key)
-        self._ensure_collected(module_name)
+        if collect_missing:
+            self._ensure_collected(module_name)
+        elif module_name not in self._collected_modules:
+            return None
         target = self._module_imports.get(module_name, {}).get(name)
         if target is None:
             fact = self._module_facts.get(module_name, {}).get(name)
@@ -392,7 +443,9 @@ class TypeInfoService:
         if not target or "." not in target:
             return None
         target_module, _, target_name = target.rpartition(".")
-        nested = self._resolve_reexported_member(target_module, target_name, seen)
+        nested = self._resolve_reexported_member(
+            target_module, target_name, seen, collect_missing=collect_missing
+        )
         return nested or (target_module, target_name)
 
     def _class_members_with_inheritance(
@@ -530,13 +583,16 @@ class TypeInfoService:
             return None, path
 
     @staticmethod
+    @lru_cache(maxsize=4096)
     def _is_stdlib_source(path: str) -> bool:
         """Whether ``path`` points into the active interpreter's stdlib."""
+        stdlib_root = _stdlib_root()
+        if stdlib_root is None:
+            return False
         try:
             source_path = Path(path).resolve()
-            stdlib_root = Path(sysconfig.get_paths()["stdlib"]).resolve()
             relative = source_path.relative_to(stdlib_root)
-        except (KeyError, OSError, ValueError):
+        except (OSError, ValueError):
             return False
         return not any(part in {"site-packages", "dist-packages"} for part in relative.parts)
 
@@ -546,7 +602,7 @@ class TypeInfoService:
         source: str,
         path: str | None,
     ) -> None:
-        tree = ast.parse(source)
+        tree = parse_python_source(source, path or module_name)
         exported_names: frozenset[str] | None = None
         for statement in tree.body:
             if not (
@@ -696,8 +752,29 @@ class TypeInfoService:
                             kind="variable",
                         )
 
+        is_third_party = self._third_party_typed(module_name) is True
         for local_name, qualified_name in imports.items():
             if local_name in facts:
+                continue
+            if is_third_party:
+                # Third-party ``py.typed`` packages (e.g. openai, pydantic)
+                # often re-export hundreds of submodules from ``__init__.py``.
+                # Keep their import facts lazy and resolve them on demand when
+                # referenced instead of eagerly crawling the entire package.
+                imported_type = self._lookup_project_type(
+                    qualified_name,
+                    allow_synthetic=False,
+                    collect_missing=False,
+                )
+                if imported_type is None:
+                    imported_type = BuiltinTypeLookup()(qualified_name)
+                facts[local_name] = TypeFact(
+                    name=local_name,
+                    typ=imported_type or ANY,
+                    raw_annotation=qualified_name,
+                    source="import",
+                    kind="import",
+                )
                 continue
             imported_type = self._lookup_project_type(
                 qualified_name,
@@ -718,13 +795,14 @@ class TypeInfoService:
                     kind="import",
                 )
 
-        if self.enable_static_inference:
-            self._refresh_import_facts()
+        if self.enable_static_inference and not is_third_party:
             # Library annotations are authoritative; running the full
             # intra-module engine over third-party bodies is slow and only
             # adds inferred locals that callers cannot observe.
-            if self._third_party_typed(module_name) is not True:
-                self._collect_inferred_source_facts(module_name, source, path)
+            self._refresh_import_facts(
+                module_name=module_name if len(self._collecting_modules) > 1 else None
+            )
+            self._collect_inferred_source_facts(module_name, source, path)
 
     def _collect_inferred_source_facts(
         self,
@@ -1629,11 +1707,7 @@ class TypeInfoService:
                 return resolved
             builtin = BuiltinTypeLookup()(imported)
             if builtin is not None:
-                resolved = self._lookup_project_type(
-                    imported,
-                    allow_synthetic=True,
-                )
-                return resolved if resolved is not None else builtin
+                return builtin
 
         normalized = name.rsplit(".", 1)[-1]
         if module_name is not None:
@@ -1862,10 +1936,37 @@ class TypeInfoService:
         qualified_name: str,
         *,
         allow_synthetic: bool,
+        collect_missing: bool = True,
+    ) -> ProperType | None:
+        if (
+            qualified_name in self._active_project_lookups
+            or len(self._active_project_lookups) >= 32
+        ):
+            return None
+        self._active_project_lookups.add(qualified_name)
+        try:
+            return self._lookup_project_type_impl(
+                qualified_name,
+                allow_synthetic=allow_synthetic,
+                collect_missing=collect_missing,
+            )
+        finally:
+            self._active_project_lookups.discard(qualified_name)
+
+    def _lookup_project_type_impl(
+        self,
+        qualified_name: str,
+        *,
+        allow_synthetic: bool,
+        collect_missing: bool = True,
     ) -> ProperType | None:
         class_alias = self._class_aliases.get(qualified_name)
         if class_alias and class_alias != qualified_name:
-            aliased = self._lookup_project_type(class_alias, allow_synthetic=allow_synthetic)
+            aliased = self._lookup_project_type(
+                class_alias,
+                allow_synthetic=allow_synthetic,
+                collect_missing=collect_missing,
+            )
             if aliased is not None:
                 return aliased
 
@@ -1881,29 +1982,30 @@ class TypeInfoService:
         # member) has been collected.  Project modules and stub-backed modules
         # are safe; arbitrary installed packages without stubs are not.
         parts = qualified_name.split(".")
-        for index in range(len(parts) - 1, 0, -1):
-            candidate = ".".join(parts[:index])
-            if candidate in self._collected_modules:
-                break
-            if len(self._collection_stack) >= self._max_collection_depth:
-                if not self._depth_limit_warning_emitted:
-                    self._depth_limit_warning_emitted = True
-                    self._collection_diagnostics.append(
-                        StubDiagnostic(
-                            code="type_collection_depth_exceeded",
-                            category="type_inference",
-                            module_name=self._collection_stack[-1],
-                            message=(
-                                "Stopped lazy project collection at the depth limit; "
-                                "the inferred type closure is partial"
-                            ),
-                            severity="warning",
+        if collect_missing:
+            for index in range(len(parts) - 1, 0, -1):
+                candidate = ".".join(parts[:index])
+                if candidate in self._collected_modules:
+                    break
+                if len(self._collection_stack) >= self._max_collection_depth:
+                    if not self._depth_limit_warning_emitted:
+                        self._depth_limit_warning_emitted = True
+                        self._collection_diagnostics.append(
+                            StubDiagnostic(
+                                code="type_collection_depth_exceeded",
+                                category="type_inference",
+                                module_name=self._collection_stack[-1],
+                                message=(
+                                    "Stopped lazy project collection at the depth limit; "
+                                    "the inferred type closure is partial"
+                                ),
+                                severity="warning",
+                            )
                         )
-                    )
-                return ANY
-            if self._module_should_be_collected(candidate):
-                self.collect_module(candidate)
-                break
+                    return ANY
+                if self._module_should_be_collected(candidate):
+                    self.collect_module(candidate)
+                    break
 
         class_info = self._classes.get(qualified_name)
         if class_info is not None:
@@ -1916,7 +2018,11 @@ class TypeInfoService:
             if class_prefix not in self._classes:
                 prefix_module, _, prefix_name = class_prefix.rpartition(".")
                 if prefix_module and prefix_name:
-                    reexported = self._resolve_reexported_member(prefix_module, prefix_name)
+                    reexported = self._resolve_reexported_member(
+                        prefix_module,
+                        prefix_name,
+                        collect_missing=collect_missing,
+                    )
                     if reexported is not None:
                         target = f"{reexported[0]}.{reexported[1]}"
                         remainder = ".".join(parts[index:])
@@ -1925,6 +2031,7 @@ class TypeInfoService:
                             resolved = self._lookup_project_type(
                                 target_name,
                                 allow_synthetic=allow_synthetic,
+                                collect_missing=collect_missing,
                             )
                             if resolved is not None:
                                 return resolved
@@ -1965,6 +2072,26 @@ class TypeInfoService:
 
         fact = self._module_facts.get(module_name, {}).get(attr)
         if fact is not None:
+            if (
+                fact.source == "import"
+                and fact.typ is ANY
+                and fact.raw_annotation
+                and fact.raw_annotation != qualified_name
+            ):
+                resolved_import = self._lookup_project_type(
+                    fact.raw_annotation,
+                    allow_synthetic=allow_synthetic,
+                    collect_missing=collect_missing,
+                )
+                if resolved_import is not None and resolved_import != fact.typ:
+                    self._module_facts[module_name][attr] = TypeFact(
+                        name=fact.name,
+                        typ=resolved_import,
+                        raw_annotation=fact.raw_annotation,
+                        source=fact.source,
+                        kind=fact.kind,
+                    )
+                    return resolved_import
             return fact.typ
 
         dynamic_getattr = self._functions.get(module_name, {}).get("__getattr__")

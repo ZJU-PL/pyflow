@@ -142,8 +142,11 @@ class ScopeManager:
             return existing
         if not os.path.isfile(filename):
             return None
-        with tokenize.open(filename) as f:
-            m_ast = ast.parse(f.read(), filename=filename)
+        from pyflow.frontend.source import read_python_source
+        from pyflow.language.source_compat import parse_python_source
+
+        source_text = read_python_source(filename)
+        m_ast = parse_python_source(source_text, filename)
         mod = IRModule(ns.to_str(), m_ast, ns.get_name(), filename)
         self.scopes.add(mod)
         self.names2scope[mod.get_qualname()] = mod

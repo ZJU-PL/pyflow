@@ -326,103 +326,107 @@ def lower_generator(compiler, node, lambda_body=None, _body_emitter=None):
     defaults_ref = outer.alloc(ListExpr(tuple(defaults)), "defaults")
     kwdefaults_ref = outer.alloc(DictExpr(tuple(kwdefaults)), "kwdefaults")
     saved = compiler._state()
-    body = [ast.Return(value=lambda_body)] if lambda_body is not None else node.body
-    bindings = _Bindings(body, node.args)
-    lexical_parent = parent.parent if parent.kind == "class" else parent
-    method_class = (
-        parent.class_object.name
-        if parent.kind == "class" and isinstance(parent.class_object, Var)
-        else None
-    )
-    positional = (*node.args.posonlyargs, *node.args.args)
-    first = positional[0].arg if positional else None
+    try:
+        body = [ast.Return(value=lambda_body)] if lambda_body is not None else node.body
+        bindings = _Bindings(body, node.args)
+        lexical_parent = parent.parent if parent.kind == "class" else parent
+        method_class = (
+            parent.class_object.name
+            if parent.kind == "class" and isinstance(parent.class_object, Var)
+            else None
+        )
+        positional = (*node.args.posonlyargs, *node.args.args)
+        first = positional[0].arg if positional else None
 
-    factory = Builder(compiler.program, factory_name, compiler.module.filename, synthetic=True)
-    compiler.b = factory
-    compiler.scope = Scope(
-        name,
-        "function",
-        parent.module,
-        bindings,
-        lexical_parent,
-        method_class_name=method_class,
-        first_parameter=first,
-    )
-    compiler.exception_target = factory.cfg.exit
-    compiler.loop_targets, compiler.finalizers, compiler.active_exception = [], [], None
-    compiler.generator_state = None
-    for context in ("$builtins", "$global", "$modules"):
-        factory.assign(context, field(Var("$parent"), context))
-    factory.emit(Env("$env"))
-    factory.assign("$return", rt.none)
-    compiler.parameters(node.args, defaults_ref.name, kwdefaults_ref.name)
-    generator = rt.obj(factory, "generator")
-    factory.assign("$generator", generator)
-    factory.assign("$pc", rt.raw(factory, 0))
-    factory.assign("$sent", rt.none)
-    factory.assign("$closing", rt.raw(factory, False))
-    factory.assign(field(generator, "$frame"), Var("$env"))
-    for flag in ("$done", "$started", "$running"):
-        factory.assign(field(generator, flag), rt.raw(factory, False))
-    resume = factory.alloc(Lambda("$args", "$kwargs", "$parent", name, "$return"), "resume")
-    factory.assign(field(generator, "$resume"), resume)
-    factory.ret(generator)
-    factory.finish()
+        factory = Builder(compiler.program, factory_name, compiler.module.filename, synthetic=True)
+        compiler.b = factory
+        compiler.scope = Scope(
+            name,
+            "function",
+            parent.module,
+            bindings,
+            lexical_parent,
+            method_class_name=method_class,
+            first_parameter=first,
+        )
+        compiler.exception_target = factory.cfg.exit
+        compiler.loop_targets, compiler.finalizers, compiler.active_exception = [], [], None
+        compiler.generator_state = None
+        for context in ("$builtins", "$global", "$modules"):
+            factory.assign(context, field(Var("$parent"), context))
+        factory.emit(Env("$env"))
+        factory.assign("$return", rt.none)
+        compiler.parameters(node.args, defaults_ref.name, kwdefaults_ref.name)
+        generator = rt.obj(factory, "generator")
+        factory.assign("$generator", generator)
+        factory.assign("$pc", rt.raw(factory, 0))
+        factory.assign("$sent", rt.none)
+        factory.assign("$closing", rt.raw(factory, False))
+        factory.assign(field(generator, "$frame"), Var("$env"))
+        for flag in ("$done", "$started", "$running"):
+            factory.assign(field(generator, flag), rt.raw(factory, False))
+        resume = factory.alloc(Lambda("$args", "$kwargs", "$parent", name, "$return"), "resume")
+        factory.assign(field(generator, "$resume"), resume)
+        factory.ret(generator)
+        factory.finish()
 
-    b = Builder(compiler.program, name, compiler.module.filename)
-    compiler.b = b
-    compiler.scope = Scope(
-        name,
-        "generator",
-        parent.module,
-        bindings,
-        lexical_parent,
-        method_class_name=method_class,
-        first_parameter=first,
-    )
-    compiler.loop_targets, compiler.finalizers, compiler.active_exception = [], [], None
-    state = GeneratorState(name)
-    compiler.generator_state = state
-    error_exit = b.node()
-    compiler.exception_target = error_exit
-    for context in ("$builtins", "$global", "$modules"):
-        b.assign(context, field(_frame(), context))
-    b.assign("$env", _frame())
-    b.assign("$return", rt.none)
-    dispatch = b.node()
-    b.jump(dispatch)
-    first_body = b.node()
-    b.use({first_body})
-    if _body_emitter is None:
-        compiler.statements(body)
-    else:
-        _body_emitter()
-    emit_generator_return(compiler)
+        b = Builder(compiler.program, name, compiler.module.filename)
+        compiler.b = b
+        compiler.scope = Scope(
+            name,
+            "generator",
+            parent.module,
+            bindings,
+            lexical_parent,
+            method_class_name=method_class,
+            first_parameter=first,
+        )
+        compiler.loop_targets, compiler.finalizers, compiler.active_exception = [], [], None
+        state = GeneratorState(name)
+        compiler.generator_state = state
+        error_exit = b.node()
+        compiler.exception_target = error_exit
+        for context in ("$builtins", "$global", "$modules"):
+            b.assign(context, field(_frame(), context))
+        b.assign("$env", _frame())
+        b.assign("$return", rt.none)
+        dispatch = b.node()
+        b.jump(dispatch)
+        first_body = b.node()
+        b.use({first_body})
+        if _body_emitter is None:
+            compiler.statements(body)
+        else:
+            _body_emitter()
+        emit_generator_return(compiler)
 
-    b.use({error_exit})
-    b.assign(field(_generator(), "$done"), rt.raw(b, True))
-    b.assign(field(_frame(), "$pc"), rt.raw(b, -1))
-    stopped = rt.contains_class(b, field(rt.exception, "__class__"), rt.builtin("StopIteration"))
-    convert, ordinary = b.branch(stopped)
-    b.use(convert)
-    previous = b.bind(rt.exception, "generator_stop")
-    exception = rt.obj(b, "RuntimeError")
-    b.assign(field(exception, "__cause__"), previous)
-    b.assign(rt.exception, exception)
-    b.join(b.tails, ordinary)
-    b.ret(rt.none)
+        b.use({error_exit})
+        b.assign(field(_generator(), "$done"), rt.raw(b, True))
+        b.assign(field(_frame(), "$pc"), rt.raw(b, -1))
+        stopped = rt.contains_class(
+            b, field(rt.exception, "__class__"), rt.builtin("StopIteration")
+        )
+        convert, ordinary = b.branch(stopped)
+        b.use(convert)
+        previous = b.bind(rt.exception, "generator_stop")
+        exception = rt.obj(b, "RuntimeError")
+        b.assign(field(exception, "__cause__"), previous)
+        b.assign(rt.exception, exception)
+        b.join(b.tails, ordinary)
+        b.ret(rt.none)
 
-    b.use({dispatch})
-    for pc, target in [(0, first_body), *((target, target) for target in state.continuations)]:
-        matches, remaining = b.branch(Binary("=", field(_frame(), "$pc"), Literal(pc)))
-        b.use(matches)
-        b.jump(target)
-        b.use(remaining)
-    # Direct calls to an exhausted resume closure remain well-defined too.
-    _stop(compiler, rt.none)
-    b.finish()
-    _lift_frame(b.cfg)
-    compiler._restore(saved)
+        b.use({dispatch})
+        for pc, target in [(0, first_body), *((target, target) for target in state.continuations)]:
+            matches, remaining = b.branch(Binary("=", field(_frame(), "$pc"), Literal(pc)))
+            b.use(matches)
+            b.jump(target)
+            b.use(remaining)
+        # Direct calls to an exhausted resume closure remain well-defined too.
+        _stop(compiler, rt.none)
+        b.finish()
+        _lift_frame(b.cfg)
+    finally:
+        compiler._restore(saved)
     declared_defaults = bool(node.args.defaults) or any(
         default is not None for default in node.args.kw_defaults
     )

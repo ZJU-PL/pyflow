@@ -408,6 +408,8 @@ class StubResolver:
         self._stub_cache_instance = None
         self._path_cache: dict[tuple[str, str | None], tuple[str, str] | None] = {}
         self._info_cache: dict[str, ResolvedStub | None] = {}
+        self._stub_package_roots: dict[str, tuple[Path, ...]] = {}
+        self._resolved_project_roots: tuple[Path, ...] | None = None
         self._diagnostics: list[StubDiagnostic] = []
 
     @property
@@ -428,6 +430,8 @@ class StubResolver:
         """Clear resolver-local path and parse caches."""
         self._path_cache.clear()
         self._info_cache.clear()
+        self._stub_package_roots.clear()
+        self._resolved_project_roots = None
 
     def get_diagnostics(self) -> list[StubDiagnostic]:
         """Return structured resolver diagnostics."""
@@ -572,10 +576,16 @@ class StubResolver:
         if not parts:
             return None
         top, rest = parts[0], parts[1:]
-        for path_entry in self.project_context.get_sys_path():
-            stub_root = Path(path_entry) / f"{top}-stubs"
-            if not stub_root.is_dir():
-                continue
+        stub_roots = self._stub_package_roots.get(top)
+        if stub_roots is None:
+            found_roots: list[Path] = []
+            for path_entry in self.project_context.get_sys_path():
+                stub_root = Path(path_entry) / f"{top}-stubs"
+                if stub_root.is_dir():
+                    found_roots.append(stub_root)
+            stub_roots = tuple(found_roots)
+            self._stub_package_roots[top] = stub_roots
+        for stub_root in stub_roots:
             if not rest:
                 init_path = stub_root / "__init__.pyi"
                 if init_path.is_file():
@@ -597,14 +607,15 @@ class StubResolver:
         if resolution is None or resolution.path is None:
             return None
         path = Path(resolution.path).resolve()
-        roots = [
-            Path(self.project_context.path).resolve(),
-            *(
-                Path(root).resolve()
-                for root in self.project_context.module_identity.workspace_roots
-            ),
-        ]
-        for root in roots:
+        if self._resolved_project_roots is None:
+            self._resolved_project_roots = (
+                Path(self.project_context.path).resolve(),
+                *(
+                    Path(root).resolve()
+                    for root in self.project_context.module_identity.workspace_roots
+                ),
+            )
+        for root in self._resolved_project_roots:
             try:
                 relative = path.relative_to(root)
             except ValueError:
@@ -617,18 +628,18 @@ class StubResolver:
     def _resolve_typeshed_stub(self, module_name: str) -> tuple[str, str] | None:
         if not self.typeshed_roots:
             return None
-        if self._project_source_path(module_name) is not None:
-            # A project module named ``typing``/``json``/... shadows the
-            # stdlib module and must not be replaced by a typeshed stub.
-            return None
         stub_map = get_cached_stub_map(
             self.typeshed_roots,
             python_version=self.python_version,
         )
         path = stub_map.get(module_name)
-        if path:
-            return path, "typeshed"
-        return None
+        if not path:
+            return None
+        if self._project_source_path(module_name) is not None:
+            # A project module named ``typing``/``json``/... shadows the
+            # stdlib module and must not be replaced by a typeshed stub.
+            return None
+        return path, "typeshed"
 
 
 def parse_stub_file(

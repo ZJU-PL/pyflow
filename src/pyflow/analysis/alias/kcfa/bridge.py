@@ -594,8 +594,9 @@ class PointerAnalysis:
             raise ValueError(
                 "max_import_depth must be >= -1 (-1 = unlimited, " "0 = entry module only)"
             )
-        with tokenize.open(entry) as source_file:
-            entry_source = source_file.read()
+        from pyflow.frontend.source import read_python_source
+
+        entry_source = read_python_source(entry)
         analysis = cls(
             entry_source,
             k=k,
@@ -648,7 +649,9 @@ class PointerAnalysis:
         SyntaxError
             If ``source`` is not valid Python syntax.
         """
-        ast.parse(self._source)
+        from pyflow.language.source_compat import parse_python_source
+
+        parse_python_source(self._source)
         if self._entry_file is not None:
             return self._run_path(self._entry_file, self._project_path or self._entry_file.parent)
         with tempfile.TemporaryDirectory(prefix="pyflow-pointer-") as tmpdir:

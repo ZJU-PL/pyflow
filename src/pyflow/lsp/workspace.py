@@ -1042,6 +1042,12 @@ class SourceIndex:
                     self._resolver.by_id.setdefault(identity, symbol)
         self._symbols_by_id.update(self._resolver.by_id)
 
+    def references_for_uri(self, uri: str) -> list[SourceReference]:
+        resolved = self._resolved_files.get(_cached_uri_to_path(uri))
+        if resolved is None:
+            return []
+        return resolved[0]
+
     def _module_name(self, path: str) -> str:
         return self.module_identity.module_name_from_path(path) or Path(path).stem
 

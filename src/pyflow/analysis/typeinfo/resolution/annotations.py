@@ -58,7 +58,7 @@ import uuid
 import weakref
 import zipfile
 import zoneinfo
-from typing import TYPE_CHECKING, Protocol, Mapping
+from typing import TYPE_CHECKING, Protocol, Mapping, cast
 
 from pyflow.analysis.typeinfo.resolution.typing_syntax import (
     IGNORE_ANNOTATION_PARTS,
@@ -247,7 +247,25 @@ class BuiltinTypeLookup:
         cls._typesystem_cache = cached
         return cached
 
+    _UNSET = object()
+    _lookup_cache: dict[str, ProperType | None] = {}
+
     def __call__(self, qualified_name: str) -> ProperType | None:
+        if self._fallback is None:
+            cached = self._lookup_cache.get(qualified_name, self._UNSET)
+            if cached is not self._UNSET:
+                return cast("ProperType | None", cached)
+        result = self._resolve_builtin(qualified_name)
+        if self._fallback is None:
+            if len(self._lookup_cache) >= 4096:
+                self._lookup_cache.clear()
+            self._lookup_cache[qualified_name] = result
+            return result
+        if result is not None:
+            return result
+        return self._fallback(qualified_name)
+
+    def _resolve_builtin(self, qualified_name: str) -> ProperType | None:
         ts = self._ts()
         if qualified_name in _ANY_NAMES:
             return ts["ANY"]
@@ -307,8 +325,6 @@ class BuiltinTypeLookup:
             descriptor = ClassDescriptor(raw)
             arity = descriptor.num_hardcoded_generic_parameters
             return Instance(descriptor, () if arity is None else (ANY,) * arity)
-        if self._fallback is not None:
-            return self._fallback(qualified_name)
         return None
 
 

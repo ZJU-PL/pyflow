@@ -60,36 +60,42 @@ class CFGTransformer:
 
     def _trans(self, cfg: ControlFlowGraph, entry: BaseBlock, stmt_entry: BaseBlock):
         tgt_cfg = self.cfg
-        if entry in cfg.exit_blks:
-            tgt_cfg.add_exit(stmt_entry)
-        for e in cfg.out_edges_of(entry):
-            if e.tgt == cfg.super_exit_blk:
-                continue
-            stmt_e = copy.deepcopy(e)
-            stmt_e.src = stmt_entry
-            if e.tgt in self.head_map:
-                stmt_e.tgt = self.head_map[e.tgt]
-                tgt_cfg.add_edge(stmt_e)
-            else:
-                head_blk = stmt_entry
-                tail_blk = stmt_entry
-                if e.tgt.n_stmt() > 0:
-                    for idx, cur_stmt in enumerate(e.tgt.stmts):
-                        blk = self.new_blk(cur_stmt)
-                        tgt_cfg.add_blk(blk)
-                        if idx == 0:
-                            head_blk = blk
-                        else:
-                            tgt_cfg.add_edge(NormalEdge(tail_blk, blk))
-                        tail_blk = blk
+        stack = [(entry, stmt_entry)]
+        while stack:
+            cur_entry, cur_stmt_entry = stack.pop()
+            if cur_entry in cfg.exit_blks:
+                tgt_cfg.add_exit(cur_stmt_entry)
+            next_work = []
+            for e in cfg.out_edges_of(cur_entry):
+                if e.tgt == cfg.super_exit_blk:
+                    continue
+                stmt_e = copy.copy(e)
+                stmt_e.src = cur_stmt_entry
+                if e.tgt in self.head_map:
+                    stmt_e.tgt = self.head_map[e.tgt]
+                    tgt_cfg.add_edge(stmt_e)
                 else:
-                    blk = self.new_blk()
-                    tgt_cfg.add_blk(blk)
-                    head_blk = blk
-                    tail_blk = blk
-                self.head_map[e.tgt] = head_blk
-                if e.tgt in cfg.blk2label:
-                    tgt_cfg.add_label(cfg.blk2label[e.tgt], head_blk)
-                stmt_e.tgt = head_blk
-                tgt_cfg.add_edge(stmt_e)
-                self._trans(cfg, e.tgt, tail_blk)
+                    head_blk = cur_stmt_entry
+                    tail_blk = cur_stmt_entry
+                    if e.tgt.n_stmt() > 0:
+                        for idx, cur_stmt in enumerate(e.tgt.stmts):
+                            blk = self.new_blk(cur_stmt)
+                            tgt_cfg.add_blk(blk)
+                            if idx == 0:
+                                head_blk = blk
+                            else:
+                                tgt_cfg.add_edge(NormalEdge(tail_blk, blk))
+                            tail_blk = blk
+                    else:
+                        blk = self.new_blk()
+                        tgt_cfg.add_blk(blk)
+                        head_blk = blk
+                        tail_blk = blk
+                    self.head_map[e.tgt] = head_blk
+                    if e.tgt in cfg.blk2label:
+                        tgt_cfg.add_label(cfg.blk2label[e.tgt], head_blk)
+                    stmt_e.tgt = head_blk
+                    tgt_cfg.add_edge(stmt_e)
+                    next_work.append((e.tgt, tail_blk))
+            for item in reversed(next_work):
+                stack.append(item)

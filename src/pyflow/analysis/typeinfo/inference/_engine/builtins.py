@@ -1742,7 +1742,7 @@ class BuiltinInference(InferenceComponent):
                     asyncio.Task, awaited.public_type() or ANY
                 )
             if raw is contextvars.ContextVar:
-                item = AbstractTypeValue.from_type(typ.args[0]) if typ.args else ANY
+                item = AbstractTypeValue.from_type(typ.args[0] if typ.args else ANY)
                 if node.attr == "get":
                     return item
                 if node.attr == "set":

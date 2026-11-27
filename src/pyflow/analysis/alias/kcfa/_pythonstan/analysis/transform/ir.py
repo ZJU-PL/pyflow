@@ -211,26 +211,44 @@ class IRTransformer(NodeVisitor):
             stmt.set_label(label_begin)
 
     def visit_If(self, node: If):
-        cond_jmp = JumpIfFalse(test=node.test, stmt_ast=node)
-        self.stmts.append(cond_jmp)
-        self.visit_stmts(node.body)
-        if len(node.orelse) > 0:
-            true_end_jmp = Goto()
-            self.stmts.append(true_end_jmp)
-            label_else = self.label_gen.gen()
-            self.stmts.append(label_else)
-            self.stmts.append(IRPass())
-            self.visit_stmts(node.orelse)
-            label_end = self.label_gen.gen()
-            self.stmts.append(label_end)
-            self.stmts.append(IRPass())
-            cond_jmp.set_label(label_else)
-            true_end_jmp.set_label(label_end)
-        else:
-            label_end = self.label_gen.gen()
-            self.stmts.append(label_end)
-            self.stmts.append(IRPass())
-            cond_jmp.set_label(label_end)
+        end_jmps: list = []
+        current: If | None = node
+        tail_else: list = []
+        while current is not None:
+            cond_jmp = JumpIfFalse(test=current.test, stmt_ast=current)
+            self.stmts.append(cond_jmp)
+            self.visit_stmts(current.body)
+            if current.orelse and isinstance(current.orelse[-1], If):
+                true_end_jmp = Goto()
+                self.stmts.append(true_end_jmp)
+                end_jmps.append(true_end_jmp)
+                label_else = self.label_gen.gen()
+                self.stmts.append(label_else)
+                self.stmts.append(IRPass())
+                cond_jmp.set_label(label_else)
+                if len(current.orelse) > 1:
+                    self.visit_stmts(current.orelse[:-1])
+                current = current.orelse[-1]
+            elif current.orelse:
+                true_end_jmp = Goto()
+                self.stmts.append(true_end_jmp)
+                end_jmps.append(true_end_jmp)
+                label_else = self.label_gen.gen()
+                self.stmts.append(label_else)
+                self.stmts.append(IRPass())
+                cond_jmp.set_label(label_else)
+                tail_else = current.orelse
+                current = None
+            else:
+                end_jmps.append(cond_jmp)
+                current = None
+        if tail_else:
+            self.visit_stmts(tail_else)
+        label_end = self.label_gen.gen()
+        self.stmts.append(label_end)
+        self.stmts.append(IRPass())
+        for jmp in end_jmps:
+            jmp.set_label(label_end)
 
     def visit_Raise(self, node: Raise):
         stmt = IRRaise(node)

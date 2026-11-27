@@ -41,6 +41,12 @@ __all__ = [
 ]
 
 
+def _ensure_locations(node: ast.AST) -> None:
+    """Populate missing AST source locations only when not already stamped."""
+    if not getattr(node, "_kcfa_locs_fixed", False):
+        ast.fix_missing_locations(node)
+
+
 class IRStatement(ABC):
     """Abstract base for every normalized IR node emitted after TAC lowering."""
 
@@ -133,7 +139,7 @@ class IRAstStmt(IRAbstractStmt):
     def set_stmt(self, stmt: Statement):
         """Updates the wrapped AST node and rebuilds all collectors. [side effects: mutates ``stmt`` and resets collector caches]"""
         self.stmt = stmt
-        ast.fix_missing_locations(self.stmt)
+        _ensure_locations(self.stmt)
         self.collector_reset()
         self.collect_from_stmt(stmt)
 
@@ -287,7 +293,7 @@ class JumpIfFalse(IRAbstractStmt):
     ):
         """Captures guard metadata for control-flow reconstruction."""
         self.test = test
-        ast.fix_missing_locations(self.test)
+        _ensure_locations(self.test)
         self.load_collector = VarCollector("load")
         self.load_collector.visit(self.test)
         if label is None:
@@ -341,7 +347,7 @@ class JumpIfTrue(IRAbstractStmt):
     ):
         """Captures jump metadata for short-circuiting ``if`` constructs."""
         self.test = test
-        ast.fix_missing_locations(self.test)
+        _ensure_locations(self.test)
         self.load_collector = VarCollector("load")
         self.load_collector.visit(self.test)
         self.label = label
@@ -401,7 +407,7 @@ class IRYield(IRAbstractStmt):
         assert isinstance(yield_value, ast.Name) or yield_value is None
         self.value = yield_value
         self._is_yield_from = isinstance(self.value, ast.YieldFrom)
-        ast.fix_missing_locations(self.stmt)
+        _ensure_locations(self.stmt)
         self.load_collector = VarCollector("load")
         self.load_collector.visit(self.stmt)
         self.store_collector = VarCollector("store")
@@ -455,7 +461,7 @@ class IRReturn(IRAbstractStmt):
 
     def __init__(self, stmt: ast.Return):
         """Normalises return value into a plain ``ast.Name`` when present."""
-        ast.fix_missing_locations(stmt)
+        _ensure_locations(stmt)
         if stmt.value is not None:
             assert isinstance(
                 stmt.value, ast.Name
@@ -510,7 +516,7 @@ class IRRaise(IRAbstractStmt):
     def __init__(self, stmt: ast.Raise):
         """Extracts operands for ``raise`` so SCCP can reason about them."""
         self.stmt = stmt
-        ast.fix_missing_locations(self.stmt)
+        _ensure_locations(self.stmt)
         self.exc = stmt.exc
         self.cause = stmt.cause
         self.load_collector = VarCollector("load")
@@ -592,7 +598,7 @@ class IRAwait(IRAbstractStmt):
             assert isinstance(stmt.value, ast.Await)
             self.value = stmt.value.value
             self.target = None
-        ast.fix_missing_locations(self.stmt)
+        _ensure_locations(self.stmt)
         self.load_collector = VarCollector("load")
         self.load_collector.visit(self.stmt)
         self.store_collector = VarCollector("store")
@@ -645,7 +651,7 @@ class IRDel(IRAbstractStmt):
     def __init__(self, stmt: ast.Delete):
         """Records the symbol removed from the current scope."""
         assert len(stmt.targets) == 1
-        ast.fix_missing_locations(stmt)
+        _ensure_locations(stmt)
         self.value = stmt.targets[0]
         self.del_collector = VarCollector("del")
         self.del_collector.visit(self.value)
@@ -875,7 +881,7 @@ class IRAnno(IRAbstractStmt):
         self.target = stmt.target
         self.anno = stmt.annotation
         self.stmt = stmt
-        ast.fix_missing_locations(self.stmt)
+        _ensure_locations(self.stmt)
         self.collector_reset()
         self.collect_from_stmt(stmt)
 
@@ -955,7 +961,7 @@ class AbstractIRAssign(IRAbstractStmt):
         self.lval = stmt.targets[0]
         self.rval = stmt.value
         self.stmt = stmt
-        ast.fix_missing_locations(self.stmt)
+        _ensure_locations(self.stmt)
         self.collector_reset()
         self.collect_from_stmt(stmt)
 
@@ -1243,7 +1249,7 @@ class IRPhi(AbstractIRAssign):
         phi_expr = ast.Call(func=ast.Name(id="Phi", ctx=ast.Load()), args=args, keywords=[])
         stmt = ast.Assign(targets=[lval], value=phi_expr)
         ast.set_location(stmt, lval.lineno, lval.col_offset)
-        ast.fix_missing_locations(stmt)
+        _ensure_locations(stmt)
         return stmt
 
     def rename(

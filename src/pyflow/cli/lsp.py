@@ -21,6 +21,7 @@ from pyflow.analysis.callgraph.constraint_based import extract_call_graph_constr
 from pyflow.lsp.mcp_config import MCPServerMode, analysis_config_for_mode
 
 from pyflow.frontend.entry_discovery import detect_entry_file
+from pyflow.frontend.source import read_python_source
 
 LOG = logging.getLogger(__name__)
 
@@ -146,12 +147,13 @@ def _run_callgraph_analysis(input_path: Path) -> dict[str, list[str]]:
     """Run the dedicated callgraph analysis without IPA or CPA."""
     entry = _callgraph_entry(input_path).resolve()
     try:
-        source = entry.read_text(encoding="utf-8")
+        source = read_python_source(entry)
         callgraph = extract_call_graph_constraint(
             source,
             source_path=str(entry),
             allocation_site_sensitive_instances=False,
             skip_stdlib_modules=True,
+            skip_external_modules=True,
             canonical_entry_names=True,
             additional_sources=_source_query_index(input_path).source_files,
         )
