@@ -314,7 +314,11 @@ class TestComprehensions(unittest.TestCase):
         result = self.converter._convert_expression(node)
         self.assertIsInstance(result, pyflow_ast.DirectCall)
         self.assertIsNotNone(result.code)
-        self.assertEqual([arg.name for arg in result.args], ["range"])
+        # Outermost iterable is evaluated in the enclosing scope and passed as
+        # the single outer-iterator argument without duplicating ``range``.
+        self.assertEqual(len(result.args), 1)
+        self.assertIsInstance(result.args[0], pyflow_ast.Call)
+        self.assertEqual(result.args[0].expr.name, "range")
 
     def test_gen_exp_not_none(self):
         """Generator expressions create a deferred generator activation."""
@@ -351,16 +355,20 @@ class TestComprehensions(unittest.TestCase):
         result = self.converter._convert_expression(tree.body)
         loop = result.code.ast.blocks[1]
 
-        self.assertIsInstance(loop.iterator, pyflow_ast.Call)
-        self.assertEqual(loop.iterator.expr.object.pyobj, "interpreter_aiter")
+        self.assertEqual(len(result.args), 1)
+        self.assertIsInstance(result.args[0], pyflow_ast.Call)
+        self.assertEqual(result.args[0].expr.object.pyobj, "interpreter_aiter")
+        self.assertEqual(loop.iterator.name, "__pyflow_outer_iter")
 
     def test_async_generator_expression_uses_async_iterator(self):
         tree = python_ast.parse("(x async for x in source)", mode="eval")
         result = self.converter._convert_expression(tree.body)
         loop = result.code.ast.blocks[0]
 
-        self.assertIsInstance(loop.iterator, pyflow_ast.Call)
-        self.assertEqual(loop.iterator.expr.object.pyobj, "interpreter_aiter")
+        self.assertEqual(len(result.args), 1)
+        self.assertIsInstance(result.args[0], pyflow_ast.Call)
+        self.assertEqual(result.args[0].expr.object.pyobj, "interpreter_aiter")
+        self.assertEqual(loop.iterator.name, "__pyflow_outer_iter")
 
 
 class TestContextManagers(unittest.TestCase):

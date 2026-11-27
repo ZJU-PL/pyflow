@@ -93,8 +93,10 @@ def _expand_typestr(type_str: str) -> Iterator[str]:
     """
     # Alternative types separated by "or"
     if re.search(r"\bor\b", type_str):
-        for part in type_str.split("or"):
-            yield part.split("of")[0].strip()
+        for part in re.split(r"\bor\b", type_str):
+            part = re.split(r"\bof\b", part, maxsplit=1)[0].strip()
+            if part:
+                yield part
         return
 
     # "container of element" pattern
@@ -115,7 +117,9 @@ def _expand_typestr(type_str: str) -> Iterator[str]:
             for elt in node.elts:
                 if isinstance(elt, ast.Constant):
                     val = elt.value
-                    if isinstance(val, float) or (isinstance(val, int) and "." in type_str):
+                    if isinstance(val, bool):
+                        yield "bool"
+                    elif isinstance(val, float) or (isinstance(val, int) and "." in type_str):
                         yield "float"
                     elif isinstance(val, int):
                         yield "int"

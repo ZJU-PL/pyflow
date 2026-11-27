@@ -312,7 +312,7 @@ class ProjectContext:
         self._source_map_cache_keys: Optional[frozenset[str]] = None
         self._find_module_cache: Dict[tuple[object, ...], Optional[ModuleResolution]] = {}
         self._find_module_cache_order: List[tuple[object, ...]] = []
-        self._max_find_module_cache = 4096
+        self._max_find_module_cache = 8192
         self._realpath_cache: Dict[str, str] = {}
         self._resolved_roots_cache: Dict[tuple[str, ...], tuple[str, ...]] = {}
         self._sys_path_mod_cache: Dict[tuple[str, str], tuple[str, ...]] = {}
@@ -560,16 +560,17 @@ class ProjectContext:
                 is_in_memory=True,
             )
 
-        # Filesystem probing stats many candidate paths; cache results per
-        # lookup key.  The in-memory source map is always consulted first, so a
-        # module that appears in it later bypasses any stale filesystem answer.
-        cache_key = (module_name, str(script_path), source, tuple(extra_sys_path))
-        if cache_key in self._find_module_cache:
-            return self._find_module_cache[cache_key]
-
         parts = module_name.split(".")
         search_path = self.get_sys_path(script_path=script_path, source=source)
         search_path = _remove_duplicates_from_path(list(extra_sys_path) + search_path)
+
+        # Filesystem probing stats many candidate paths; cache both positive
+        # and negative lookups keyed by the effective search path tuple so
+        # sibling files share probes and missing imports are not re-statted.
+        # The in-memory source map is always consulted first above.
+        cache_key: tuple[object, ...] = (module_name, tuple(search_path))
+        if cache_key in self._find_module_cache:
+            return self._find_module_cache[cache_key]
 
         result: Optional[ModuleResolution] = None
         namespace_paths: List[str] = []

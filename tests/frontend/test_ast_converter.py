@@ -514,9 +514,8 @@ while x > 0:
         loop = result.code.ast.blocks[1]
         self.assertIsInstance(loop, pyflow_ast.For)
         self.assertTrue(loop.bodyPreamble.blocks)
-        self.assertTrue(
-            all(isinstance(block, pyflow_ast.Assign) for block in loop.bodyPreamble.blocks)
-        )
+        assigns = [b for b in loop.bodyPreamble.blocks if isinstance(b, pyflow_ast.Assign)]
+        self.assertEqual([t.name for b in assigns for t in b.lcls], ["a", "b"])
         self.assertIsInstance(loop.body.blocks[0], pyflow_ast.Switch)
 
     def test_generator_destructuring_happens_before_guard(self):
@@ -527,9 +526,8 @@ while x > 0:
         loop = result.code.ast.blocks[0]
         self.assertIsInstance(loop, pyflow_ast.For)
         self.assertTrue(loop.bodyPreamble.blocks)
-        self.assertTrue(
-            all(isinstance(block, pyflow_ast.Assign) for block in loop.bodyPreamble.blocks)
-        )
+        assigns = [b for b in loop.bodyPreamble.blocks if isinstance(b, pyflow_ast.Assign)]
+        self.assertEqual([t.name for b in assigns for t in b.lcls], ["a", "b"])
         self.assertIsInstance(loop.body.blocks[0], pyflow_ast.Switch)
 
     def test_unhandled_expression_emits_tagged_helper(self):

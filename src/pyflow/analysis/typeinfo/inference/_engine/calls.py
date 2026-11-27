@@ -226,6 +226,8 @@ class CallInference(InferenceComponent):
                 node.func.value.value,
                 len(arguments),
                 set(keywords),
+                has_starred=any(isinstance(arg, ast.Starred) for arg in node.args),
+                has_double_starred=any(kw.arg is None for kw in node.keywords),
             ):
                 self.engine._add_diagnostic(
                     "format-string-mismatch",

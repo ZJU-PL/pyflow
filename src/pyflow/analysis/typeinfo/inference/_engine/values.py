@@ -232,12 +232,21 @@ class ValueInference(InferenceComponent):
                     for typ in base.types
                 ),
             )
+        gradual_receiver = any(
+            isinstance(item, AnyType)
+            or (
+                isinstance(item, UnionType)
+                and any(isinstance(member, AnyType) for member in item.items)
+            )
+            for item in base.types
+        )
         values: list[AbstractTypeValue] = []
         for typ in base.types:
             if isinstance(typ, UnionType):
+                nested_index = None if gradual_receiver else index_value
                 values.extend(
                     self._subscript_value(
-                        AbstractTypeValue.from_type(item), slice_node, index_value=index_value
+                        AbstractTypeValue.from_type(item), slice_node, index_value=nested_index
                     )
                     for item in typ.items
                 )
@@ -251,7 +260,8 @@ class ValueInference(InferenceComponent):
                     tuple(typ.type.members.get(name, ANY) for name in typ.type.tuple_fields)
                 )
             if (
-                isinstance(typ, Instance)
+                not gradual_receiver
+                and isinstance(typ, Instance)
                 and typ.args
                 and index_value is not None
                 and not isinstance(slice_node, ast.Slice)

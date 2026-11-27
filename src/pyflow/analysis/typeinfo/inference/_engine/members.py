@@ -1062,20 +1062,22 @@ class MemberInference(InferenceComponent):
             if inferred_args is not None:
                 specialized = Instance(class_info.instance.type, inferred_args)
                 instance = AbstractTypeValue.from_type(specialized)
+        unknown_positional = self.engine._call_unknown_positional
+        unknown_keywords = self.engine._call_unknown_keywords
         tuple_fields = class_info.instance.type.tuple_fields
         if tuple_fields is not None and initializer is None:
             field_names = list(tuple_fields)
-            if len(arguments) > len(field_names):
+            if not unknown_positional and len(arguments) > len(field_names):
                 self.engine._add_diagnostic(
                     "call-arity-mismatch",
                     f"Too many positional arguments for {class_target}",
                     node=node,
                 )
-            unknown_keywords = [name for name in keywords if name not in field_names]
-            if unknown_keywords:
+            unknown_kw_names = [name for name in keywords if name not in field_names]
+            if unknown_kw_names:
                 self.engine._add_diagnostic(
                     "call-arity-mismatch",
-                    f"Unexpected keyword arguments for {class_target}: {sorted(unknown_keywords)}",
+                    f"Unexpected keyword arguments for {class_target}: {sorted(unknown_kw_names)}",
                     node=node,
                 )
         if class_info.instance.type.typed_dict_fields is not None:
@@ -1091,7 +1093,7 @@ class MemberInference(InferenceComponent):
             provided = set(keywords)
             required = set(class_info.instance.type.required_keys)
             missing = required - provided
-            if missing:
+            if missing and not (arguments or unknown_positional or unknown_keywords):
                 self.engine._add_diagnostic(
                     "call-arity-mismatch",
                     f"Missing required TypedDict keys for {class_target}: {sorted(missing)}",
@@ -1109,7 +1111,7 @@ class MemberInference(InferenceComponent):
             positional_fields = [
                 name for name in fields if name not in class_info.keyword_only_fields
             ]
-            if len(arguments) > len(positional_fields):
+            if not unknown_positional and len(arguments) > len(positional_fields):
                 self.engine._add_diagnostic(
                     "call-arity-mismatch",
                     f"Too many positional arguments for {class_target}",
@@ -1117,7 +1119,7 @@ class MemberInference(InferenceComponent):
                 )
             provided = set(positional_fields[: len(arguments)]) | set(keywords)
             missing = set(fields) - provided - class_info.field_defaults
-            if missing:
+            if missing and not (unknown_positional or unknown_keywords):
                 self.engine._add_diagnostic(
                     "call-arity-mismatch",
                     f"Missing required arguments for {class_target}: {sorted(missing)}",
@@ -1492,6 +1494,12 @@ class MemberInference(InferenceComponent):
                 continue
             raw_ancestor = ancestor.raw_type
             if getattr(raw_ancestor, "__pyflow_unresolved_external__", False):
+                return False
+            if (
+                ancestor.is_protocol
+                or ancestor.has_unresolved_bases
+                or "__getattr__" in ancestor.members
+            ):
                 return False
             if ancestor.full_name in self.engine._classes:
                 continue

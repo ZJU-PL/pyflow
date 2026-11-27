@@ -96,6 +96,8 @@ class ScopeGraph(ast.NodeVisitor):
         self.current_scope_name = save_scope_name
         return node
 
+    visit_AsyncFunctionDef = visit_FunctionDef
+
     def visit_ClassDef(self, node):
         """Visit class definition node.
 
@@ -190,10 +192,6 @@ class ScopeGraph(ast.NodeVisitor):
             node: Import AST node
         """
         for alias in node.names:
-            if alias.asname is not None:
-                name = alias.asname
-            else:
-                name = alias.name
             if self.current_scope_name not in self.imports:
                 self.imports[self.current_scope_name] = []
             self.imports[self.current_scope_name].append(alias.name)
@@ -207,10 +205,6 @@ class ScopeGraph(ast.NodeVisitor):
             node: ImportFrom AST node
         """
         for alias in node.names:
-            if alias.asname is not None:
-                name = alias.asname
-            else:
-                name = alias.name
             if self.current_scope_name not in self.imports:
                 self.imports[self.current_scope_name] = []
             self.imports[self.current_scope_name].append(alias.name)

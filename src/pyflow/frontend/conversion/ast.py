@@ -2745,7 +2745,11 @@ class ASTConverter:
         """
         generators = node.generators
         kind = result_type.lower()
-        capture_names = self._comprehension_capture_names(node)
+        first_generator = generators[0] if generators else None
+        lift_outer_iter = first_generator is not None and not self._walrus_target_names(
+            first_generator.iter
+        )
+        capture_names = self._comprehension_capture_names(node, skip_first_iter=lift_outer_iter)
         capture_formals = [pyflow_ast.Local(name) for name in capture_names]
         # Capture actuals are evaluated in the enclosing scope.
         capture_actuals = [self._name_expr(name) for name in capture_names]
@@ -2763,8 +2767,7 @@ class ASTConverter:
         # Skip the special case when the iterable binds a walrus: that needs
         # the enclosing cell stores and is lowered inside the comprehension.
         outer_iter_name: Optional[str] = None
-        first_generator = generators[0] if generators else None
-        if first_generator is not None and not self._walrus_target_names(first_generator.iter):
+        if lift_outer_iter and first_generator is not None:
             outer_iter_name = "__pyflow_outer_iter"
             while outer_iter_name in comprehension_locals:
                 outer_iter_name += "_"
@@ -3044,20 +3047,56 @@ class ASTConverter:
         return None
 
     @staticmethod
-    def _comprehension_capture_names(node: python_ast.AST) -> List[str]:
+    def _comprehension_capture_names(
+        node: python_ast.AST, *, skip_first_iter: bool = False
+    ) -> List[str]:
         """Free names a comprehension reads from its enclosing scope."""
         loaded: Set[str] = set()
         bound: Set[str] = set()
-        stack = [node]
+        first_iter = (
+            node.generators[0].iter
+            if skip_first_iter and getattr(node, "generators", None)
+            else None
+        )
+
+        def collect_lambda_params(args: python_ast.arguments) -> Set[str]:
+            names: Set[str] = set()
+            for arg in (
+                *getattr(args, "posonlyargs", ()),
+                *args.args,
+                *args.kwonlyargs,
+            ):
+                names.add(arg.arg)
+            if args.vararg is not None:
+                names.add(args.vararg.arg)
+            if args.kwarg is not None:
+                names.add(args.kwarg.arg)
+            return names
+
+        # Stack items are (ast_node, extra_local_bindings)
+        stack: List[tuple[python_ast.AST, frozenset[str]]] = [(node, frozenset())]
         while stack:
-            current = stack.pop()
+            current, shadowed = stack.pop()
+            if first_iter is not None and current is first_iter:
+                continue
             if isinstance(current, python_ast.Lambda):
+                # Default expressions run in the enclosing scope; the body sees
+                # the lambda's own parameters as shadowed.
+                for default in current.args.defaults:
+                    stack.append((default, shadowed))
+                for default in current.args.kw_defaults:
+                    if default is not None:
+                        stack.append((default, shadowed))
+                lambda_shadowed = shadowed | collect_lambda_params(current.args)
+                stack.append((current.body, lambda_shadowed))
                 continue
             if isinstance(current, python_ast.Name):
                 if isinstance(current.ctx, python_ast.Load):
-                    loaded.add(current.id)
-                else:
+                    if current.id not in shadowed:
+                        loaded.add(current.id)
+                elif not shadowed:
                     bound.add(current.id)
                 continue
-            stack.extend(python_ast.iter_child_nodes(current))
+            for child in python_ast.iter_child_nodes(current):
+                stack.append((child, shadowed))
         return sorted(loaded - bound)

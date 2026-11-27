@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import ast
 import os
+import sys
 import tokenize
 from collections import defaultdict, deque
+from functools import lru_cache
 from typing import Dict, Iterable, Mapping, Optional, Set
 
+from pyflow.language.modules.type_stubs import default_typeshed_roots
 from pyflow.language.source_compat import normalize_legacy_python_syntax
 
 from .model import (
@@ -21,14 +24,41 @@ from .model import (
 )
 
 
+@lru_cache(maxsize=1)
+def _stdlib_roots() -> tuple[str, ...]:
+    """Return canonical roots for the interpreter stdlib and typeshed stdlib."""
+    roots = [os.path.realpath(os.path.dirname(os.__file__))]
+    for typeshed_root in default_typeshed_roots():
+        stdlib_stub_dir = typeshed_root / "stdlib"
+        if stdlib_stub_dir.is_dir():
+            roots.append(os.path.realpath(str(stdlib_stub_dir)))
+    return tuple(dict.fromkeys(roots))
+
+
 def _is_stdlib_path(path: str) -> bool:
-    """Check whether *path* lives inside the Python standard library."""
-    stdlib_dir = os.path.dirname(os.__file__)
-    try:
-        common = os.path.commonpath([os.path.abspath(path), os.path.abspath(stdlib_dir)])
-    except ValueError:
-        return False
-    return common == stdlib_dir
+    """Check whether *path* lives inside the Python or typeshed standard library."""
+    real_path = os.path.realpath(path)
+    for root in _stdlib_roots():
+        try:
+            common = os.path.commonpath([real_path, root])
+        except ValueError:
+            continue
+        if common != root:
+            continue
+        rel_parts = os.path.relpath(real_path, root).split(os.sep)
+        if any(part in {"site-packages", "dist-packages"} for part in rel_parts):
+            continue
+        return True
+    return False
+
+
+def _is_stdlib_module_name(module_name: str) -> bool:
+    """Return whether *module_name* belongs to Python's stdlib or ``_typeshed``."""
+    root = module_name.split(".", 1)[0]
+    if root == "_typeshed":
+        return True
+    stdlib_names = getattr(sys, "stdlib_module_names", frozenset())
+    return root in stdlib_names
 
 
 def _is_within_path(path: str, root: str) -> bool:
@@ -216,7 +246,20 @@ class _ModuleAnalysisMixin:
                     imported,
                     script_path=module_info.path,
                 )
-                if resolution is None or resolution.path is None:
+                resolved_source_path = (
+                    str(resolution.path)
+                    if resolution is not None and resolution.path is not None
+                    else None
+                )
+                is_project_local = resolved_source_path is not None and _is_within_path(
+                    resolved_source_path, self.project_root
+                )
+                if self.options.skip_stdlib_modules and not is_project_local:
+                    if _is_stdlib_module_name(imported):
+                        continue
+                    if resolved_source_path is not None and _is_stdlib_path(resolved_source_path):
+                        continue
+                if resolved_source_path is None:
                     imported_path = self.stub_resolver.resolve_path(
                         imported,
                         script_path=module_info.path,
@@ -224,15 +267,19 @@ class _ModuleAnalysisMixin:
                     if imported_path is None:
                         continue
                 else:
-                    imported_path = resolution.path
-                    if not str(imported_path).endswith(".pyi"):
+                    imported_path = resolved_source_path
+                    if not imported_path.endswith(".pyi"):
                         stub_path = self.stub_resolver.resolve_path(
                             imported,
                             script_path=module_info.path,
                         )
                         if stub_path is not None:
                             imported_path = stub_path
-                if self.options.skip_stdlib_modules and _is_stdlib_path(str(imported_path)):
+                if (
+                    self.options.skip_stdlib_modules
+                    and not is_project_local
+                    and _is_stdlib_path(str(imported_path))
+                ):
                     continue
                 if self.options.skip_external_modules and not _is_within_path(
                     str(imported_path), self.project_root

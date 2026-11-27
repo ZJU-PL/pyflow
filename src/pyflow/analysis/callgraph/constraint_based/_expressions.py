@@ -78,18 +78,16 @@ class _ExpressionAnalysisMixin:
         right_strings = self._string_constants(right)
         if not left_strings or not right_strings:
             return set()
-        if not self.options.strict_precision_mode and any(
-            value.startswith("#") for value in (*left_strings, *right_strings)
-        ):
+        if any(value.startswith("#") for value in (*left_strings, *right_strings)):
             # Integer literals use ``#n`` tokens in the lightweight domain.
             # Treat arithmetic over those tokens as a widened numeric value;
             # concatenating them as strings creates an unbounded ``#1#1...``
-            # sequence in loops and does not model Python integer addition.
+            # sequence in loops and does not model Python integer addition
+            # even when strict precision mode is enabled.
             return {make_string("#int")}
-        if not self.options.strict_precision_mode:
-            combination_cap = max(1, int(self.options.max_values_per_binding))
-            if len(left_strings) * len(right_strings) > combination_cap:
-                return {UNKNOWN_VALUE}
+        combination_cap = max(1, int(self.options.max_values_per_binding))
+        if len(left_strings) * len(right_strings) > combination_cap:
+            return {UNKNOWN_VALUE}
         result: Set[AbstractValue] = set()
         max_length = max(1, int(self.options.max_concrete_string_length))
         for lhs in left_strings:

@@ -152,8 +152,24 @@ def substitute_type_vars(
             else tuple(substitute_type_vars(a, substitutions) for a in type_.arg_types)
         )
         new_return = substitute_type_vars(type_.return_type, substitutions)
-        if callable_args != type_.arg_types or new_return != type_.return_type:
-            return CallableType(callable_args, new_return)
+        new_overloads = (
+            tuple(
+                substituted
+                for overload in type_.overloads
+                if isinstance(
+                    substituted := substitute_type_vars(overload, substitutions),
+                    CallableType,
+                )
+            )
+            if type_.overloads
+            else ()
+        )
+        if (
+            callable_args != type_.arg_types
+            or new_return != type_.return_type
+            or new_overloads != type_.overloads
+        ):
+            return CallableType(callable_args, new_return, overloads=new_overloads)
         return type_
 
     if isinstance(type_, TypeType):

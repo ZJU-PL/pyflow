@@ -14,12 +14,25 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     UnionType,
 )
 
-_SPEC_RE = re.compile(r"%[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[hlL]?([diouxXeEfFgGcrsa%])")
+_SPEC_RE = re.compile(
+    r"%(?:\(([^)]+)\))?[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[hlL]?([diouxXeEfFgGcrsa%])"
+)
 
 
 def percent_conversions(format_string: str) -> list[str]:
-    """Return conversion characters in *format_string*, excluding ``%%``."""
-    return [match.group(1) for match in _SPEC_RE.finditer(format_string) if match.group(1) != "%"]
+    """Return positional conversion characters in *format_string*, excluding ``%%``."""
+    return [
+        match.group(2)
+        for match in _SPEC_RE.finditer(format_string)
+        if match.group(2) != "%" and match.group(1) is None
+    ]
+
+
+def _has_percent_mapping_keys(format_string: str) -> bool:
+    return any(
+        match.group(1) is not None and match.group(2) != "%"
+        for match in _SPEC_RE.finditer(format_string)
+    )
 
 
 def _is_numeric(typ: ProperType) -> bool:
@@ -35,7 +48,9 @@ def _is_text(typ: ProperType) -> bool:
 
 
 def _accepts(spec: str, typ: ProperType) -> bool:
-    if isinstance(typ, (Instance,)) and typ.type.raw_type is object:
+    if isinstance(typ, AnyType) or typ == ANY:
+        return True
+    if isinstance(typ, Instance) and typ.type.raw_type is object:
         return True
     if spec in {"d", "i", "o", "u", "x", "X"}:
         return _is_int(typ)
@@ -47,25 +62,39 @@ def _accepts(spec: str, typ: ProperType) -> bool:
 
 
 def str_format_fields(format_string: str) -> list[str]:
-    """Return ``str.format`` field names in source order (``""`` for auto)."""
+    """Return ``str.format`` field names in source order (``""`` for auto).
+
+    Nested replacement fields inside format specifications such as
+    ``"{:.{width}f}"`` are extracted alongside their enclosing field.
+    """
     fields: list[str] = []
     index = 0
-    while index < len(format_string):
+    length = len(format_string)
+    while index < length:
         character = format_string[index]
         if character == "{":
-            if index + 1 < len(format_string) and format_string[index + 1] == "{":
+            if index + 1 < length and format_string[index + 1] == "{":
                 index += 2
                 continue
-            end = format_string.find("}", index + 1)
-            if end < 0:
+            depth = 1
+            cursor = index + 1
+            while cursor < length and depth > 0:
+                if format_string[cursor] == "{":
+                    depth += 1
+                elif format_string[cursor] == "}":
+                    depth -= 1
+                cursor += 1
+            if depth != 0:
                 break
-            field = format_string[index + 1 : end]
-            field = field.split("!", 1)[0].split(":", 1)[0]
-            fields.append(field)
-            index = end + 1
-        elif (
-            character == "}" and index + 1 < len(format_string) and format_string[index + 1] == "}"
-        ):
+            inner = format_string[index + 1 : cursor - 1]
+            # Split top-level field name from optional !conv and :format_spec.
+            spec_split = inner.split(":", 1)
+            field_head = spec_split[0].split("!", 1)[0]
+            fields.append(field_head)
+            if len(spec_split) == 2 and "{" in spec_split[1]:
+                fields.extend(str_format_fields(spec_split[1]))
+            index = cursor
+        elif character == "}" and index + 1 < length and format_string[index + 1] == "}":
             index += 2
         else:
             index += 1
@@ -76,6 +105,9 @@ def check_str_format(
     format_string: str,
     positional_count: int,
     keyword_names: set[str],
+    *,
+    has_starred: bool = False,
+    has_double_starred: bool = False,
 ) -> list[str]:
     """Return missing/invalid ``str.format`` fields."""
     fields = str_format_fields(format_string)
@@ -84,24 +116,37 @@ def check_str_format(
     auto_used = False
     manual_used = False
     for field in fields:
-        if field == "":
+        head = field.split(".", 1)[0].split("[", 1)[0]
+        if head == "":
             auto_used = True
-            if auto_index >= positional_count:
+            if not has_starred and auto_index >= positional_count:
                 issues.append(f"format is missing positional argument {auto_index}")
             auto_index += 1
             continue
-        head = field.split(".", 1)[0].split("[", 1)[0]
         if head.isdigit():
             manual_used = True
-            if int(head) >= positional_count:
+            if not has_starred and int(head) >= positional_count:
                 issues.append(f"format references missing positional argument {head}")
         else:
-            manual_used = True
-            if head and head not in keyword_names:
+            # Named keyword fields (``{name}``) are valid alongside both
+            # automatic (``{}``) and manual (``{0}``) positional fields.
+            if not has_double_starred and head not in keyword_names:
                 issues.append(f"format references missing keyword argument {head!r}")
     if auto_used and manual_used:
         issues.append("cannot mix automatic and manual field numbering")
     return issues
+
+
+def _is_dynamic_tuple_or_gradual(typ: ProperType) -> bool:
+    if isinstance(typ, AnyType) or typ == ANY:
+        return True
+    if isinstance(typ, TupleType) and typ.unknown_size:
+        return True
+    if isinstance(typ, Instance) and typ.type.raw_type in {tuple, object}:
+        return True
+    if isinstance(typ, UnionType):
+        return any(_is_dynamic_tuple_or_gradual(item) for item in typ.items)
+    return False
 
 
 def check_percent_format(
@@ -110,16 +155,20 @@ def check_percent_format(
     type_system: TypeSystem,
 ) -> list[str]:
     """Return human-readable mismatches between a ``%`` format and its RHS."""
+    if _has_percent_mapping_keys(format_string):
+        return []
     conversions = percent_conversions(format_string)
     if not conversions or argument is None or argument == ANY:
         return []
     if "*" in format_string:
         # Star widths consume extra arguments; leave those to runtime.
         return []
-    if isinstance(argument, AnyType):  # pragma: no cover - AnyType is not exported here
+    if isinstance(argument, AnyType):
         return []
     if isinstance(argument, TupleType) and not argument.unknown_size:
         arguments = list(argument.args)
+    elif len(conversions) > 1 and _is_dynamic_tuple_or_gradual(argument):
+        return []
     else:
         arguments = [argument]
     issues: list[str] = []
@@ -132,7 +181,9 @@ def check_percent_format(
         )
     for spec, actual in zip(conversions, arguments):
         if isinstance(actual, UnionType):
-            if all(_accepts(spec, item) for item in actual.items):
+            if any(isinstance(item, AnyType) or item == ANY for item in actual.items) or all(
+                _accepts(spec, item) for item in actual.items
+            ):
                 continue
         elif _accepts(spec, actual):
             continue

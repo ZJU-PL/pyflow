@@ -25,6 +25,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
     NEVER,
     NONE_TYPE,
+    AnyType,
     CallableType,
     Instance,
     NoneType,
@@ -417,11 +418,15 @@ class BuiltinInference(InferenceComponent):
         return None
 
     def _call_mapping_layout(self, node, base, arguments, keywords, environment, call_node):
-        if base.mapping_items is None or not all(
-            isinstance(typ, Instance)
-            and typ.type.raw_type is dict
-            and typ.type.typed_dict_fields is None
-            for typ in base.types
+        if (
+            base.unknown
+            or base.mapping_items is None
+            or not all(
+                isinstance(typ, Instance)
+                and typ.type.raw_type is dict
+                and typ.type.typed_dict_fields is None
+                for typ in base.types
+            )
         ):
             return None
         fields = dict(base.mapping_items)
@@ -454,6 +459,25 @@ class BuiltinInference(InferenceComponent):
                     environment,
                     node.value,
                     self.engine._value_rules._instance(dict, ANY, ANY),
+                    old_value=base,
+                )
+                return AbstractTypeValue.from_type(NONE_TYPE)
+            if arguments and (
+                arguments[0].unknown or any(isinstance(t, AnyType) for t in arguments[0].types)
+            ):
+                keys = (
+                    join_all(
+                        (self.engine._value_rules._instance(type(key)) for key in fields),
+                        self.engine.type_system,
+                    ).runtime_type()
+                    or ANY
+                    if fields
+                    else ANY
+                )
+                self.engine._flow_rules._update_environment_receiver(
+                    environment,
+                    node.value,
+                    self.engine._value_rules._instance(dict, keys, ANY),
                     old_value=base,
                 )
                 return AbstractTypeValue.from_type(NONE_TYPE)
@@ -1586,13 +1610,14 @@ class BuiltinInference(InferenceComponent):
                     key = args[0] if len(args) > 0 else ANY
                     item = args[1] if len(args) > 1 else ANY
                     if node.attr == "get":
-                        result = AbstractTypeValue.from_type(item)
+                        result = AbstractTypeValue.from_type(ANY if base.unknown else item)
                         default = (
                             arguments[1]
                             if len(arguments) > 1
                             else AbstractTypeValue.from_type(NONE_TYPE)
                         )
-                        return self.engine._value_rules._join(result, default)
+                        joined = self.engine._value_rules._join(result, default)
+                        return replace(joined, unknown=True) if base.unknown else joined
                     if node.attr == "setdefault":
                         default = (
                             arguments[1]
@@ -1600,8 +1625,10 @@ class BuiltinInference(InferenceComponent):
                             else AbstractTypeValue.from_type(NONE_TYPE)
                         )
                         result = self.engine._value_rules._join(
-                            AbstractTypeValue.from_type(item), default
+                            AbstractTypeValue.from_type(ANY if base.unknown else item), default
                         )
+                        if base.unknown:
+                            result = replace(result, unknown=True)
                         key_type = (
                             arguments[0].public_type()
                             if arguments and arguments[0].public_type() is not None
@@ -1624,12 +1651,15 @@ class BuiltinInference(InferenceComponent):
                         )
                         return result
                     if node.attr == "pop":
-                        result = AbstractTypeValue.from_type(item)
+                        result = AbstractTypeValue.from_type(ANY if base.unknown else item)
                         if len(arguments) > 1:
-                            return self.engine._value_rules._join(result, arguments[1])
-                        return result
+                            result = self.engine._value_rules._join(result, arguments[1])
+                        return replace(result, unknown=True) if base.unknown else result
                     if node.attr == "popitem":
-                        return AbstractTypeValue.from_type(TupleType((key, item)))
+                        pair = AbstractTypeValue.from_type(
+                            TupleType((ANY, ANY) if base.unknown else (key, item))
+                        )
+                        return replace(pair, unknown=True) if base.unknown else pair
                     if node.attr == "keys":
                         return self.engine._value_rules._instance(cabc.KeysView, key)
                     if node.attr == "values":
@@ -1641,9 +1671,15 @@ class BuiltinInference(InferenceComponent):
                             mapping_key: AbstractTypeValue | None = None
                             mapping_item: AbstractTypeValue | None = None
                             if arguments:
-                                mapping_key, mapping_item = (
-                                    self.engine._value_rules._mapping_key_value(arguments[0])
-                                )
+                                if arguments[0].unknown or any(
+                                    isinstance(t, AnyType) for t in arguments[0].types
+                                ):
+                                    mapping_key = AbstractTypeValue.from_type(ANY)
+                                    mapping_item = AbstractTypeValue.from_type(ANY)
+                                else:
+                                    mapping_key, mapping_item = (
+                                        self.engine._value_rules._mapping_key_value(arguments[0])
+                                    )
                             elif keywords:
                                 mapping_key = self.engine._value_rules._instance(str)
                                 mapping_item = join_all(

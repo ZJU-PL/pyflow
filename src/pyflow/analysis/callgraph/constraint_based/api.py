@@ -199,8 +199,11 @@ def extract_value_flow_graph_constraint(
     emit_solver_stats: bool = False,
     strict_precision_mode: bool = False,
     skip_stdlib_modules: bool = True,
+    skip_external_modules: bool = False,
     analyze_reachable_only: bool = False,
     seed_entry_file_scopes: bool = False,
+    additional_sources: Optional[Mapping[str, str]] = None,
+    project_root: Optional[str] = None,
     fixpoint_max_seconds: Optional[float] = 60.0,
 ) -> Dict[str, List[str]]:
     """
@@ -226,6 +229,7 @@ def extract_value_flow_graph_constraint(
         emit_solver_stats=emit_solver_stats,
         strict_precision_mode=strict_precision_mode,
         skip_stdlib_modules=skip_stdlib_modules,
+        skip_external_modules=skip_external_modules,
         analyze_reachable_only=analyze_reachable_only,
         seed_entry_file_scopes=seed_entry_file_scopes,
     )
@@ -234,6 +238,8 @@ def extract_value_flow_graph_constraint(
         entry_path=entry_path,
         verbose=verbose,
         options=options,
+        additional_sources=additional_sources,
+        project_root=project_root,
     )
     builder.build()
     graph = builder.materialize_value_flow_graph()
@@ -267,6 +273,7 @@ def extract_call_site_edge_index_constraint(
     analyze_reachable_only: bool = False,
     seed_entry_file_scopes: bool = False,
     additional_sources: Optional[Mapping[str, str]] = None,
+    project_root: Optional[str] = None,
     fixpoint_max_seconds: Optional[float] = 60.0,
 ) -> CallSiteEdgeIndex:
     """Extract direct call-site edges from the constraint analyser."""
@@ -297,6 +304,7 @@ def extract_call_site_edge_index_constraint(
         verbose=verbose,
         options=options,
         additional_sources=additional_sources,
+        project_root=project_root,
     )
     builder.build()
     return builder.call_site_edge_index()

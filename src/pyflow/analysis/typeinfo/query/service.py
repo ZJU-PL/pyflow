@@ -136,6 +136,7 @@ class TypeInfoService:
         self._third_party_kind: dict[str, str | None] = {}
         self._should_collect_cache: dict[str, bool] = {}
         self._known_class_cache: dict[str, bool] = {}
+        self._external_symbol_cache: dict[str, ProperType | None] = {}
         self._documented_parameters: dict[tuple[str, str], set[str]] = {}
         self._documented_returns: set[tuple[str, str]] = set()
 
@@ -194,6 +195,7 @@ class TypeInfoService:
                 self._record_collection_failure(module_name, "type_stub_failed", exc, path)
 
             self._collected_modules.add(module_name)
+            self._external_symbol_cache.clear()
             completed = True
         finally:
             self._collecting_modules.discard(module_name)
@@ -448,6 +450,21 @@ class TypeInfoService:
         )
         return nested or (target_module, target_name)
 
+    def _ensure_class_loaded(self, class_name: str) -> ClassTypeInfo | None:
+        info = self._classes.get(class_name)
+        if info is not None:
+            return info
+        module_name, separator, _ = class_name.rpartition(".")
+        if (
+            separator
+            and module_name not in self._collected_modules
+            and module_name not in self._collecting_modules
+            and len(self._collection_stack) < self._max_collection_depth
+            and self._module_should_be_collected(module_name)
+        ):
+            self.collect_module(module_name)
+        return self._classes.get(class_name)
+
     def _class_members_with_inheritance(
         self, class_name: str, seen: set[str] | None = None
     ) -> dict[str, TypeFact]:
@@ -455,7 +472,7 @@ class TypeInfoService:
         if class_name in seen:
             return {}
         seen.add(class_name)
-        info = self._classes.get(class_name)
+        info = self._ensure_class_loaded(class_name)
         if info is None:
             return {}
         members: dict[str, TypeFact] = {}
@@ -489,7 +506,7 @@ class TypeInfoService:
         if class_name in seen:
             return None
         seen.add(class_name)
-        info = self._classes.get(class_name)
+        info = self._ensure_class_loaded(class_name)
         if info is None:
             return None
         method = info.methods.get(method_name)
@@ -634,6 +651,8 @@ class TypeInfoService:
                 self._class_aliases[node.name] = qualified_name
                 module_aliases[node.name] = qualified_name
 
+        is_third_party = self._third_party_typed(module_name) is True
+        collect_missing = not is_third_party
         grouped_functions: dict[str, list[FunctionTypeInfo]] = {}
         for node in _module_statements(tree):
             if isinstance(node, ast.ClassDef):
@@ -642,6 +661,7 @@ class TypeInfoService:
                     module_name,
                     node,
                     imports,
+                    collect_missing=collect_missing,
                 )
                 self._classes[class_info.name] = class_info
                 facts[node.name] = TypeFact(
@@ -658,6 +678,7 @@ class TypeInfoService:
                         module_name=module_name,
                         imports=imports,
                         source="annotation",
+                        collect_missing=collect_missing,
                     )
                 )
         for function_name, infos in grouped_functions.items():
@@ -696,6 +717,7 @@ class TypeInfoService:
                         raw_annotation,
                         module_name=module_name,
                         imports=imports,
+                        collect_missing=collect_missing,
                     )
                 elif head in {"Final", "ClassVar"}:
                     inner = _strip_annotation_wrapper(raw_annotation, head)
@@ -704,6 +726,7 @@ class TypeInfoService:
                             inner,
                             module_name=module_name,
                             imports=imports,
+                            collect_missing=collect_missing,
                         )
                         raw_annotation = inner
                     elif node.value is not None:
@@ -718,6 +741,7 @@ class TypeInfoService:
                         raw_annotation,
                         module_name=module_name,
                         imports=imports,
+                        collect_missing=collect_missing,
                     )
                 if member_type is None and node.value is not None:
                     member_type = self._infer_expr_type(
@@ -752,7 +776,6 @@ class TypeInfoService:
                             kind="variable",
                         )
 
-        is_third_party = self._third_party_typed(module_name) is True
         for local_name, qualified_name in imports.items():
             if local_name in facts:
                 continue
@@ -822,6 +845,7 @@ class TypeInfoService:
         self._inference_results[module_name] = result
         if not self._refreshing_inference:
             self._needs_refresh = True
+        self._external_symbol_cache.clear()
         facts = self._module_facts.setdefault(module_name, {})
         prefix = f"{module_name}."
         for qualified_name, symbol in result.symbols.items():
@@ -941,7 +965,12 @@ class TypeInfoService:
         if module_name in self._collecting_modules:
             fact = self._module_facts.get(module_name, {}).get(name)
             return None if fact is None else fact.typ
-        return self._lookup_project_type(qualified_name, allow_synthetic=False)
+        if qualified_name in self._external_symbol_cache:
+            return self._external_symbol_cache[qualified_name]
+        resolved = self._lookup_project_type(qualified_name, allow_synthetic=False)
+        if module_name not in self._collecting_modules:
+            self._external_symbol_cache[qualified_name] = resolved
+        return resolved
 
     def _collect_stub_module(
         self,
@@ -1337,6 +1366,8 @@ class TypeInfoService:
         module_name: str,
         node: ast.ClassDef,
         imports: dict[str, str],
+        *,
+        collect_missing: bool = True,
     ) -> ClassTypeInfo:
         members: dict[str, TypeFact] = {}
         methods: dict[str, FunctionTypeInfo] = {}
@@ -1355,6 +1386,7 @@ class TypeInfoService:
                         raw_annotation,
                         module_name=module_name,
                         imports=imports,
+                        collect_missing=collect_missing,
                     ),
                     raw_annotation=raw_annotation,
                     source="annotation",
@@ -1380,6 +1412,7 @@ class TypeInfoService:
                         imports=imports,
                         source="annotation",
                         symbol_name=f"{node.name}.{stmt.name}",
+                        collect_missing=collect_missing,
                     ),
                     class_typ,
                 )
@@ -1410,6 +1443,7 @@ class TypeInfoService:
                         raw_base,
                         module_name=module_name,
                         imports=imports,
+                        collect_missing=collect_missing,
                     )
                 )
                 is not None
@@ -1428,6 +1462,7 @@ class TypeInfoService:
         imports: dict[str, str],
         source: str,
         symbol_name: str | None = None,
+        collect_missing: bool = True,
     ) -> FunctionTypeInfo:
         raw_params: dict[str, str | None] = {}
         params: dict[str, ProperType | None] = {}
@@ -1438,6 +1473,7 @@ class TypeInfoService:
                 raw,
                 module_name=module_name,
                 imports=imports,
+                collect_missing=collect_missing,
             )
         if node.args.vararg is not None:
             raw = (
@@ -1450,6 +1486,7 @@ class TypeInfoService:
                 raw,
                 module_name=module_name,
                 imports=imports,
+                collect_missing=collect_missing,
             )
         if node.args.kwarg is not None:
             raw = (
@@ -1462,16 +1499,27 @@ class TypeInfoService:
                 raw,
                 module_name=module_name,
                 imports=imports,
+                collect_missing=collect_missing,
             )
         raw_returns = _annotation_to_str(node.returns) if node.returns is not None else None
-        returns = self._resolve_annotation(raw_returns, module_name=module_name, imports=imports)
+        returns = self._resolve_annotation(
+            raw_returns,
+            module_name=module_name,
+            imports=imports,
+            collect_missing=collect_missing,
+        )
         docstring = ast.get_docstring(node)
         used_documentation = False
         documentation_key = (module_name, symbol_name or node.name)
         if docstring:
 
             def resolve_hint(text: str) -> ProperType | None:
-                return self._resolve_annotation(text, module_name=module_name, imports=imports)
+                return self._resolve_annotation(
+                    text,
+                    module_name=module_name,
+                    imports=imports,
+                    collect_missing=collect_missing,
+                )
 
             for name in params:
                 if raw_params[name] is not None:
@@ -1673,6 +1721,7 @@ class TypeInfoService:
         *,
         module_name: str | None = None,
         imports: dict[str, str] | None = None,
+        collect_missing: bool = True,
     ) -> ProperType | None:
         if annotation is None:
             return None
@@ -1682,6 +1731,7 @@ class TypeInfoService:
                 name,
                 module_name=module_name,
                 imports=imports or {},
+                collect_missing=collect_missing,
             ),
         )
         return resolve_annotation(annotation, lookup)
@@ -1692,6 +1742,7 @@ class TypeInfoService:
         *,
         module_name: str | None = None,
         imports: dict[str, str],
+        collect_missing: bool = True,
     ) -> ProperType | None:
         if name in {"Self", "typing.Self", "typing_extensions.Self"}:
             return self._synthetic_instance("typing_extensions.Self")
@@ -1702,6 +1753,7 @@ class TypeInfoService:
             resolved = self._lookup_project_type(
                 imported,
                 allow_synthetic=True,
+                collect_missing=collect_missing,
             )
             if resolved is not None:
                 return resolved
@@ -1738,6 +1790,7 @@ class TypeInfoService:
             resolved = self._lookup_project_type(
                 f"{module_name}.{name}",
                 allow_synthetic=False,
+                collect_missing=collect_missing,
             )
             if resolved is not None:
                 return resolved
@@ -1885,7 +1938,7 @@ class TypeInfoService:
             return None
         seen.add(class_name)
         receiver_class = receiver_class or class_name
-        info = self._classes.get(class_name)
+        info = self._ensure_class_loaded(class_name)
         if info is None:
             return None
         method = info.methods.get(member)
