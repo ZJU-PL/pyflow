@@ -82,6 +82,8 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._collecting_modules: set[str] = set()
         self._collection_stack: list[str] = []
         self._max_collection_depth = 32
+        self._max_transitive_inferred_modules = 16
+        self._transitive_inferred_count = 0
         self._depth_limit_warning_emitted = False
         self.enable_static_inference = enable_static_inference
         self.inference_options = (
@@ -94,6 +96,7 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._function_summaries: dict[str, object] = {}
         self._deferred_inference_modules: set[str] = set()
         self._module_sources: dict[str, tuple[str, str | None]] = {}
+        self._module_defined_names: dict[str, frozenset[str]] = {}
         self._module_all: dict[str, frozenset[str] | None] = {}
         self._module_imports: dict[str, dict[str, str]] = {}
         self._module_stub_type_vars: dict[str, dict[str, StubTypeVarInfo]] = {}
@@ -142,6 +145,7 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
             return
         if not self._collecting_modules:
             self._depth_limit_warning_emitted = False
+            self._transitive_inferred_count = 0
         self._collecting_modules.add(module_name)
         self._collection_stack.append(module_name)
         completed = False
@@ -166,7 +170,7 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                 self._record_collection_failure(module_name, "type_stub_failed", exc, path)
 
             self._collected_modules.add(module_name)
-            self._external_symbol_cache.clear()
+            self._invalidate_external_symbol_cache(module_name)
             self._reexport_cache.clear()
             completed = True
         finally:
@@ -202,6 +206,19 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                         if item not in existing_diags:
                             existing_diags.add(item)
                             result.diagnostics.append(item)
+
+    def _invalidate_external_symbol_cache(self, module_name: str) -> None:
+        """Evict only cache entries affected by *module_name* (preserving stdlib/other caches)."""
+        if not self._external_symbol_cache:
+            return
+        prefix = f"{module_name}."
+        stale = [
+            key
+            for key, value in self._external_symbol_cache.items()
+            if value is None or key == module_name or key.startswith(prefix)
+        ]
+        for key in stale:
+            self._external_symbol_cache.pop(key, None)
 
     def _add_collection_diagnostic(self, diagnostic: StubDiagnostic) -> None:
         """Record *diagnostic* once in O(1) time."""
@@ -408,12 +425,17 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._ensure_refreshed()
         return self._inference_results.get(module_name)
 
-    def _ensure_inferred(self, module_name: str) -> None:
+    def _ensure_inferred(self, module_name: str, *, transitive: bool = False) -> None:
         """Run deferred intra-module static inference for a dependency on demand."""
         if (
             not self.enable_static_inference
             or module_name not in self._deferred_inference_modules
             or module_name in self._collecting_modules
+        ):
+            return
+        if transitive and (
+            len(self._collection_stack) >= 4
+            or self._transitive_inferred_count >= self._max_transitive_inferred_modules
         ):
             return
         cached = self._module_sources.get(module_name)
@@ -423,6 +445,8 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         self._deferred_inference_modules.discard(module_name)
         if len(self._collection_stack) >= self._max_collection_depth:
             return
+        if transitive:
+            self._transitive_inferred_count += 1
         self._collecting_modules.add(module_name)
         self._collection_stack.append(module_name)
         try:

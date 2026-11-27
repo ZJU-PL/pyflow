@@ -66,6 +66,7 @@ class _SourceCollectionMixin:
             return False
         self._refreshing_import_facts = True
         changed_any = False
+        changed_all: set[str] = set()
         try:
             changed_modules: set[str] | None = None
             for pass_index in range(3):
@@ -120,10 +121,12 @@ class _SourceCollectionMixin:
                             changed = True
                             changed_any = True
                             next_changed_modules.add(mod_name)
+                            changed_all.add(mod_name)
                 if not changed:
                     break
                 changed_modules = next_changed_modules
         finally:
+            self._last_refreshed_import_modules = frozenset(changed_all)
             self._refreshing_import_facts = False
         return changed_any
 
@@ -199,6 +202,29 @@ class _SourceCollectionMixin:
             ):
                 exported_names = frozenset(names)
         self._module_all[module_name] = exported_names
+
+        defined_names: set[str] = set(exported_names or ())
+        for stmt in _module_statements(tree):
+            if isinstance(stmt, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                defined_names.add(stmt.name)
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                defined_names.add(stmt.target.id)
+            elif isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    for sub in ast.walk(target):
+                        if isinstance(sub, ast.Name):
+                            defined_names.add(sub.id)
+            elif isinstance(stmt, ast.Import):
+                for alias in stmt.names:
+                    defined_names.add(alias.asname or alias.name.split(".")[0])
+            elif isinstance(stmt, ast.ImportFrom):
+                for alias in stmt.names:
+                    if alias.name != "*":
+                        defined_names.add(alias.asname or alias.name)
+            elif hasattr(ast, "TypeAlias") and isinstance(stmt, ast.TypeAlias):
+                if isinstance(stmt.name, ast.Name):
+                    defined_names.add(stmt.name.id)
+        self._module_defined_names[module_name] = frozenset(defined_names)
 
         facts = self._module_facts.setdefault(module_name, {})
         functions = self._functions.setdefault(module_name, {})
@@ -400,7 +426,7 @@ class _SourceCollectionMixin:
             self._function_summaries[qualified_name] = summary
         if not self._refreshing_inference:
             self._needs_refresh = True
-        self._external_symbol_cache.clear()
+        self._invalidate_external_symbol_cache(module_name)
         facts = self._module_facts.setdefault(module_name, {})
         prefix = f"{module_name}."
         for qualified_name, symbol in result.symbols.items():

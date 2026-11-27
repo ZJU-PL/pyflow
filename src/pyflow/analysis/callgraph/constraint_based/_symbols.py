@@ -680,6 +680,11 @@ class _SymbolAnalysisMixin:
                         names.add(value.name)
                     elif value.kind == "func" and "." in value.name:
                         names.add(value.name)
+                if len(names) > 1 and class_info.qualname in names:
+                    # A flow-insensitive binding for a class shadowing an imported
+                    # base with the same name (e.g. ``from _impl import Foo;
+                    # class Foo(Foo):``) includes itself alongside the real base.
+                    names.discard(class_info.qualname)
                 candidates.append(names)
                 resolved.extend(sorted(names))
             self._class_base_candidates[class_info.qualname] = candidates

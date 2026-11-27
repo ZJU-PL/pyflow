@@ -935,7 +935,10 @@ class _CallTargetMixin:
                     if bridge is not None:
                         callee_module, sep, _ = callee_name.rpartition(".")
                         query_module = callee_module if sep else caller_scope.module
-                        if query_module:
+                        if query_module and (
+                            query_module in self.modules
+                            or query_module == self.entry_module_import_name
+                        ):
                             fact = bridge.return_type(query_module, callee_name)
                             if fact is not None:
                                 matched_classes = self._resolve_typeinfo_class_names(

@@ -1333,12 +1333,19 @@ class CallInference(InferenceComponent):
 
     def _return_dependencies(self, function: _FunctionInfo) -> frozenset[str]:
         """Find direct parameter-to-return relations for context precision."""
+        cached = function.return_dependencies_cache
+        if cached is not None:
+            return cached
         if isinstance(function.node, ast.Lambda):
             if isinstance(function.node.body, ast.Name):
                 name = function.node.body.id
                 if name in function.parameter_names:
-                    return frozenset((name,))
-            return frozenset()
+                    result = frozenset((name,))
+                    function.return_dependencies_cache = result
+                    return result
+            result = frozenset()
+            function.return_dependencies_cache = result
+            return result
         dependencies: set[str] = set()
         mutated: set[str] = set()
         saw_return = False
@@ -1371,10 +1378,14 @@ class CallInference(InferenceComponent):
 
         visit(function.node, root=True)
         if not saw_return or invalid:
-            return frozenset()
+            result = frozenset()
+            function.return_dependencies_cache = result
+            return result
         # A parameter that is reassigned or mutated no longer carries its
         # call-site type through to the return value.
-        return frozenset(dependencies - mutated)
+        result = frozenset(dependencies - mutated)
+        function.return_dependencies_cache = result
+        return result
 
     def _generic_constructor_args(
         self,

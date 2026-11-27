@@ -239,7 +239,11 @@ class ConstraintCallGraphBuilder(
         """Lazily initialize the TypeInfo fact bridge on first fallback query."""
         if not self.options.use_typeinfo_facts or not self.options.use_type_hints:
             return None
-        if self._fixpoint_deadline is not None and time.monotonic() >= self._fixpoint_deadline:
+        if not self.classes:
+            return None
+        if self._fixpoint_deadline is not None and (
+            self._fixpoint_deadline - time.monotonic()
+        ) < 0.5:
             return None
         if self._typeinfo_bridge is None:
             from pyflow.analysis.typeinfo.publication import TypeFactBridge
@@ -247,7 +251,7 @@ class ConstraintCallGraphBuilder(
             bridge = TypeFactBridge(
                 project_context=self.project_context,
                 source_files=self.additional_sources,
-                enable_static_inference=True,
+                enable_static_inference=False,
             )
             bridge.register_module_source(
                 self.entry_module_name,

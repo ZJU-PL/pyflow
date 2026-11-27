@@ -178,7 +178,7 @@ class _TypeAnalysisMixin:
             resolved = self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
             if resolved:
                 return resolved
-        bridge = self._get_typeinfo_bridge()
+        bridge = self._get_typeinfo_bridge() if module_name in self.modules else None
         if bridge is not None:
             try:
                 annotation_text = ast.unparse(expr)

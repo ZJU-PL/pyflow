@@ -423,7 +423,7 @@ class _TypeLookupMixin:
                     return found
         owner_mod = class_name.rpartition(".")[0]
         if owner_mod in self._deferred_inference_modules:
-            self._ensure_inferred(owner_mod)
+            self._ensure_inferred(owner_mod, transitive=bool(self._collection_stack))
             descriptor = self.type_system.class_descriptor(class_name)
             if descriptor is not None and member in descriptor.members:
                 return descriptor.members[member]
@@ -566,12 +566,15 @@ class _TypeLookupMixin:
                 )
 
         fact = self._module_facts.get(module_name, {}).get(attr)
+        defined_in_module = self._module_defined_names.get(module_name)
+        attr_may_exist = defined_in_module is None or attr in defined_in_module
         if (
             collect_missing
             and module_name in self._deferred_inference_modules
             and (
                 (
                     fact is None
+                    and attr_may_exist
                     and qualified_name not in self._collected_modules
                     and qualified_name not in self._collecting_modules
                     and not self._module_may_be_project(qualified_name)
@@ -585,7 +588,7 @@ class _TypeLookupMixin:
                 )
             )
         ):
-            self._ensure_inferred(module_name)
+            self._ensure_inferred(module_name, transitive=bool(self._collection_stack))
             summary = self._summary_type(qualified_name)
             if summary is not None:
                 return summary

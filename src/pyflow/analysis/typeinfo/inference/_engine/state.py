@@ -50,6 +50,7 @@ class _FunctionInfo:
     effective_return: AbstractTypeValue | None = None
     type_guard_target: tuple[str, AbstractTypeValue, bool] | None = None
     overloads: list["_FunctionInfo"] = field(default_factory=list)
+    return_dependencies_cache: frozenset[str] | None = None
 
 
 @dataclass

@@ -703,6 +703,8 @@ class _StateAnalysisMixin:
                     bridge = self._get_typeinfo_bridge()
                     if bridge is not None:
                         for klass in class_order:
+                            if klass not in self.classes:
+                                continue
                             fact = bridge.member_type(klass, attr_name)
                             if fact is None:
                                 continue
