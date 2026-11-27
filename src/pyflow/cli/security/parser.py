@@ -294,19 +294,20 @@ def add_security_parser(subparsers):
         "--format",
         choices=[
             "text",
+            "screen",
+            "markdown",
+            "html",
             "json",
             "sarif",
-            "csv",
             "custom",
-            "html",
-            "screen",
+            "csv",
             "xml",
             "yaml",
         ],
         default="text",
         help=(
-            "Output format (text, json, sarif, and custom work with every engine; "
-            "csv, html, screen, xml, and yaml are AST-engine only)"
+            "Output format (text, screen, markdown, html, json, sarif, and custom "
+            "work with every engine; csv, xml, and yaml are AST-engine only)"
         ),
     )
     p.add_argument(

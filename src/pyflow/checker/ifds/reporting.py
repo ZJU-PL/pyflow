@@ -48,7 +48,11 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
                 primary_location=source_span_for_node(adapter, finding.sink),
                 procedure=_source_procedure(adapter, finding.sink),
                 node_id=adapter.supergraph.node_id(finding.sink),
-                code_flow=flow_steps_for_traces(adapter, traces),
+                code_flow=flow_steps_for_traces(
+                    adapter,
+                    traces,
+                    describe_fact=getattr(result._problem, "describe_fact", None),
+                ),
                 cwe=finding.cwe,
                 suggestion=finding.suggestion,
                 properties={

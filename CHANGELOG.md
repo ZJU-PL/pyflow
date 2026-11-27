@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Unified user-friendly bug report rendering across `ifds`, `ast-dataflow`, and
+  `cpg` (`pyflow security --format text|screen|markdown|html|sarif`):
+  - Added `pyflow.checker.formatters.report_render` producing numbered findings
+    with source code context snippets, `^~~~` highlights, indented
+    Source -> Sink dataflow traces with inline source lines, CWE references,
+    and remediation suggestions, while moving verbose solver statistics behind
+    `--verbose`.
+  - Added `--format markdown` (GitHub-Flavored Markdown) and enabled
+    `--format screen` (ANSI-colored terminal) and `--format html`
+    (self-contained interactive HTML5 with severity filtering and expandable
+    traces) for all engines.
+  - Upgraded IFDS `code_flow` witnesses with real call-stack `nesting_level`
+    and human-readable step descriptions, and added `explain_path` traces,
+    CWEs, and remediation suggestions to IFDS nullness and typestate findings.
+  - Unified CPG SARIF adapters (`formatters/cpg.py` and `formatters/security.py`)
+    to anchor primary locations at the sink, added `partialFingerprints` and
+    column support to `ast-dataflow` and `cpg` SARIF output, and preserved
+    `suggestion` and normalized `code_flow` in `--json-schema unified`.
+
 - Added engine-agnostic `PublishedTypeFact` / `PublishedProcedureTypes` records
   and `Capabilities.TYPE_SYMBOL_TYPES`, `TYPE_CALL_RETURNS`, and
   `TYPE_PROCEDURE_SUMMARIES` in `pyflow.ir.core`, backed by

@@ -220,7 +220,7 @@ Options:
 - ``--ast-max-seconds``: Total AST-dataflow budget including source preparation (default: 30 seconds)
 - ``--ifds-total-max-seconds``: Total IFDS budget across entries and source preparation (default: 60 seconds); findings from completed entries are retained when interrupted
 - ``--framework``: Framework rule packs for taint sources/sinks/sanitizers (shared by the ``ast-dataflow``, ``cpg``, and ``ifds`` engines)
-- ``--format``: Output format: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml``. The ``ifds`` and ``cpg`` engines support ``text``, ``json``, ``sarif``, and ``custom``; requesting another format is an error rather than a silent text fallback.
+- ``--format``: Output format: ``text``, ``screen``, ``markdown``, ``html``, ``json``, ``sarif``, ``custom``, ``csv``, ``xml``, or ``yaml``. Every engine supports ``text``, ``screen``, ``markdown``, ``html``, ``json``, ``sarif``, and ``custom``; ``csv``, ``xml``, and ``yaml`` are AST-engine only (requesting an unsupported format is an error rather than a silent text fallback).
 - ``--custom-template``: Template string for ``--format custom`` (for example ``'{abspath}:{line}: {test_id} [{severity}] {msg}'``)
 - ``--output``: Output file path
 - ``--exit-code-policy``: ``report`` (default) returns zero for complete/partial reports; ``findings`` enables CI gating (1 for findings, 3 for partial/cancelled analysis). Both policies return 2 for invalid input and 4 for failed analysis

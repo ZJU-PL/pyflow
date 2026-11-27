@@ -353,11 +353,32 @@ class TaintFinding:
         return span.start_line if span else 0
 
     @property
+    def source_column(self) -> int | None:
+        if self.source_node is None:
+            return None
+        span = syntax_source_span(self.source_node.ast_node)
+        return span.start_column if span else None
+
+    @property
     def sink_line(self) -> int:
         if self.sink_node is None:
             return 0
         span = syntax_source_span(self.sink_node.ast_node)
         return span.start_line if span else 0
+
+    @property
+    def sink_column(self) -> int | None:
+        if self.sink_node is None:
+            return None
+        span = syntax_source_span(self.sink_node.ast_node)
+        return span.start_column if span else None
+
+    @property
+    def sink_end_column(self) -> int | None:
+        if self.sink_node is None:
+            return None
+        span = syntax_source_span(self.sink_node.ast_node)
+        return span.end_column if span else None
 
     @staticmethod
     def _filename(node) -> str:
@@ -419,8 +440,10 @@ class TaintFinding:
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
         rule = self.rule_metadata
+        suggestion = self.suggestion or rule.help_text or ""
         return {
             "rule_id": self.effective_rule_id,
+            "rule_title": self.rule_title or rule.name,
             "cwe": self.cwe,
             "cwes": list(cwe_identifiers(self.cwe)),
             "cwe_ancestors": list(cwe_ancestors(self.cwe)),
@@ -428,7 +451,10 @@ class TaintFinding:
             "source_label": self.source_label,
             "sink_label": self.sink_label,
             "source_line": self.source_line,
+            "source_column": self.source_column,
             "sink_line": self.sink_line,
+            "sink_column": self.sink_column,
+            "sink_end_column": self.sink_end_column,
             "source_filename": self._filename(self.source_node),
             "sink_filename": self._filename(self.sink_node),
             "path_length": self.path_length,
@@ -437,15 +463,17 @@ class TaintFinding:
             "tags": sorted(self.tags),
             "sanitizers": sorted(self.sanitizers),
             "precision_reasons": list(self.precision_reasons),
+            "suggestion": suggestion,
             "rule": rule.to_dict(),
             "path_preview": [
                 {
                     "kind": n.kind,
                     "line": span.start_line if (span := syntax_source_span(n.ast_node)) else 0,
+                    "column": span.start_column if span else None,
                     "filename": self._filename(n),
-                    "label": (n.label or "")[:80],
+                    "label": (n.label or "")[:120],
                 }
-                for n in self.path_nodes[:10]
+                for n in self.path_nodes[:25]
             ],
         }
 

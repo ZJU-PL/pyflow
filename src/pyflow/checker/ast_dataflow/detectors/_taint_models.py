@@ -15,6 +15,7 @@ class ASTDataflowTraceStep:
     filename: str | None = None
     line: int | None = None
     detail: str | None = None
+    column: int | None = None
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class ASTDataflowTaintFinding:
     precision_reasons: Tuple[str, ...] = ()
     trace: Tuple[ASTDataflowTraceStep, ...] = ()
     related_rules: Tuple[Tuple[str, str, str], ...] = ()
+    sink_column: int | None = None
 
 
 @dataclass(frozen=True)

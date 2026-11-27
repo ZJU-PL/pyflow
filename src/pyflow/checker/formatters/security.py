@@ -1,144 +1,71 @@
 """Rendering of typed security reports from AST, IFDS, and CPG engines."""
 
+import hashlib
 from typing import Any, Dict, List
 
 from pyflow.checker.common import constants as b_constants
 from pyflow.checker.common.diagnostics import diagnostics_to_dicts
 from pyflow.util.cwe import cwe_ancestors, cwe_identifiers, normalize_cwe
-from .sarif import severity_level, sarif_document, location_from_span
+from .report_render import (
+    render_bug_report_html,
+    render_bug_report_markdown,
+    render_bug_report_text,
+)
+from .sarif import severity_level, sarif_document, location_from_span, physical_location
 
 
-def security_text(engine: str, result) -> str:
-    """Format analysis results as human-readable text."""
+def _fingerprint(*parts: object) -> str:
+    raw = "|".join(str(part or "") for part in parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def security_text(
+    engine: str,
+    result,
+    *,
+    color: bool = False,
+    verbose: bool = False,
+    context_lines: int = 1,
+) -> str:
+    """Format analysis results as user-friendly plain text or ANSI-colored terminal text."""
     if engine == "ast-scanner":
-        # The text formatter prints directly; we collect a summary
-        issues = result.get_issue_list(b_constants.LOW, b_constants.LOW)
-        if not issues:
-            return "No issues found."
-        lines = [f"Found {len(issues)} issue(s):\n"]
-        for iss in issues:
-            lines.append(f"  [{iss.test_id}] {iss.text}")
-            lines.append(f"       Severity: {iss.severity}  Confidence: {iss.confidence}")
-            lines.append(f"       File: {iss.fname}:{iss.lineno}")
-            lines.append("")
-        return "\n".join(lines)
-
+        return render_bug_report_text(
+            engine,
+            security_json(engine, result),
+            color=color,
+            verbose=verbose,
+            context_lines=context_lines,
+        )
     if engine == "ast-dataflow":
-        report = ast_dataflow_report(result)
-        if not report["findings"] and not report["diagnostics"]:
-            return f"Status: {report['status']}\nNo issues found."
-        lines = [
-            f"Status: {report['status']}",
-            f"Found {len(report['findings'])} issue(s):\n",
-        ]
-        for finding in report["findings"]:
-            lines.append(f"  [{finding['rule_id']}] {finding['rule_title']}")
-            lines.append(
-                f"       Severity: {finding['severity'].upper()}  "
-                f"Confidence: {finding['confidence']}"
-            )
-            lines.append(f"       File: {finding['filename']}:{finding['sink_line']}")
-            lines.append(
-                f"       Sink: {finding['sink_name']}  "
-                f"Kinds: {', '.join(finding['source_kinds'])}"
-            )
-            lines.append("")
-        if report["diagnostics"]:
-            lines.append("Diagnostics:")
-            counts = {}
-            for diagnostic in report["diagnostics"]:
-                key = diagnostic["code"], diagnostic["message"]
-                counts[key] = counts.get(key, 0) + 1
-            for (code, message), count in counts.items():
-                suffix = f" ({count} occurrences)" if count > 1 else ""
-                lines.append(f"  [{code}] {message}{suffix}")
-        return "\n".join(lines)
-
-    if engine == "ifds":
-        report = result
-        lines = [
-            f"Entry: {report.get('entry', '<unknown>')}",
-            f"Status: {report.get('status', 'complete')}",
-            f"Findings: {len(report.get('findings', []))}",
-        ]
-        stats = report.get("statistics", {})
-        if stats:
-            lines.append("Statistics:")
-            for key, value in sorted(stats.items()):
-                lines.append(f"  {key}: {value}")
-        diags = report.get("diagnostics", [])
-        if diags:
-            lines.append("Diagnostics:")
-            for diagnostic in diags:
-                lines.append(f"  {diagnostic}")
-        for finding in report.get("findings", []):
-            location = finding.get("primary_location") or {}
-            position = (
-                f"{location['uri']}:{location['start_line']}"
-                if location.get("uri") and location.get("start_line")
-                else "<source location unavailable>"
-            )
-            lines.append(
-                f"  [{finding.get('rule_id') or 'PYFLOW-IFDS'}] "
-                f"Severity: {finding.get('severity') or 'unspecified'}  "
-                f"Location: {position}"
-            )
-            lines.append(
-                f"       {finding.get('message') or finding.get('sink_name') or finding.get('kind', 'IFDS finding')}"
-            )
-            lines.append(f"       Procedure: {finding.get('procedure') or '<unknown>'}")
-            details = finding.get("properties") or finding
-            if details.get("sink_name"):
-                args_str = ", ".join(details.get("tainted_arguments", ())) or "<none>"
-                lines.append(
-                    f"       sink={details['sink_name']} procedure={finding.get('procedure', '<unknown>')} args=[{args_str}]"
-                )
-        return "\n".join(lines)
-
-    if engine == "cpg":
-        findings = result.get("findings", [])
-        lines = [f"Status: {result.get('status', 'complete')}"]
-        if not findings:
-            lines.append("No security findings.")
-        else:
-            lines.append(f"\n{len(findings)} security finding(s):\n")
-        for i, f in enumerate(findings, 1):
-            conf = f.get("confidence", 0)
-            bar = "█" * int(conf * 10) + "░" * (10 - int(conf * 10))
-            lines.append(
-                f"  [{i}] {f.get('cwe', '?')} [{f.get('severity', '?')}] "
-                f"confidence={conf:.0%} [{bar}]"
-            )
-            source_position = (
-                f"{f.get('source_filename') or '<unknown source>'}:{f['source_line']}"
-                if f.get("source_line")
-                else "<source location unavailable>"
-            )
-            sink_position = (
-                f"{f.get('sink_filename') or '<unknown source>'}:{f['sink_line']}"
-                if f.get("sink_line")
-                else "<source location unavailable>"
-            )
-            lines.append(f"      source: {f.get('source_label', '?')} ({source_position})")
-            lines.append(f"      sink:   {f.get('sink_label', '?')} ({sink_position})")
-            lines.append("")
-        diagnostics = result.get("diagnostics", [])
-        if diagnostics:
-            lines.append("Diagnostics:")
-            for diagnostic in diagnostics:
-                location = ""
-                if diagnostic.get("filename") or diagnostic.get("line"):
-                    location = (
-                        f" ({diagnostic.get('filename') or '<unknown>'}:"
-                        f"{diagnostic.get('line') or 0})"
-                    )
-                lines.append(
-                    f"  [{diagnostic.get('code', 'cpg-diagnostic')}] "
-                    f"{diagnostic.get('message', '')}{location}"
-                )
-        return "\n".join(lines)
-
+        report = ast_dataflow_report(result) if not isinstance(result, dict) else result
+        return render_bug_report_text(
+            engine,
+            report,
+            color=color,
+            verbose=verbose,
+            context_lines=context_lines,
+        )
+    if engine in {"ifds", "cpg"}:
+        return render_bug_report_text(
+            engine,
+            result,
+            color=color,
+            verbose=verbose,
+            context_lines=context_lines,
+        )
     return ""
+
+
+def security_markdown(engine: str, result) -> str:
+    """Format analysis results as GitHub-Flavored Markdown."""
+    report = security_json(engine, result) if not isinstance(result, dict) else result
+    return render_bug_report_markdown(engine, report)
+
+
+def security_html(engine: str, result) -> str:
+    """Format analysis results as a standalone interactive HTML bug report."""
+    report = security_json(engine, result) if not isinstance(result, dict) else result
+    return render_bug_report_html(engine, report)
 
 
 def security_json(engine: str, result) -> Any:
@@ -198,6 +125,7 @@ def ast_dataflow_report(manager) -> Dict[str, Any]:
                 "filename": finding.filename,
                 "sink_name": finding.sink_name,
                 "sink_line": finding.sink_line,
+                "sink_column": getattr(finding, "sink_column", None),
                 "source_kinds": sorted(finding.source_kinds),
                 "rule_id": finding.rule_id,
                 "rule_title": finding.rule_title,
@@ -218,6 +146,7 @@ def ast_dataflow_report(manager) -> Dict[str, Any]:
                         "location": step.location,
                         "filename": step.filename,
                         "line": step.line,
+                        "column": getattr(step, "column", None),
                         "detail": step.detail,
                     }
                     for step in finding.trace
@@ -241,27 +170,35 @@ def security_sarif(engine: str, result, *, artifact_uri: str = "") -> Dict[str, 
             rule_id = finding["rule_id"]
             if rule_id not in rule_indexes:
                 rule_indexes[rule_id] = len(rules)
-                rules.append(
-                    {
-                        "id": rule_id,
-                        "shortDescription": {"text": finding["rule_title"]},
-                        "help": {"text": finding.get("suggestion") or finding["rule_title"]},
-                    }
-                )
+                rule_entry: Dict[str, Any] = {
+                    "id": rule_id,
+                    "shortDescription": {"text": finding["rule_title"]},
+                    "help": {"text": finding.get("suggestion") or finding["rule_title"]},
+                }
+                if finding.get("cwe"):
+                    rule_entry["properties"] = {"tags": [finding["cwe"], "security", "taint"]}
+                rules.append(rule_entry)
+            sink_loc = physical_location(
+                finding["filename"],
+                line=finding["sink_line"] or 1,
+                column=finding.get("sink_column"),
+            )
             sarif_results.append(
                 {
                     "ruleId": rule_id,
                     "ruleIndex": rule_indexes[rule_id],
                     "level": severity_level(finding.get("severity")),
                     "message": {"text": f"Tainted data reaches {finding['sink_name']}"},
-                    "locations": [
-                        {
-                            "physicalLocation": {
-                                "artifactLocation": {"uri": finding["filename"]},
-                                "region": {"startLine": finding["sink_line"] or 1},
-                            }
-                        }
-                    ],
+                    "locations": [sink_loc],
+                    "partialFingerprints": {
+                        "pyflow/v1": _fingerprint(
+                            rule_id,
+                            finding["filename"],
+                            finding["sink_line"],
+                            finding["sink_name"],
+                            ",".join(finding["source_kinds"]),
+                        )
+                    },
                     "properties": {
                         "sourceKinds": finding["source_kinds"],
                         "confidence": finding["confidence"],
@@ -281,15 +218,11 @@ def security_sarif(engine: str, result, *, artifact_uri: str = "") -> Dict[str, 
                                                             step.get("detail") or step["operation"]
                                                         )
                                                     },
-                                                    "physicalLocation": {
-                                                        "artifactLocation": {
-                                                            "uri": step.get("filename")
-                                                            or finding["filename"]
-                                                        },
-                                                        "region": {
-                                                            "startLine": step.get("line") or 1
-                                                        },
-                                                    },
+                                                    **physical_location(
+                                                        step.get("filename") or finding["filename"],
+                                                        line=step.get("line") or 1,
+                                                        column=step.get("column"),
+                                                    ),
                                                 }
                                             }
                                             for step in finding.get("trace", [])
@@ -344,7 +277,7 @@ def security_sarif(engine: str, result, *, artifact_uri: str = "") -> Dict[str, 
                 locations.append(primary)
 
             thread_flow_locations = []
-            for index, step in enumerate(finding.get("code_flow", []), 1):
+            for step in finding.get("code_flow", []):
                 location = location_from_span(step.get("location"))
                 if location is None:
                     continue
@@ -354,8 +287,12 @@ def security_sarif(engine: str, result, *, artifact_uri: str = "") -> Dict[str, 
                     "nodeId": step.get("node_id"),
                     "procedureId": step.get("procedure_id"),
                 }
-                location["nestingLevel"] = index - 1
-                thread_flow_locations.append({"location": location})
+                thread_flow_locations.append(
+                    {
+                        "location": location,
+                        "nestingLevel": int(step.get("nesting_level") or 0),
+                    }
+                )
 
             sarif_result = {
                 "ruleId": rule_id,
@@ -399,18 +336,24 @@ def security_sarif(engine: str, result, *, artifact_uri: str = "") -> Dict[str, 
         seen_rules: Dict[str, int] = {}
         for f in findings:
             rule_id = f.get("rule_id", f.get("cwe", "CPG-TAINT"))
+            rule_obj = f.get("rule") if isinstance(f.get("rule"), dict) else {}
             if rule_id not in seen_rules:
                 seen_rules[rule_id] = len(rules)
-                rules.append(
-                    {
-                        "id": rule_id,
-                        "name": f.get("rule", {}).get("name", rule_id),
-                        "shortDescription": {
-                            "text": f.get("rule", {}).get("short_description", "")
-                        },
-                    }
-                )
-            sink_line = max(int(f.get("sink_line") or 1), 1)
+                rule_entry = {
+                    "id": rule_id,
+                    "name": rule_obj.get("name", rule_id),
+                    "shortDescription": {
+                        "text": rule_obj.get("short_description", "") or f.get("rule_title", "")
+                    },
+                }
+                help_text = f.get("suggestion") or rule_obj.get("help_text")
+                if help_text:
+                    rule_entry["help"] = {"text": help_text}
+                if f.get("cwe"):
+                    rule_entry["properties"] = {"tags": [f["cwe"], "security", "taint"]}
+                rules.append(rule_entry)
+            sink_uri = f.get("sink_filename") or f.get("source_filename") or artifact_uri
+            sink_line = max(int(f.get("sink_line") or f.get("source_line") or 1), 1)
             result_item = {
                 "ruleId": rule_id,
                 "ruleIndex": seen_rules[rule_id],
@@ -422,13 +365,22 @@ def security_sarif(engine: str, result, *, artifact_uri: str = "") -> Dict[str, 
                     )
                 },
                 "locations": [
-                    {
-                        "physicalLocation": {
-                            "artifactLocation": {"uri": f.get("sink_filename") or artifact_uri},
-                            "region": {"startLine": sink_line},
-                        }
-                    }
+                    physical_location(
+                        sink_uri,
+                        line=sink_line,
+                        column=f.get("sink_column"),
+                        end_column=f.get("sink_end_column"),
+                    )
                 ],
+                "partialFingerprints": {
+                    "pyflow/v1": _fingerprint(
+                        rule_id,
+                        sink_uri,
+                        sink_line,
+                        f.get("source_label"),
+                        f.get("sink_label"),
+                    )
+                },
                 "properties": {
                     "confidence": f.get("confidence_level"),
                     "tags": f.get("tags", []),
@@ -444,10 +396,11 @@ def security_sarif(engine: str, result, *, artifact_uri: str = "") -> Dict[str, 
                 thread_locations.append(
                     {
                         "location": {
-                            "physicalLocation": {
-                                "artifactLocation": {"uri": step.get("filename") or artifact_uri},
-                                "region": {"startLine": line},
-                            },
+                            **physical_location(
+                                step.get("filename") or artifact_uri,
+                                line=line,
+                                column=step.get("column"),
+                            ),
                             "message": {"text": step.get("label") or step.get("kind", "flow")},
                         }
                     }

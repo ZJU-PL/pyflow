@@ -74,6 +74,7 @@ class TypestateFinding:
     resource_label: str
     protocol: str = "resource"
     state: str | None = None
+    fact: object | None = None
 
 
 class TypestateAnalysisResult:
@@ -566,6 +567,7 @@ class InterproceduralTypestateProblem(
             *,
             protocol: str = "resource",
             state: str | None = None,
+            fact: object | None = None,
         ) -> None:
             key = (node, kind, operation_name, resource_label)
             if key in seen:
@@ -579,6 +581,7 @@ class InterproceduralTypestateProblem(
                     resource_label=resource_label,
                     protocol=protocol,
                     state=state,
+                    fact=fact,
                 )
             )
 
@@ -612,6 +615,7 @@ class InterproceduralTypestateProblem(
                                 self.describe_location(location),
                                 protocol=protocol,
                                 state=fact.state,
+                                fact=fact,
                             )
 
         seen_exit_obligations: set[tuple[cfg_graph.Code, str, str, str]] = set()
@@ -637,6 +641,7 @@ class InterproceduralTypestateProblem(
                             resource_label,
                             protocol=fact.protocol,
                             state=fact.state,
+                            fact=fact,
                         )
 
         return tuple(findings)

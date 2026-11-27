@@ -6,7 +6,13 @@ import string
 import sys
 
 from pyflow.checker.common import constants as b_constants
-from pyflow.checker.formatters.security import security_json, security_sarif, security_text
+from pyflow.checker.formatters.security import (
+    security_html,
+    security_json,
+    security_markdown,
+    security_sarif,
+    security_text,
+)
 
 
 def _custom_report(engine: str, result, args, output) -> None:
@@ -60,12 +66,16 @@ def _output_results(engine: str, result, args) -> None:
             sys.stdout.write("\n")
         return
 
-    # Pattern scanning and non-normalized AST-dataflow formats use checker
-    # formatters.
-    # which need a manager object. IFDS/CPG use shared report rendering.
+    # Pattern scanning and AST-only legacy formats use checker formatters,
+    # which need a manager object. Rich bug-report formats (text, screen,
+    # markdown, html, json, sarif, custom) work uniformly across ast-dataflow,
+    # ifds, and cpg (and markdown works for ast-scanner as well).
     if (
-        engine == "ast-scanner"
-        or (engine == "ast-dataflow" and fmt not in ("text", "json", "sarif"))
+        (engine == "ast-scanner" and fmt != "markdown")
+        or (
+            engine == "ast-dataflow"
+            and fmt not in ("text", "screen", "markdown", "html", "json", "sarif")
+        )
     ) and fmt in (
         "csv",
         "html",
@@ -80,15 +90,25 @@ def _output_results(engine: str, result, args) -> None:
         _output_via_formatter(engine, result, args, fmt)
         return
 
-    # Fallback for ifds / cpg engines (dict-based results)
+    # Unified report rendering for ast-dataflow / ifds / cpg (and ast-scanner markdown)
     out_file = None
     try:
         if getattr(args, "output", None):
             out_file = open(args.output, "w", encoding="utf-8")
         output = out_file or sys.stdout
+        verbose = bool(getattr(args, "verbose", False))
 
         if fmt == "text":
-            output.write(security_text(engine, result))
+            output.write(security_text(engine, result, color=False, verbose=verbose))
+            output.write("\n")
+        elif fmt == "screen":
+            output.write(security_text(engine, result, color=True, verbose=verbose))
+            output.write("\n")
+        elif fmt == "markdown":
+            output.write(security_markdown(engine, result))
+            output.write("\n")
+        elif fmt == "html":
+            output.write(security_html(engine, result))
             output.write("\n")
         elif fmt == "json":
             json.dump(security_json(engine, result), output, indent=2)
@@ -106,7 +126,7 @@ def _output_results(engine: str, result, args) -> None:
         else:
             raise ValueError(
                 f"Format '{fmt}' is not supported for the {engine} engine; "
-                "use one of: text, json, sarif, custom"
+                "use one of: text, screen, markdown, html, json, sarif, custom"
             )
     finally:
         if out_file:

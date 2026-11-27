@@ -65,6 +65,37 @@ def normalize_finding(finding: dict) -> dict:
     )
     if isinstance(confidence, (int, float)):
         confidence = "high" if confidence >= 0.85 else "medium" if confidence >= 0.6 else "low"
+    column = (
+        location.get("start_column")
+        if location.get("start_column") is not None
+        else finding.get("sink_column")
+    )
+    suggestion = finding.get("suggestion") or (finding.get("rule") or {}).get("help_text") or ""
+    raw_flow = finding.get("code_flow") or finding.get("trace") or finding.get("path_preview") or ()
+    normalized_flow = []
+    for step in raw_flow:
+        if not isinstance(step, dict):
+            continue
+        step_loc = step.get("location") if isinstance(step.get("location"), dict) else {}
+        normalized_flow.append(
+            {
+                "kind": step.get("kind") or step.get("operation") or "flow",
+                "message": (
+                    step.get("message")
+                    or step.get("detail")
+                    or step.get("label")
+                    or step.get("kind")
+                    or step.get("operation")
+                    or "flow"
+                ),
+                "filename": step_loc.get("uri") or step.get("filename") or filename,
+                "line": step_loc.get("start_line") or step.get("line") or 0,
+                "nesting_level": int(step.get("nesting_level") or 0),
+            }
+        )
+    loc_dict = {"filename": filename, "line": line}
+    if column is not None:
+        loc_dict["column"] = column
     return {
         "rule_id": finding.get("rule_id") or finding.get("test_id") or "PYFLOW-IFDS",
         "rule_title": finding.get("rule_title")
@@ -80,8 +111,10 @@ def normalize_finding(finding: dict) -> dict:
         or finding.get("sink_name")
         or finding.get("kind")
         or "Security finding",
-        "location": {"filename": filename, "line": line},
+        "location": loc_dict,
         "cwe": normalize_cwe(finding.get("cwe") or finding.get("issue_cwe", {}).get("id")),
+        "suggestion": suggestion,
+        "code_flow": normalized_flow,
         "properties": finding,
     }
 

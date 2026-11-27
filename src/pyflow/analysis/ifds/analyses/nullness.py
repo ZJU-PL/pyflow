@@ -54,6 +54,7 @@ class NullnessFinding:
     node: CFGNode
     kind: str
     expression_label: str
+    fact: object | None = None
 
 
 class NullnessAnalysisResult:
@@ -515,13 +516,15 @@ class InterproceduralNullnessProblem(
         # several CFG nodes (e.g. a call node plus its operation node).
         seen: set[tuple[int, str, str]] = set()
 
-        def record(node: CFGNode, kind: str, expr) -> None:
+        def record(node: CFGNode, kind: str, expr, fact: object | None = None) -> None:
             label = self.describe_expression(expr)
             key = (id(node.procedure), kind, id(expr))
             if key in seen:
                 return
             seen.add(key)
-            findings.append(NullnessFinding(node=node, kind=kind, expression_label=label))
+            findings.append(
+                NullnessFinding(node=node, kind=kind, expression_label=label, fact=fact)
+            )
 
         for node in self.adapter.supergraph.ordered_nodes():
             call_effect = self._call_effect(node)
@@ -853,23 +856,30 @@ class InterproceduralNullnessProblem(
             if current is None or isinstance(current, py_ast.leafTypes):
                 return
             if isinstance(current, py_ast.Call):
-                if inspect_calls and self._expr_may_be_null_at(node, current.expr, result):
-                    record(node, "call_target", current.expr)
+                if inspect_calls:
+                    may_null, matched_fact = self._null_risk_at(node, current.expr, result)
+                    if may_null:
+                        record(node, "call_target", current.expr, matched_fact)
             elif isinstance(current, py_ast.MethodCall):
-                if inspect_calls and self._expr_may_be_null_at(node, current.expr, result):
-                    record(node, "method_receiver", current.expr)
+                if inspect_calls:
+                    may_null, matched_fact = self._null_risk_at(node, current.expr, result)
+                    if may_null:
+                        record(node, "method_receiver", current.expr, matched_fact)
             elif isinstance(current, (py_ast.GetAttr, py_ast.Load)):
-                if self._expr_may_be_null_at(node, current.expr, result):
-                    record(node, "attribute_access", current.expr)
+                may_null, matched_fact = self._null_risk_at(node, current.expr, result)
+                if may_null:
+                    record(node, "attribute_access", current.expr, matched_fact)
             elif isinstance(current, py_ast.GetSubscript):
-                if self._expr_may_be_null_at(node, current.expr, result):
-                    record(node, "subscript_access", current.expr)
+                may_null, matched_fact = self._null_risk_at(node, current.expr, result)
+                if may_null:
+                    record(node, "subscript_access", current.expr, matched_fact)
             elif isinstance(
                 current,
                 (py_ast.SetAttr, py_ast.Store, py_ast.SetSubscript, py_ast.SetSlice),
             ):
-                if self._expr_may_be_null_at(node, current.expr, result):
-                    record(node, "mutation_target", current.expr)
+                may_null, matched_fact = self._null_risk_at(node, current.expr, result)
+                if may_null:
+                    record(node, "mutation_target", current.expr, matched_fact)
 
             if isinstance(current, (list, tuple)):
                 for child in current:
@@ -881,16 +891,17 @@ class InterproceduralNullnessProblem(
 
         visit(root)
 
-    def _expr_may_be_null_at(self, node: CFGNode, expr: object, result) -> bool:
+    def _null_risk_at(self, node: CFGNode, expr: object, result) -> tuple[bool, object | None]:
         if self._expr_contains_explicit_null(expr):
-            return True
-        return any(
-            result.is_reached(node, fact)
-            for fact in self._value_facts_for_expression(
-                node.procedure,
-                expr,
-            )
-        )
+            return True, None
+        for fact in self._value_facts_for_expression(node.procedure, expr):
+            if result.is_reached(node, fact):
+                return True, fact
+        return False, None
+
+    def _expr_may_be_null_at(self, node: CFGNode, expr: object, result) -> bool:
+        may_null, _ = self._null_risk_at(node, expr, result)
+        return may_null
 
 
 class InterproceduralNullnessAnalysis:
