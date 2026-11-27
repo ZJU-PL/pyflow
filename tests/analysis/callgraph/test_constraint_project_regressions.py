@@ -457,3 +457,38 @@ def test_callgraph_typeinfo_bridge_avoids_unloaded_external_queries_and_heavy_in
     assert bridge._enable_static_inference is False
     # External stdlib calls like json.loads must not trigger TypeInfo bridge queries
     assert ("json", "json.loads") not in bridge._return_cache
+
+
+def test_pep560_redundant_generic_base_avoids_inconsistent_mro():
+    source = textwrap.dedent("""
+        from abc import ABC
+        from typing import Generic, Protocol, TypeVar
+
+        T = TypeVar("T")
+        S = TypeVar("S")
+
+        class ComponentBase(Generic[T]):
+            def configure(self):
+                return 1
+
+        class CacheStore(ABC, Generic[S], ComponentBase[int]):
+            pass
+
+        class Tool(Protocol):
+            def run(self): ...
+
+        class BaseTool(ABC, Tool, Generic[T, S], ComponentBase[int]):
+            pass
+
+        def use():
+            BaseTool().configure()
+            CacheStore().configure()
+    """)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        builder = ConstraintCallGraphBuilder(source)
+        graph = builder.build().get()
+    assert not any("Inconsistent MRO" in str(w.message) for w in caught)
+    assert "main.CacheStore" not in builder._invalid_mro_classes
+    assert "main.BaseTool" not in builder._invalid_mro_classes
+    assert "main.ComponentBase.configure" in graph.get("main.use", set())

@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import builtins
 from collections import defaultdict, deque
-from typing import DefaultDict, Dict, Optional, Sequence, Set, List
+from typing import DefaultDict, Dict, Iterable, Optional, Sequence, Set, List
 
 from pyflow.language.asttools import contains_yield, extract_decorator_name
 
@@ -705,6 +705,56 @@ class _SymbolAnalysisMixin:
                         resolved_metaclass = base_info.metaclass
                         break
             class_info.metaclass = resolved_metaclass or "type"
+        self._prune_redundant_generic_bases()
+
+    _PEP560_GENERIC_BASES = frozenset({"typing.Generic", "typing_extensions.Generic"})
+    _PEP560_PROTOCOL_OR_GENERIC_BASES = frozenset(
+        {
+            "typing.Generic",
+            "typing_extensions.Generic",
+            "typing.Protocol",
+            "typing_extensions.Protocol",
+        }
+    )
+
+    def _base_inherits_generic(self, class_name: str, visited: Optional[Set[str]] = None) -> bool:
+        if class_name in self._PEP560_PROTOCOL_OR_GENERIC_BASES:
+            return True
+        class_info = self.classes.get(class_name)
+        if class_info is None:
+            return False
+        seen = set() if visited is None else visited
+        if class_name in seen:
+            return False
+        seen.add(class_name)
+        return any(self._base_inherits_generic(base, seen) for base in class_info.bases)
+
+    def _prune_redundant_generic_bases(self, class_names: Optional[Iterable[str]] = None) -> None:
+        """Drop ``Generic`` when another resolved base already inherits ``Generic``/``Protocol`` (PEP 560)."""
+        targets = (
+            [self.classes[name] for name in class_names if name in self.classes]
+            if class_names is not None
+            else list(self.classes.values())
+        )
+        for class_info in targets:
+            if len(class_info.bases) <= 1 or not any(
+                base in self._PEP560_GENERIC_BASES for base in class_info.bases
+            ):
+                continue
+            if any(
+                base not in self._PEP560_GENERIC_BASES and self._base_inherits_generic(base)
+                for base in class_info.bases
+            ):
+                class_info.bases = [
+                    base for base in class_info.bases if base not in self._PEP560_GENERIC_BASES
+                ]
+                candidates = self._class_base_candidates.get(class_info.qualname)
+                if candidates is not None:
+                    self._class_base_candidates[class_info.qualname] = [
+                        names - self._PEP560_GENERIC_BASES
+                        for names in candidates
+                        if names - self._PEP560_GENERIC_BASES
+                    ]
 
     def _initialize_scopes(self) -> None:
         """Convert collected symbols into executable `ScopeInfo` records."""

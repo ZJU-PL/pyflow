@@ -199,3 +199,14 @@ def test_typeinfo_types_mode_is_complete(tmp_path, monkeypatch, capsys) -> None:
     assert code == 0, err
     assert out.count("  app.value_") == 25
     assert "more type facts" not in out
+
+
+def test_typeinfo_respects_pep263_non_utf8_encoding_cookie(tmp_path, monkeypatch, capsys) -> None:
+    source = tmp_path / "latin1_mod.py"
+    source.write_bytes(b"# -*- coding: latin-1 -*-\n" b'TITLE: str = "caf\xe9"\n')
+
+    code, out, err = _run(monkeypatch, capsys, source, "--mode", "types", "--json")
+
+    assert code == 0, err
+    report = json.loads(out)[0]
+    assert report["types"]["latin1_mod.TITLE"]["type"] == "str"

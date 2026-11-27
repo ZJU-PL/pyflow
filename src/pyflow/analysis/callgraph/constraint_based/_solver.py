@@ -129,12 +129,17 @@ class _FixpointSolverMixin:
             for value in values:
                 if value.kind != CLASS_KIND or value.name in names:
                     continue
+                if value.name == class_name and names:
+                    continue
                 names.add(value.name)
+                if len(names) > 1 and class_name in names:
+                    names.discard(class_name)
                 changed = True
         if changed:
             # Keep source base positions: a late first base must not be
             # appended after an already-resolved second base.
             class_info.bases = [name for names in candidates for name in sorted(names)]
+            self._prune_redundant_generic_bases((class_name,))
             self._mro_cache.clear()
             self._invalid_mro_classes.clear()
             self._uncertain_mro_classes.clear()

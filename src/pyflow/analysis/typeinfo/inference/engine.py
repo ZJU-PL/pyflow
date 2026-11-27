@@ -735,8 +735,13 @@ class StaticTypeInferenceEngine:
     def _record_expression(self, node: ast.AST, value: AbstractTypeValue) -> None:
         span = _span(node)
         old = self._expressions.get(span)
-        self._expressions[span] = value if old is None else self._value_rules._join(old, value)
-        self._expression_kinds.setdefault(span, type(node))
+        if old is None:
+            self._expressions[span] = value
+            self._expression_kinds.setdefault(span, type(node))
+            return
+        if old is value and len(old.types) <= 1:
+            return
+        self._expressions[span] = self._value_rules._join(old, value)
 
     def _build_symbols(
         self, environment: dict[str, AbstractTypeValue]

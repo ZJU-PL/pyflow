@@ -69,12 +69,12 @@ class AbstractTypeValue:
     @classmethod
     def bottom(cls) -> AbstractTypeValue:
         """Return the least element of the inference lattice."""
-        return cls()
+        return _BOTTOM_VALUE
 
     @classmethod
     def unresolved(cls) -> AbstractTypeValue:
         """Return a value for which no closed-world type is known."""
-        return cls(unknown=True)
+        return _UNRESOLVED_VALUE
 
     @classmethod
     def from_type(
@@ -128,7 +128,36 @@ class AbstractTypeValue:
         max_union_size: int = 16,
     ) -> AbstractTypeValue:
         """Compute the least upper bound, applying finite-union widening."""
-        candidates = _normalize_types((*self.types, *other.types), type_system)
+        if (
+            self is other
+            and len(self.types) <= 1
+            and not self.literal_values_complete
+            and not (self.types and isinstance(next(iter(self.types)), UnionType))
+        ):
+            return self
+        self_types = self.types
+        other_types = other.types
+        if not self_types and len(other_types) <= 1:
+            single = next(iter(other_types), None)
+            if single is None or not isinstance(single, UnionType):
+                candidates = other_types
+            else:
+                candidates = _normalize_types(other_types, type_system)
+        elif not other_types and len(self_types) <= 1:
+            single = next(iter(self_types), None)
+            if single is None or not isinstance(single, UnionType):
+                candidates = self_types
+            else:
+                candidates = _normalize_types(self_types, type_system)
+        elif (
+            len(self_types) == 1
+            and len(other_types) == 1
+            and self_types == other_types
+            and not isinstance(next(iter(self_types)), UnionType)
+        ):
+            candidates = self_types
+        else:
+            candidates = _normalize_types((*self_types, *other_types), type_system)
         unknown = self.unknown or other.unknown
         if len(candidates) > max_union_size:
             candidates = frozenset((ANY,))
@@ -402,3 +431,7 @@ def _compute_normalized_types(
         result = [other for other in result if not subtype(other, candidate)]
         result.append(candidate)
     return frozenset(result)
+
+
+_BOTTOM_VALUE = AbstractTypeValue()
+_UNRESOLVED_VALUE = AbstractTypeValue(unknown=True)

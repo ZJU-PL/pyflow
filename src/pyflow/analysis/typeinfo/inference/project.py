@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import time
 
 import networkx as nx
 import tokenize
@@ -56,6 +57,8 @@ class ProjectTypeInferenceEngine:
         call_model_providers: Iterable[CallModelProvider] = (),
         max_project_iterations: int = 16,
         cache: ProjectInferenceCache | None = None,
+        max_modules: int | None = None,
+        time_budget_seconds: float | None = None,
     ) -> None:
         self.project_context = project_context
         self.cache = cache
@@ -67,6 +70,8 @@ class ProjectTypeInferenceEngine:
         self.options = options or load_inference_options(project_context.path)
         self.call_model_providers = tuple(call_model_providers)
         self.max_project_iterations = max_project_iterations
+        self.max_modules = max_modules
+        self.time_budget_seconds = time_budget_seconds
         self._find_module_cache: dict[str, object] = {}
         self._project_roots: tuple[Path, ...] | None = None
 
@@ -127,14 +132,85 @@ class ProjectTypeInferenceEngine:
         targets = set(sources) - cached_modules
         if not targets:
             converged = True
+        deadline = (
+            time.monotonic() + self.time_budget_seconds
+            if self.time_budget_seconds is not None and self.time_budget_seconds > 0
+            else None
+        )
+        time_limited = False
+        typeshed_symbol_cache: dict[str, ProperType | None] = {}
+        typeshed_return_cache: dict[str, bool | None] = {}
+
+        def cached_typeshed_symbol(qname: str) -> ProperType | None:
+            if qname in typeshed_symbol_cache:
+                return typeshed_symbol_cache[qname]
+            val = resolve_typeshed_symbol(qname)
+            typeshed_symbol_cache[qname] = val
+            return val
+
+        def cached_typeshed_return(qname: str) -> bool | None:
+            if qname in typeshed_return_cache:
+                return typeshed_return_cache[qname]
+            val = resolve_typeshed_declared_return(qname)
+            typeshed_return_cache[qname] = val
+            return val
+
         for iterations in range(1, self.max_project_iterations + 1):
             if not targets:
                 converged = True
                 break
             for module_name in [name for name in analysis_order if name in targets]:
+                if deadline is not None and time.monotonic() >= deadline:
+                    time_limited = True
+                    break
                 if module_name in failed_modules:
                     continue
                 queried_modules: set[str] = set()
+                local_ext_cache: dict[str, tuple[ProperType | None, tuple[str, ...]]] = {}
+                local_decl_cache: dict[str, tuple[bool | None, tuple[str, ...]]] = {}
+
+                def resolve_ext(
+                    name: str,
+                    q=queried_modules,
+                    ec=local_ext_cache,
+                ) -> ProperType | None:
+                    cached_item = ec.get(name)
+                    if cached_item is not None:
+                        q.update(cached_item[1])
+                        return cached_item[0]
+                    hit_mods: set[str] = set()
+                    val = self._external_type(
+                        name,
+                        results,
+                        queried=hit_mods,
+                        source_set=source_set,
+                        typeshed_resolver=cached_typeshed_symbol,
+                    )
+                    q.update(hit_mods)
+                    ec[name] = (val, tuple(hit_mods))
+                    return val
+
+                def resolve_decl(
+                    name: str,
+                    q=queried_modules,
+                    dc=local_decl_cache,
+                ) -> bool | None:
+                    cached_item = dc.get(name)
+                    if cached_item is not None:
+                        q.update(cached_item[1])
+                        return cached_item[0]
+                    hit_mods: set[str] = set()
+                    val = self._external_declared_return(
+                        name,
+                        results,
+                        queried=hit_mods,
+                        source_set=source_set,
+                        typeshed_resolver=cached_typeshed_return,
+                    )
+                    q.update(hit_mods)
+                    dc[name] = (val, tuple(hit_mods))
+                    return val
+
                 snapshot_before = {
                     dep: current_fingerprints.get(dep)
                     for dep in (imports.get(module_name, set()) | observed_deps[module_name])
@@ -143,14 +219,8 @@ class ProjectTypeInferenceEngine:
                 engine = StaticTypeInferenceEngine(
                     self.project_context,
                     type_system=self.type_system,
-                    external_symbol_resolver=lambda name, q=queried_modules: self._external_type(
-                        name, results, queried=q, source_set=source_set
-                    ),
-                    external_declared_return=lambda name, q=queried_modules: (
-                        self._external_declared_return(
-                            name, results, queried=q, source_set=source_set
-                        )
-                    ),
+                    external_symbol_resolver=resolve_ext,
+                    external_declared_return=resolve_decl,
                     call_model_providers=self.call_model_providers,
                     options=self.options,
                 )
@@ -178,6 +248,9 @@ class ProjectTypeInferenceEngine:
                         snapshot_before[dep] = current_fingerprints.get(dep)
                 seen_dep_fingerprints[module_name] = snapshot_before
                 current_fingerprints[module_name] = self._module_fingerprint(results[module_name])
+
+            if time_limited:
+                break
 
             next_targets: set[str] = set()
             for module_name in source_set:
@@ -207,7 +280,16 @@ class ProjectTypeInferenceEngine:
                 if fingerprint is not None:
                     self.cache.put(module_name, fingerprint, options_key, result)
 
-        if not converged:
+        if time_limited:
+            diagnostics.append(
+                InferenceDiagnostic(
+                    code="project-inference-time-budget-exceeded",
+                    message=(
+                        "Project inference reached the " f"{self.time_budget_seconds}s time budget"
+                    ),
+                )
+            )
+        elif not converged:
             diagnostics.append(
                 InferenceDiagnostic(
                     code="project-inference-did-not-converge",
@@ -246,6 +328,14 @@ class ProjectTypeInferenceEngine:
         discovered_imports: dict[str, list[str]] = {}
         pending = list(dict.fromkeys(entry_modules))
         while pending:
+            if self.max_modules is not None and len(sources) >= self.max_modules:
+                diagnostics.append(
+                    InferenceDiagnostic(
+                        code="project-module-limit-reached",
+                        message=f"Stopped discovering project imports after {self.max_modules} modules",
+                    )
+                )
+                break
             module_name = pending.pop(0)
             if module_name in sources:
                 continue
@@ -363,6 +453,7 @@ class ProjectTypeInferenceEngine:
         *,
         queried: set[str] | None = None,
         source_set: set[str] | None = None,
+        typeshed_resolver=None,
     ) -> bool | None:
         """Whether an external callable's return type comes from an annotation."""
         parts = qualified_name.split(".")
@@ -377,7 +468,8 @@ class ProjectTypeInferenceEngine:
             summary = result.functions.get(qualified_name) or result.functions.get(remainder)
             if summary is not None:
                 return summary.declared_return
-        return resolve_typeshed_declared_return(qualified_name)
+        resolver = typeshed_resolver or resolve_typeshed_declared_return
+        return resolver(qualified_name)
 
     def _external_type(
         self,
@@ -386,6 +478,7 @@ class ProjectTypeInferenceEngine:
         *,
         queried: set[str] | None = None,
         source_set: set[str] | None = None,
+        typeshed_resolver=None,
     ) -> ProperType | None:
         parts = qualified_name.split(".")
         for index in range(len(parts) - 1, 0, -1):
@@ -430,7 +523,8 @@ class ProjectTypeInferenceEngine:
                                         overloads=member.overloads,
                                     )
                                 return member
-        return resolve_typeshed_symbol(qualified_name)
+        resolver = typeshed_resolver or resolve_typeshed_symbol
+        return resolver(qualified_name)
 
     @staticmethod
     def _module_fingerprints(

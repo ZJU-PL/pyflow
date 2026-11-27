@@ -1308,3 +1308,22 @@ def subtract(start: datetime, duration: timedelta) -> datetime:
         "Callable[[datetime.datetime, datetime.timedelta], datetime.datetime]"
     )
     assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
+
+
+def test_project_inference_respects_max_modules_and_time_budget(tmp_path: Path) -> None:
+    (tmp_path / "c.py").write_text("VALUE = 3\n")
+    (tmp_path / "b.py").write_text("import c\nB_VAL = c.VALUE\n")
+    (tmp_path / "a.py").write_text("import b\nA_VAL = b.B_VAL\n")
+
+    limited = ProjectTypeInferenceEngine(
+        ProjectContext(tmp_path),
+        max_modules=2,
+    ).infer_project(["a"], discover_imports=True)
+    assert len(limited.modules) <= 2
+    assert any(d.code == "project-module-limit-reached" for d in limited.diagnostics)
+
+    timed_out = ProjectTypeInferenceEngine(
+        ProjectContext(tmp_path),
+        time_budget_seconds=1e-9,
+    ).infer_project(["a"], discover_imports=True)
+    assert any(d.code == "project-inference-time-budget-exceeded" for d in timed_out.diagnostics)

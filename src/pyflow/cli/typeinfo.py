@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tokenize
 from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -141,9 +142,11 @@ def _select_modules(
 
 def _collect(service: TypeInfoService, module_name: str, path: Path | None) -> None:
     if path is not None and path.is_file():
+        with tokenize.open(path) as handle:
+            source = handle.read()
         service.collect_module(
             module_name,
-            source=path.read_text(encoding="utf-8"),
+            source=source,
             path=str(path),
         )
     else:

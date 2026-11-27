@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed PEP 560 `typing.Generic` MRO conflicts, TypeInfo hot-path overhead,
+  unbounded `ProjectTypeInferenceEngine` discovery, and CLI file-encoding
+  handling (Wave 2 `top100` audit):
+  - Pruned redundant `typing.Generic` / `typing_extensions.Generic` bases in
+    `ConstraintCallGraphBuilder` when another resolved base already inherits
+    `Generic` or `Protocol` (matching PEP 560 `Generic.__mro_entries__` and
+    eliminating false `Inconsistent MRO` warnings on `microsoft--autogen`), and
+    applied self-shadowed base filtering inside `_update_runtime_class_bases`.
+  - Added singleton `_BOTTOM_VALUE` / `_UNRESOLVED_VALUE` domain instances,
+    atomic-type `_bound_type_depth` fast paths, identical-expression
+    short-circuits in `_record_expression`, and external lookup memoization plus
+    optional `max_modules` / `time_budget_seconds` limits in
+    `ProjectTypeInferenceEngine`.
+  - Updated `pyflow typeinfo` (`_collect`) to read Python source via
+    `tokenize.open` instead of hardcoded UTF-8 so PEP 263 encoded files succeed.
+
 - Fixed transitive TypeInfo & CallGraph performance bottlenecks and false MRO
   self-cycles uncovered across real-world `top100` repositories (`keras`,
   `MemPalace`, `scikit-learn`, `learn-claude-code`):

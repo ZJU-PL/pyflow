@@ -1056,6 +1056,49 @@ class ValueInference(InferenceComponent):
         )
         return self._bound_type_depth(joined)
 
+    @staticmethod
+    def _is_depth_atomic(typ: ProperType) -> bool:
+        if isinstance(typ, Instance):
+            return not typ.args
+        return not isinstance(typ, (TupleType, UnionType, CallableType, TypeType))
+
+    @classmethod
+    def _bound_proper_type(cls, typ: ProperType, depth: int, limit: int) -> ProperType:
+        if depth >= limit:
+            if isinstance(typ, TupleType):
+                return TupleType((ANY,), unknown_size=True)
+            return ANY
+        if isinstance(typ, TupleType):
+            return TupleType(
+                tuple(cls._bound_proper_type(item, depth + 1, limit) for item in typ.args),
+                unknown_size=typ.unknown_size,
+            )
+        if isinstance(typ, Instance) and typ.args:
+            return Instance(
+                typ.type,
+                tuple(cls._bound_proper_type(item, depth + 1, limit) for item in typ.args),
+            )
+        if isinstance(typ, UnionType):
+            return UnionType(
+                tuple(cls._bound_proper_type(item, depth + 1, limit) for item in typ.items)
+            )
+        if isinstance(typ, CallableType):
+            args = (
+                None
+                if typ.arg_types is None
+                else tuple(cls._bound_proper_type(item, depth + 1, limit) for item in typ.arg_types)
+            )
+            returned = cls._bound_proper_type(typ.return_type, depth + 1, limit)
+            if args == typ.arg_types and returned == typ.return_type:
+                return typ
+            # Overload declarations are part of the callable: dropping
+            # them makes every later call fall back to the union return
+            # (``urlparse`` -> ``ParseResult | ParseResultBytes``).
+            return CallableType(args, returned, overloads=typ.overloads)
+        if isinstance(typ, TypeType):
+            return TypeType(cls._bound_proper_type(typ.item, depth + 1, limit))
+        return typ
+
     def _bound_type_depth(self, value: AbstractTypeValue) -> AbstractTypeValue:
         """Widen recursively nested type structures beyond the configured limit.
 
@@ -1064,44 +1107,18 @@ class ValueInference(InferenceComponent):
         the outer tuple shape and known alternatives, but replace only the
         overly deep suffix with an unknown-size tuple containing Any.
         """
+        types = value.types
+        if not types:
+            return value
+        if len(types) == 1:
+            only = next(iter(types))
+            if self._is_depth_atomic(only):
+                return value
+        elif all(self._is_depth_atomic(typ) for typ in types):
+            return value
         limit = max(1, self.engine.options.max_type_depth)
-
-        def bound(typ: ProperType, depth: int) -> ProperType:
-            if depth >= limit:
-                if isinstance(typ, TupleType):
-                    return TupleType((ANY,), unknown_size=True)
-                return ANY
-            if isinstance(typ, TupleType):
-                return TupleType(
-                    tuple(bound(item, depth + 1) for item in typ.args),
-                    unknown_size=typ.unknown_size,
-                )
-            if isinstance(typ, Instance) and typ.args:
-                return Instance(
-                    typ.type,
-                    tuple(bound(item, depth + 1) for item in typ.args),
-                )
-            if isinstance(typ, UnionType):
-                return UnionType(tuple(bound(item, depth + 1) for item in typ.items))
-            if isinstance(typ, CallableType):
-                args = (
-                    None
-                    if typ.arg_types is None
-                    else tuple(bound(item, depth + 1) for item in typ.arg_types)
-                )
-                returned = bound(typ.return_type, depth + 1)
-                if args == typ.arg_types and returned == typ.return_type:
-                    return typ
-                # Overload declarations are part of the callable: dropping
-                # them makes every later call fall back to the union return
-                # (``urlparse`` -> ``ParseResult | ParseResultBytes``).
-                return CallableType(args, returned, overloads=typ.overloads)
-            if isinstance(typ, TypeType):
-                return TypeType(bound(typ.item, depth + 1))
-            return typ
-
-        bounded = frozenset(bound(typ, 0) for typ in value.types)
-        if bounded == value.types:
+        bounded = frozenset(self._bound_proper_type(typ, 0, limit) for typ in types)
+        if bounded == types:
             return value
         return AbstractTypeValue(
             bounded,
