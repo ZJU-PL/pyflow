@@ -28,47 +28,65 @@ class RegexBuilder:
         self.body: list[str] = []
         self.suffix: list[str] = []
 
-    def handle_startswith(self, *args: str) -> None:
-        self.prefix.extend(re.escape(a) for a in args)
+    @staticmethod
+    def _iter_str_args(args: tuple[object, ...]) -> list[str]:
+        items: list[str] = []
+        for arg in args:
+            if isinstance(arg, str):
+                items.append(arg)
+            elif isinstance(arg, (tuple, list)):
+                items.extend(part for part in arg if isinstance(part, str))
+        return items
 
-    def handle_endswith(self, *args: str) -> None:
-        self.suffix.extend(re.escape(a) for a in args)
+    def handle_startswith(self, *args: object) -> None:
+        self.prefix.extend(re.escape(a) for a in self._iter_str_args(args))
 
-    def handle_splitlike(self, *args: str) -> None:
-        sep = re.escape(args[0]) if args else "_"
+    def handle_endswith(self, *args: object) -> None:
+        self.suffix.extend(re.escape(a) for a in self._iter_str_args(args))
+
+    def handle_splitlike(self, *args: object) -> None:
+        sep = re.escape(args[0]) if args and isinstance(args[0], str) else "_"
         self.body.append(f"(?:[A-Za-z0-9]+(?:{sep}[A-Za-z0-9]+)*)")
 
-    def handle_partition(self, *args: str) -> None:
-        if args:
+    def handle_partition(self, *args: object) -> None:
+        if args and isinstance(args[0], str):
             sep = re.escape(args[0])
             self.body.append(f"(?:.*?{sep}.*?)")
 
-    def handle_findlike(self, *args: str) -> None:
-        self.body.extend([f".*{re.escape(a)}.*" for a in args])
+    def handle_findlike(self, *args: object) -> None:
+        self.body.extend([f".*{re.escape(a)}.*" for a in self._iter_str_args(args)])
 
-    def handle_replace(self, *args: str) -> None:
-        if len(args) >= 2:
+    def handle_replace(self, *args: object) -> None:
+        if len(args) >= 2 and isinstance(args[0], str) and isinstance(args[1], str):
             old, new = args[:2]
             self.body.append(f"(?:.*{re.escape(old)}.*|.*{re.escape(new)}.*)")
 
-    def handle_strip(self, *args: str) -> None:
+    def handle_strip(self, *args: object) -> None:
         self.body.append(r"\s*(.*?)\s*")
 
-    def handle_zfill(self, *args: str) -> None:
+    def handle_zfill(self, *args: object) -> None:
         if args:
-            width = int(args[0])
-            self.body.append(rf"0*\d{{1,{width}}}")
+            try:
+                width = int(args[0])  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return
+            if width > 0:
+                self.body.append(rf"0*\d{{1,{width}}}")
 
-    def handle_justify(self, *args: str) -> None:
+    def handle_justify(self, *args: object) -> None:
         if args:
-            width = int(args[0])
-            self.body.append(rf".{{1,{width}}}")
+            try:
+                width = int(args[0])  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return
+            if width > 0:
+                self.body.append(rf".{{1,{width}}}")
 
-    def handle_removeprefix(self, *args: str) -> None:
-        self.body.extend([f"(?:{re.escape(a)})?" for a in args])
+    def handle_removeprefix(self, *args: object) -> None:
+        self.body.extend([f"(?:{re.escape(a)})?" for a in self._iter_str_args(args)])
 
-    def handle_removesuffix(self, *args: str) -> None:
-        self.body.extend([f"(?:{re.escape(a)})?" for a in args])
+    def handle_removesuffix(self, *args: object) -> None:
+        self.body.extend([f"(?:{re.escape(a)})?" for a in self._iter_str_args(args)])
 
     def handle_translate(self, *args: str) -> None:
         self.body.append("[A-Za-z0-9]+")

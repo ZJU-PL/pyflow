@@ -13,6 +13,7 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     AnyType,
     CallableType,
     Instance,
+    LiteralType,
     NoneType,
     ProperType,
     StringSubtype,
@@ -113,6 +114,8 @@ def _admits_runtime_type(inferred: ProperType, observed: type) -> bool:
         return issubclass(observed, cabc.Callable)
     if isinstance(inferred, StringSubtype):
         return observed is str
+    if isinstance(inferred, LiteralType):
+        return observed is type(inferred.value)
     if isinstance(inferred, Instance):
         raw = inferred.type.raw_type
         if not isinstance(raw, type):

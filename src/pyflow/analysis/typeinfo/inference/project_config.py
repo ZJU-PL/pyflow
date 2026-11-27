@@ -72,7 +72,11 @@ def _coerce(name: str, value: object) -> object | None:
         "max_union_size",
         "max_specializations_per_function",
     }:
-        return int(value) if isinstance(value, int) and value > 0 else None
+        return (
+            int(value)
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0
+            else None
+        )
     if name == "disabled_diagnostics":
         if isinstance(value, list) and all(isinstance(item, str) for item in value):
             return frozenset(value)

@@ -371,9 +371,71 @@ class NarrowingInference(InferenceComponent):
                     )
                     == truthy
                 ]
-            result[key(expression)] = AbstractTypeValue(
-                types=frozenset(filtered), unknown=old.unknown
-            )
+            if filtered or not truthy:
+                result[key(expression)] = AbstractTypeValue(
+                    types=frozenset(filtered), unknown=old.unknown
+                )
+            else:
+                # ``if hasattr(obj, "attr"):`` on a base class whose runtime
+                # subclasses attach ``attr``: keep ``obj`` live and expose
+                # ``obj.attr`` as gradual so guarded dynamic access does not
+                # trigger false ``attr-defined`` diagnostics.
+                result[f"{key(expression)}.{attribute}"] = AbstractTypeValue.unresolved()
+        if truthy:
+            getattr_call: ast.Call | None = None
+            if (
+                isinstance(condition, ast.Call)
+                and isinstance(condition.func, ast.Name)
+                and condition.func.id == "getattr"
+                and len(condition.args) >= 2
+                and isinstance(condition.args[1], ast.Constant)
+                and isinstance(condition.args[1].value, str)
+                and key(condition.args[0]) is not None
+                and (
+                    len(condition.args) == 2
+                    or (isinstance(condition.args[2], ast.Constant) and not condition.args[2].value)
+                )
+            ):
+                getattr_call = condition
+            elif (
+                isinstance(condition, ast.Compare)
+                and len(condition.ops) == 1
+                and len(condition.comparators) == 1
+                and isinstance(condition.ops[0], ast.IsNot)
+                and isinstance(condition.comparators[0], ast.Constant)
+                and condition.comparators[0].value is None
+                and isinstance(condition.left, ast.Call)
+                and isinstance(condition.left.func, ast.Name)
+                and condition.left.func.id == "getattr"
+                and len(condition.left.args) >= 2
+                and isinstance(condition.left.args[1], ast.Constant)
+                and isinstance(condition.left.args[1].value, str)
+                and key(condition.left.args[0]) is not None
+                and (
+                    len(condition.left.args) == 2
+                    or (
+                        isinstance(condition.left.args[2], ast.Constant)
+                        and condition.left.args[2].value is None
+                    )
+                )
+            ):
+                getattr_call = condition.left
+            if getattr_call is not None:
+                expression = getattr_call.args[0]
+                attribute = getattr_call.args[1].value
+                assert isinstance(attribute, str)
+                attr_key = f"{key(expression)}.{attribute}"
+                existing_attr = result.get(attr_key)
+                if existing_attr is None:
+                    existing_attr = self.engine._member_rules._attribute_value(
+                        current(expression), attribute
+                    )
+                if existing_attr.public_type() is None:
+                    result[attr_key] = AbstractTypeValue.unresolved()
+                else:
+                    narrowed_attr = self._without_none(existing_attr)
+                    if narrowed_attr.types or narrowed_attr.unknown:
+                        result[attr_key] = narrowed_attr
         if (
             isinstance(condition, ast.Call)
             and isinstance(condition.func, ast.Name)

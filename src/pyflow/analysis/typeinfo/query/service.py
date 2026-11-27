@@ -78,6 +78,9 @@ def _stdlib_root() -> Path | None:
         return None
 
 
+_UNSET = object()
+
+
 class TypeInfoService:
     """Collect and query lightweight type information for Python modules."""
 
@@ -118,6 +121,8 @@ class TypeInfoService:
         )
         self.call_model_providers = tuple(call_model_providers)
         self._inference_results: dict[str, ModuleInferenceResult] = {}
+        self._function_summaries: dict[str, object] = {}
+        self._deferred_inference_modules: set[str] = set()
         self._module_sources: dict[str, tuple[str, str | None]] = {}
         self._module_all: dict[str, frozenset[str] | None] = {}
         self._module_imports: dict[str, dict[str, str]] = {}
@@ -137,8 +142,27 @@ class TypeInfoService:
         self._should_collect_cache: dict[str, bool] = {}
         self._known_class_cache: dict[str, bool] = {}
         self._external_symbol_cache: dict[str, ProperType | None] = {}
+        self._find_module_cache: dict[str, object] = {}
+        self._find_module_cache_key: tuple[object, ...] | None = None
+        self._lazy_stub_imports: set[tuple[str, str]] = set()
         self._documented_parameters: dict[tuple[str, str], set[str]] = {}
         self._documented_returns: set[tuple[str, str]] = set()
+
+    def _find_module(self, module_name: str):
+        key = (
+            self.project_context.path,
+            len(self.project_context.source_files),
+            tuple(self.project_context.added_sys_path),
+        )
+        if self._find_module_cache_key != key:
+            self._find_module_cache.clear()
+            self._find_module_cache_key = key
+        cached = self._find_module_cache.get(module_name, _UNSET)
+        if cached is not _UNSET:
+            return cached
+        resolution = self.project_context.find_module(module_name)
+        self._find_module_cache[module_name] = resolution
+        return resolution
 
     def collect_module(
         self,
@@ -152,7 +176,7 @@ class TypeInfoService:
             # The engine owns builtins and typing special forms; re-reading
             # their stubs would shadow TupleType/Union/Optional handling.
             # A project-local module with the same name is still analyzed.
-            resolution = self.project_context.find_module(module_name)
+            resolution = self._find_module(module_name)
             if (
                 resolution is None
                 or resolution.path is None
@@ -259,6 +283,7 @@ class TypeInfoService:
                             collect_missing=False,
                         )
                         if resolved is not None and resolved != fact.typ:
+                            self._lazy_stub_imports.discard((mod_name, name))
                             facts[name] = TypeFact(
                                 name=fact.name,
                                 typ=resolved,
@@ -304,6 +329,18 @@ class TypeInfoService:
         self._ensure_refreshed()
         facts = self._module_facts.get(module_name, {})
         fact = facts.get(name)
+        if module_name in self._deferred_inference_modules and (
+            fact is None
+            or (
+                fact.kind == "function"
+                and module_name in self._functions
+                and name in self._functions[module_name]
+                and self._functions[module_name][name].returns is None
+            )
+        ):
+            self._ensure_inferred(module_name)
+            facts = self._module_facts.get(module_name, {})
+            fact = facts.get(name)
         if fact is not None:
             if (
                 fact.source == "import"
@@ -311,10 +348,16 @@ class TypeInfoService:
                 and fact.raw_annotation
                 and fact.raw_annotation != f"{module_name}.{name}"
             ):
+                is_lazy_stub = (module_name, name) in self._lazy_stub_imports
+                if is_lazy_stub:
+                    self._lazy_stub_imports.discard((module_name, name))
                 resolved = self._lookup_project_type(
                     fact.raw_annotation,
                     allow_synthetic=False,
                 )
+                if resolved is None and is_lazy_stub:
+                    facts.pop(name, None)
+                    return None
                 if resolved is not None and resolved != fact.typ:
                     fact = TypeFact(
                         name=fact.name,
@@ -347,6 +390,16 @@ class TypeInfoService:
         self._ensure_collected(module_name)
         self._ensure_refreshed()
         function = self._functions.get(module_name, {}).get(name)
+        if (
+            function is not None
+            and module_name in self._deferred_inference_modules
+            and (
+                function.returns is None
+                or any(param_type is None for param_type in function.params.values())
+            )
+        ):
+            self._ensure_inferred(module_name)
+            function = self._functions.get(module_name, {}).get(name)
         if function is not None:
             return function
         reexported = self._resolve_reexported_member(module_name, name)
@@ -396,7 +449,7 @@ class TypeInfoService:
             prefix = qualified_name
             while "." in prefix:
                 prefix = prefix.rpartition(".")[0]
-                if self.project_context.find_module(prefix) is not None:
+                if self._find_module(prefix) is not None:
                     self.collect_module(prefix)
                     break
         if qualified_name in self._classes:
@@ -411,6 +464,7 @@ class TypeInfoService:
                 if target in self._classes:
                     return self._class_members_with_inheritance(target)
         self._ensure_collected(qualified_name)
+        self._ensure_inferred(qualified_name)
         return dict(self._module_facts.get(qualified_name, {}))
 
     def _resolve_reexported_member(
@@ -428,7 +482,13 @@ class TypeInfoService:
             return None
         seen.add(key)
         if collect_missing:
-            self._ensure_collected(module_name)
+            if (
+                module_name not in self._collected_modules
+                and module_name not in self._collecting_modules
+                and len(self._collection_stack) < self._max_collection_depth
+                and self._module_should_be_collected(module_name)
+            ):
+                self.collect_module(module_name)
         elif module_name not in self._collected_modules:
             return None
         target = self._module_imports.get(module_name, {}).get(name)
@@ -551,8 +611,40 @@ class TypeInfoService:
     ) -> ModuleInferenceResult | None:
         """Return the standalone static-inference result for a module."""
         self._ensure_collected(module_name)
+        self._ensure_inferred(module_name)
         self._ensure_refreshed()
         return self._inference_results.get(module_name)
+
+    def _ensure_inferred(self, module_name: str) -> None:
+        """Run deferred intra-module static inference for a dependency on demand."""
+        if (
+            not self.enable_static_inference
+            or module_name not in self._deferred_inference_modules
+            or module_name in self._collecting_modules
+        ):
+            return
+        cached = self._module_sources.get(module_name)
+        if cached is None:
+            self._deferred_inference_modules.discard(module_name)
+            return
+        self._deferred_inference_modules.discard(module_name)
+        if len(self._collection_stack) >= self._max_collection_depth:
+            return
+        self._collecting_modules.add(module_name)
+        self._collection_stack.append(module_name)
+        try:
+            self._refresh_import_facts(module_name=module_name)
+            self._collect_inferred_source_facts(module_name, *cached)
+        except Exception as exc:
+            self._record_collection_failure(module_name, "type_source_failed", exc, cached[1])
+        finally:
+            self._collecting_modules.discard(module_name)
+            if self._collection_stack and self._collection_stack[-1] == module_name:
+                self._collection_stack.pop()
+            else:
+                self._collection_stack = [
+                    name for name in self._collection_stack if name != module_name
+                ]
 
     def _ensure_collected(self, module_name: str) -> None:
         if module_name not in self._collected_modules:
@@ -564,7 +656,7 @@ class TypeInfoService:
         path: str | None,
     ) -> tuple[str | None, str | None]:
         if path is None:
-            resolution = self.project_context.find_module(module_name)
+            resolution = self._find_module(module_name)
             if resolution is not None:
                 path = resolution.path
         if path is None:
@@ -806,10 +898,7 @@ class TypeInfoService:
             if imported_type is None:
                 imported_type = BuiltinTypeLookup()(qualified_name)
             target_mod = qualified_name.rsplit(".", 1)[0]
-            if (
-                imported_type is not None
-                or self.project_context.find_module(target_mod) is not None
-            ):
+            if imported_type is not None or self._find_module(target_mod) is not None:
                 facts[local_name] = TypeFact(
                     name=local_name,
                     typ=imported_type or ANY,
@@ -819,13 +908,19 @@ class TypeInfoService:
                 )
 
         if self.enable_static_inference and not is_third_party:
-            # Library annotations are authoritative; running the full
-            # intra-module engine over third-party bodies is slow and only
-            # adds inferred locals that callers cannot observe.
-            self._refresh_import_facts(
-                module_name=module_name if len(self._collecting_modules) > 1 else None
-            )
-            self._collect_inferred_source_facts(module_name, source, path)
+            # Always run full body inference for the requested top-level module.
+            # For transitively discovered project dependencies, keep AST
+            # declarations (classes, methods, annotations, docstrings) eager and
+            # defer body inference until an unannotated symbol is actually queried.
+            self._module_sources[module_name] = (source, path)
+            if len(self._collection_stack) <= 1:
+                self._deferred_inference_modules.discard(module_name)
+                self._refresh_import_facts(
+                    module_name=module_name if len(self._collecting_modules) > 1 else None
+                )
+                self._collect_inferred_source_facts(module_name, source, path)
+            else:
+                self._deferred_inference_modules.add(module_name)
 
     def _collect_inferred_source_facts(
         self,
@@ -843,6 +938,8 @@ class TypeInfoService:
         )
         result = engine.infer_source(module_name, source, filename=path)
         self._inference_results[module_name] = result
+        for qualified_name, summary in result.functions.items():
+            self._function_summaries[qualified_name] = summary
         if not self._refreshing_inference:
             self._needs_refresh = True
         self._external_symbol_cache.clear()
@@ -999,8 +1096,18 @@ class TypeInfoService:
 
         # Build class shapes before functions/variables: value aliases such as
         # ``random = _inst.random`` need both the class and the ``_inst`` fact.
+        # Keep cross-stub annotation resolution lazy for non-project (typeshed)
+        # stubs so importing ``os`` or ``asyncio`` does not transitively load
+        # ~200 unrelated stdlib stubs; class bases and ``_typeshed`` aliases
+        # still resolve eagerly and member lookups load classes on demand.
+        stub_collect_missing = self._module_may_be_project(module_name)
         for cls in info.classes:
-            class_info = self._class_info_from_stub(module_name, cls, imports)
+            class_info = self._class_info_from_stub(
+                module_name,
+                cls,
+                imports,
+                collect_missing=stub_collect_missing,
+            )
             self._classes[class_info.name] = class_info
             facts[cls.name] = TypeFact(
                 name=cls.name,
@@ -1019,6 +1126,7 @@ class TypeInfoService:
                     function,
                     module_name=module_name,
                     imports=imports,
+                    collect_missing=stub_collect_missing,
                 )
                 for function in declarations
             ]
@@ -1057,6 +1165,7 @@ class TypeInfoService:
                     annotation,
                     module_name=module_name,
                     imports=imports,
+                    collect_missing=stub_collect_missing,
                 ),
                 raw_annotation=annotation,
                 source="stub",
@@ -1077,26 +1186,39 @@ class TypeInfoService:
                 kind="function" if isinstance(alias_type, CallableType) else "variable",
             )
 
-        # Stub packages commonly re-export definitions from submodules.  Their
-        # names still need value facts, not just annotation aliases.
+        # Stub packages commonly re-export definitions from submodules.  Keep
+        # those re-exports lazy so importing a stdlib stub such as ``os`` or
+        # ``sys`` does not eagerly crawl hundreds of transitive typeshed files;
+        # ``fact_of`` and ``_lookup_project_type_impl`` resolve them on demand.
         for local_name, qualified_name in imports.items():
             if local_name in facts:
                 continue
             imported_type = self._lookup_project_type(
                 qualified_name,
                 allow_synthetic=False,
+                collect_missing=False,
             )
             if imported_type is None:
                 imported_type = BuiltinTypeLookup()(qualified_name)
-            if imported_type is None:
-                continue
-            facts[local_name] = TypeFact(
-                name=local_name,
-                typ=imported_type,
-                raw_annotation=qualified_name,
-                source="import",
-                kind="import",
-            )
+            if imported_type is not None:
+                facts[local_name] = TypeFact(
+                    name=local_name,
+                    typ=imported_type,
+                    raw_annotation=qualified_name,
+                    source="import",
+                    kind="import",
+                )
+            elif "." in qualified_name:
+                target_mod = qualified_name.rsplit(".", 1)[0]
+                if self._module_should_be_collected(target_mod):
+                    self._lazy_stub_imports.add((module_name, local_name))
+                    facts[local_name] = TypeFact(
+                        name=local_name,
+                        typ=ANY,
+                        raw_annotation=qualified_name,
+                        source="import",
+                        kind="import",
+                    )
 
     def _resolve_stub_definition(self, module_name: str, name: str) -> ProperType | None:
         """Resolve a module-local stub TypeVar or alias, with cycle protection."""
@@ -1564,6 +1686,7 @@ class TypeInfoService:
         *,
         module_name: str,
         imports: dict[str, str],
+        collect_missing: bool = True,
     ) -> FunctionTypeInfo:
         raw_params = {name: annotation for name, annotation in function.params}
         decorators = {decorator.rsplit(".", 1)[-1] for decorator in function.decorators}
@@ -1574,6 +1697,7 @@ class TypeInfoService:
                     annotation,
                     module_name=module_name,
                     imports=imports,
+                    collect_missing=collect_missing,
                 )
                 for name, annotation in raw_params.items()
             },
@@ -1581,6 +1705,7 @@ class TypeInfoService:
                 function.returns,
                 module_name=module_name,
                 imports=imports,
+                collect_missing=collect_missing,
             ),
             raw_params=raw_params,
             raw_returns=function.returns,
@@ -1598,6 +1723,8 @@ class TypeInfoService:
         module_name: str,
         cls: StubClassInfo,
         imports: dict[str, str],
+        *,
+        collect_missing: bool = True,
     ) -> ClassTypeInfo:
         qualified_name = f"{module_name}.{cls.name}"
         members = {
@@ -1607,6 +1734,7 @@ class TypeInfoService:
                     annotation,
                     module_name=module_name,
                     imports=imports,
+                    collect_missing=collect_missing,
                 ),
                 raw_annotation=annotation,
                 source="stub",
@@ -1647,6 +1775,7 @@ class TypeInfoService:
                     method,
                     module_name=module_name,
                     imports=imports,
+                    collect_missing=collect_missing,
                 ),
                 class_typ,
             )
@@ -1750,10 +1879,14 @@ class TypeInfoService:
         if imported is not None:
             if imported in {"typing.Self", "typing_extensions.Self"}:
                 return self._synthetic_instance("typing_extensions.Self")
+            effective_collect = collect_missing or (
+                imported == "_typeshed"
+                or imported.startswith(("_typeshed.", "collections.abc.", "_collections_abc."))
+            )
             resolved = self._lookup_project_type(
                 imported,
                 allow_synthetic=True,
-                collect_missing=collect_missing,
+                collect_missing=effective_collect,
             )
             if resolved is not None:
                 return resolved
@@ -1842,7 +1975,7 @@ class TypeInfoService:
         if module_name in self._third_party_kind:
             kind = self._third_party_kind[module_name]
             return None if kind is None else kind == "typed"
-        resolution = self.project_context.find_module(module_name)
+        resolution = self._find_module(module_name)
         if resolution is None or resolution.path is None:
             self._third_party_kind[module_name] = None
             return None
@@ -1862,13 +1995,11 @@ class TypeInfoService:
         return kind == "typed"
 
     def _summary_type(self, qualified_name: str) -> ProperType | None:
-        for result in self._inference_results.values():
-            summary = result.functions.get(qualified_name)
-            if summary is None:
-                continue
-            parameters = tuple(value.public_type() or ANY for value in summary.parameters.values())
-            return CallableType(parameters, summary.return_type or ANY)
-        return None
+        summary = self._function_summaries.get(qualified_name)
+        if summary is None:
+            return None
+        parameters = tuple(value.public_type() or ANY for value in summary.parameters.values())
+        return CallableType(parameters, summary.return_type or ANY)
 
     def _replace_self_type(self, typ: ProperType | None, class_type: Instance) -> ProperType | None:
         """Recursively replace ``Self`` inside a stub type."""
@@ -1982,6 +2113,12 @@ class TypeInfoService:
                     if substitutions:
                         found = substitute_type_vars(found, substitutions)
                     return found
+        owner_mod = class_name.rpartition(".")[0]
+        if owner_mod in self._deferred_inference_modules:
+            self._ensure_inferred(owner_mod)
+            descriptor = self.type_system.class_descriptor(class_name)
+            if descriptor is not None and member in descriptor.members:
+                return descriptor.members[member]
         return None
 
     def _lookup_project_type(
@@ -2069,6 +2206,11 @@ class TypeInfoService:
         for index in range(len(parts) - 1, 0, -1):
             class_prefix = ".".join(parts[:index])
             if class_prefix not in self._classes:
+                if (
+                    class_prefix in self._collected_modules
+                    or class_prefix in self._collecting_modules
+                ):
+                    continue
                 prefix_module, _, prefix_name = class_prefix.rpartition(".")
                 if prefix_module and prefix_name:
                     reexported = self._resolve_reexported_member(
@@ -2124,6 +2266,30 @@ class TypeInfoService:
                     self._collection_diagnostics.append(diagnostic)
 
         fact = self._module_facts.get(module_name, {}).get(attr)
+        if (
+            collect_missing
+            and module_name in self._deferred_inference_modules
+            and (
+                (
+                    fact is None
+                    and qualified_name not in self._collected_modules
+                    and qualified_name not in self._collecting_modules
+                    and not self._module_may_be_project(qualified_name)
+                )
+                or (
+                    fact is not None
+                    and fact.kind == "function"
+                    and module_name in self._functions
+                    and attr in self._functions[module_name]
+                    and self._functions[module_name][attr].returns is None
+                )
+            )
+        ):
+            self._ensure_inferred(module_name)
+            summary = self._summary_type(qualified_name)
+            if summary is not None:
+                return summary
+            fact = self._module_facts.get(module_name, {}).get(attr)
         if fact is not None:
             if (
                 fact.source == "import"
@@ -2131,12 +2297,35 @@ class TypeInfoService:
                 and fact.raw_annotation
                 and fact.raw_annotation != qualified_name
             ):
+                is_lazy_stub = (module_name, attr) in self._lazy_stub_imports
+                if is_lazy_stub and not collect_missing:
+                    resolved_import = self._lookup_project_type(
+                        fact.raw_annotation,
+                        allow_synthetic=allow_synthetic,
+                        collect_missing=False,
+                    )
+                    if resolved_import is not None:
+                        self._lazy_stub_imports.discard((module_name, attr))
+                        self._module_facts[module_name][attr] = TypeFact(
+                            name=fact.name,
+                            typ=resolved_import,
+                            raw_annotation=fact.raw_annotation,
+                            source=fact.source,
+                            kind=fact.kind,
+                        )
+                        return resolved_import
+                    return None
+                if is_lazy_stub:
+                    self._lazy_stub_imports.discard((module_name, attr))
                 resolved_import = self._lookup_project_type(
                     fact.raw_annotation,
                     allow_synthetic=allow_synthetic,
                     collect_missing=collect_missing,
                 )
-                if resolved_import is not None and resolved_import != fact.typ:
+                if resolved_import is None and is_lazy_stub:
+                    self._module_facts.get(module_name, {}).pop(attr, None)
+                    fact = None
+                elif resolved_import is not None and resolved_import != fact.typ:
                     self._module_facts[module_name][attr] = TypeFact(
                         name=fact.name,
                         typ=resolved_import,
@@ -2145,7 +2334,8 @@ class TypeInfoService:
                         kind=fact.kind,
                     )
                     return resolved_import
-            return fact.typ
+            if fact is not None:
+                return fact.typ
 
         dynamic_getattr = self._functions.get(module_name, {}).get("__getattr__")
         if dynamic_getattr is not None and dynamic_getattr.returns is not None:
@@ -2156,7 +2346,7 @@ class TypeInfoService:
             # prevents the engine from inventing a class for this symbol.
             return ANY
 
-        if allow_synthetic and self.project_context.find_module(module_name) is not None:
+        if allow_synthetic and self._find_module(module_name) is not None:
             return self._synthetic_instance(qualified_name)
         return None
 
@@ -2237,7 +2427,7 @@ class TypeInfoService:
         if not self._module_may_be_project(module_name):
             self._known_class_cache[qualified_name] = False
             return False
-        resolution = self.project_context.find_module(module_name)
+        resolution = self._find_module(module_name)
         if resolution is None or resolution.path is None:
             self._known_class_cache[qualified_name] = False
             return False
@@ -2256,9 +2446,22 @@ class TypeInfoService:
         return result
 
     def _module_may_be_project(self, module_name: str) -> bool:
-        """Cheaply rule out stdlib and third-party modules before resolving."""
-
-        first = module_name.split(".", 1)[0]
+        """Cheaply rule out stdlib, third-party, and dotted non-module names."""
+        parts = module_name.split(".")
+        if not parts or any(not part for part in parts):
+            return False
+        if self.project_context.source_files:
+            rel = "/".join(parts)
+            suffixes = (f"/{rel}.py", f"/{rel}.pyi", f"/{rel}/__init__.py", f"/{rel}/__init__.pyi")
+            for source_path in self.project_context.source_files:
+                normalized = source_path.replace("\\", "/")
+                if normalized.endswith(suffixes) or normalized in {
+                    f"{rel}.py",
+                    f"{rel}.pyi",
+                    f"{rel}/__init__.py",
+                    f"{rel}/__init__.pyi",
+                }:
+                    return True
         roots = (
             self.project_context.path,
             *self.project_context.module_identity.workspace_roots,
@@ -2266,16 +2469,35 @@ class TypeInfoService:
         )
         for root in roots:
             root_path = Path(root)
-            if (root_path / first).is_dir() or (root_path / f"{first}.py").is_file():
-                return True
             # ``ProjectContext.get_sys_path`` inserts a top-level ``src``
             # directory for the common src layout.  Keep this guard in sync
             # with import resolution; otherwise project modules are never
             # collected lazily and their annotations degrade to synthetic or
             # unknown types.
-            src_path = root_path / "src"
-            if (src_path / first).is_dir() or (src_path / f"{first}.py").is_file():
-                return True
+            for base in (root_path, root_path / "src"):
+                if len(parts) == 1:
+                    first = parts[0]
+                    if (
+                        (base / first).is_dir()
+                        or (base / f"{first}.py").is_file()
+                        or (base / f"{first}.pyi").is_file()
+                    ):
+                        return True
+                else:
+                    # For dotted names such as ``mod.Class``, require every
+                    # parent component to be an actual package directory;
+                    # otherwise ``mod.py`` would match ``mod.Class`` as a
+                    # project module and short-circuit collection of ``mod``.
+                    parent = base.joinpath(*parts[:-1])
+                    if not parent.is_dir():
+                        continue
+                    leaf = parts[-1]
+                    if (
+                        (parent / leaf).is_dir()
+                        or (parent / f"{leaf}.py").is_file()
+                        or (parent / f"{leaf}.pyi").is_file()
+                    ):
+                        return True
         return False
 
 

@@ -23,7 +23,7 @@ def iter_module_imports(
         elif isinstance(statement, ast.If):
             yield from iter_module_imports(statement.body)
             yield from iter_module_imports(statement.orelse)
-        elif isinstance(statement, ast.Try):
+        elif isinstance(statement, (ast.Try, getattr(ast, "TryStar", ast.Try))):
             yield from iter_module_imports(statement.body)
             for handler in statement.handlers:
                 yield from iter_module_imports(handler.body)

@@ -465,12 +465,68 @@ class StaticTypeInferenceEngine:
                     names.add(statement.target.attr)
             return names
 
-        def walk(node: ast.AST, annotated: set[str], attributes: set[str], path: str) -> None:
+        def guarded_attributes(test: ast.expr) -> set[tuple[str, str]]:
+            found: set[tuple[str, str]] = set()
+            if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+                for item in test.values:
+                    found.update(guarded_attributes(item))
+                return found
+            call: ast.Call | None = None
+            if isinstance(test, ast.Call) and isinstance(test.func, ast.Name):
+                if test.func.id == "hasattr" and len(test.args) >= 2:
+                    call = test
+                elif (
+                    test.func.id == "getattr"
+                    and len(test.args) >= 2
+                    and (
+                        len(test.args) == 2
+                        or (isinstance(test.args[2], ast.Constant) and not test.args[2].value)
+                    )
+                ):
+                    call = test
+            elif (
+                isinstance(test, ast.Compare)
+                and len(test.ops) == 1
+                and len(test.comparators) == 1
+                and isinstance(test.ops[0], ast.IsNot)
+                and isinstance(test.comparators[0], ast.Constant)
+                and test.comparators[0].value is None
+                and isinstance(test.left, ast.Call)
+                and isinstance(test.left.func, ast.Name)
+                and test.left.func.id == "getattr"
+                and len(test.left.args) >= 2
+                and (
+                    len(test.left.args) == 2
+                    or (
+                        isinstance(test.left.args[2], ast.Constant)
+                        and test.left.args[2].value is None
+                    )
+                )
+            ):
+                call = test.left
+            if (
+                call is not None
+                and isinstance(call.args[1], ast.Constant)
+                and isinstance(call.args[1].value, str)
+            ):
+                try:
+                    found.add((ast.unparse(call.args[0]), call.args[1].value))
+                except Exception:
+                    pass
+            return found
+
+        def walk(
+            node: ast.AST,
+            annotated: set[str],
+            attributes: set[str],
+            path: str,
+            guarded: frozenset[tuple[str, str]] = frozenset(),
+        ) -> None:
             if isinstance(node, ast.ClassDef):
                 class_scope = attributes | class_attributes(node)
                 class_path = f"{path}.{node.name}"
                 for child in node.body:
-                    walk(child, annotated | {"self"}, class_scope, class_path)
+                    walk(child, annotated | {"self"}, class_scope, class_path, frozenset())
                 return
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 function_path = f"{path}.{node.name}"
@@ -498,7 +554,26 @@ class StaticTypeInferenceEngine:
                 )
                 names |= self._subscript_declared_names(node.body, names)
                 for child in node.body:
-                    walk(child, names, attributes, function_path)
+                    walk(child, names, attributes, function_path, frozenset())
+                return
+            if isinstance(node, ast.If):
+                walk(node.test, annotated, attributes, path, guarded)
+                body_guarded = guarded | frozenset(guarded_attributes(node.test))
+                for child in node.body:
+                    walk(child, annotated, attributes, path, body_guarded)
+                for child in node.orelse:
+                    walk(child, annotated, attributes, path, guarded)
+                return
+            if isinstance(node, ast.IfExp):
+                walk(node.test, annotated, attributes, path, guarded)
+                walk(
+                    node.body,
+                    annotated,
+                    attributes,
+                    path,
+                    guarded | frozenset(guarded_attributes(node.test)),
+                )
+                walk(node.orelse, annotated, attributes, path, guarded)
                 return
             if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
                 receiver_is_declared = isinstance(node.value, ast.Name) and (
@@ -530,11 +605,18 @@ class StaticTypeInferenceEngine:
                     # starts at a call with a declared return type.
                     receiver_is_declared = True
                 if receiver_is_declared:
-                    base = self._expressions.get(_span(node.value))
-                    if base is not None:
-                        self._member_rules.report_missing_member(base, node.attr, node)
+                    is_guarded = False
+                    if guarded:
+                        try:
+                            is_guarded = (ast.unparse(node.value), node.attr) in guarded
+                        except Exception:
+                            is_guarded = False
+                    if not is_guarded:
+                        base = self._expressions.get(_span(node.value))
+                        if base is not None:
+                            self._member_rules.report_missing_member(base, node.attr, node)
             for child in ast.iter_child_nodes(node):
-                walk(child, annotated, attributes, path)
+                walk(child, annotated, attributes, path, guarded)
 
         for statement in self._tree.body:
             walk(statement, module_names, set(), self._module_name)

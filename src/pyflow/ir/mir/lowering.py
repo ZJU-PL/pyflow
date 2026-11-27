@@ -1733,6 +1733,7 @@ def _discover(
     diagnostics=None,
     follow_imports=True,
     max_import_depth=None,
+    deadline: float | None = None,
 ):
     """Read only local .py modules; never use importlib or execute import hooks."""
     modules = {}
@@ -1749,6 +1750,8 @@ def _discover(
         return None
 
     def load(text, module_name, file, depth=0):
+        if depth > 0 and deadline is not None and monotonic() >= deadline:
+            raise LoweringBudgetError("MIR lowering exceeded time budget", file)
         if module_name in modules and not modules[module_name].opaque:
             return
         try:
@@ -1819,6 +1822,8 @@ def _discover(
                 ensure(".".join(components[:index]), node)
             try:
                 load(_source(path) if path.is_file() else "", target, str(path), depth + 1)
+            except LoweringBudgetError:
+                raise
             except (LoweringError, OSError, UnicodeError):
                 if import_policy != "opaque":
                     raise
@@ -1890,6 +1895,7 @@ def lower_source(
         raise ValueError(f"Unknown MIR import policy: {import_policy}")
     if max_import_depth is not None and (type(max_import_depth) is not int or max_import_depth < 0):
         raise ValueError("max_import_depth must be a non-negative integer or None")
+    deadline = monotonic() + max_seconds if max_seconds is not None and max_seconds > 0 else None
     modules = _discover(
         source,
         module_name,
@@ -1899,13 +1905,15 @@ def lower_source(
         diagnostics=diagnostics,
         follow_imports=follow_imports,
         max_import_depth=max_import_depth,
+        deadline=deadline,
     )
+    remaining_seconds = None if deadline is None else max(1e-6, deadline - monotonic())
     return PythonToMIR(
         modules,
         module_name,
         inspection_only=import_policy == "opaque",
         diagnostics=diagnostics,
-        max_seconds=max_seconds,
+        max_seconds=remaining_seconds,
     ).compile()
 
 

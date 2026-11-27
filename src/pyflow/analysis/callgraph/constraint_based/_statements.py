@@ -8,18 +8,46 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from .model import (
     AbstractValue,
+    BOOL_VALUE,
     ContextKey,
     CONTAINER_KIND,
     COROUTINE_KIND,
     GENERATOR_KIND,
     GLOBAL_CONTEXT,
+    NONE_VALUE,
     ScopeInfo,
+    STRING_KIND,
     UNKNOWN_VALUE,
     copy_env,
     join_envs,
     make_class,
     make_func,
 )
+
+_TRY_TYPES: tuple[type, ...] = (ast.Try, ast.TryStar) if hasattr(ast, "TryStar") else (ast.Try,)
+
+
+def _is_irrefutable_pattern(pattern: ast.AST) -> bool:
+    if isinstance(pattern, ast.MatchAs):
+        return pattern.pattern is None or _is_irrefutable_pattern(pattern.pattern)
+    if isinstance(pattern, ast.MatchOr):
+        return any(_is_irrefutable_pattern(inner) for inner in pattern.patterns)
+    return False
+
+
+def _pattern_exhausts_concrete_values(pattern: ast.AST) -> bool:
+    if isinstance(pattern, ast.MatchAs):
+        return pattern.pattern is None or _pattern_exhausts_concrete_values(pattern.pattern)
+    if isinstance(pattern, ast.MatchOr):
+        return all(_pattern_exhausts_concrete_values(inner) for inner in pattern.patterns)
+    if isinstance(pattern, ast.MatchValue):
+        return True
+    if isinstance(pattern, ast.MatchSingleton):
+        return pattern.value is None
+    if isinstance(pattern, ast.MatchClass):
+        return not pattern.patterns and not pattern.kwd_patterns
+    return False
+
 
 _BlockResult = Tuple[
     Dict[str, Set[AbstractValue]],
@@ -113,7 +141,7 @@ class _StatementAnalysisMixin:
             self._process_for_statement(context, state, stmt)
         elif isinstance(stmt, ast.While):
             self._process_while_statement(context, state, stmt)
-        elif isinstance(stmt, ast.Try):
+        elif isinstance(stmt, _TRY_TYPES):
             self._process_try_statement(context, state, stmt)
         elif isinstance(stmt, (ast.With, ast.AsyncWith)):
             self._process_with_statement(context, state, stmt)
@@ -170,6 +198,9 @@ class _StatementAnalysisMixin:
                 nonlocal_writes=nonlocal_writes,
                 changed_instance_fields=changed_instance_fields,
                 changed_class_fields=changed_class_fields,
+                scope_context=scope_context,
+                callees=callees,
+                input_changed_scope_contexts=input_changed_scope_contexts,
             )
         state.env = env
         state.callees = callees
@@ -216,6 +247,9 @@ class _StatementAnalysisMixin:
                 nonlocal_writes=nonlocal_writes,
                 changed_instance_fields=changed_instance_fields,
                 changed_class_fields=changed_class_fields,
+                scope_context=scope_context,
+                callees=callees,
+                input_changed_scope_contexts=input_changed_scope_contexts,
             )
         state.env = env
         state.callees = callees
@@ -287,6 +321,9 @@ class _StatementAnalysisMixin:
             nonlocal_writes=nonlocal_writes,
             changed_instance_fields=changed_instance_fields,
             changed_class_fields=changed_class_fields,
+            scope_context=scope_context,
+            callees=callees,
+            input_changed_scope_contexts=input_changed_scope_contexts,
         )
         state.env = env
         state.callees = callees
@@ -536,6 +573,9 @@ class _StatementAnalysisMixin:
             nonlocal_writes=nonlocal_writes,
             changed_instance_fields=changed_instance_fields,
             changed_class_fields=changed_class_fields,
+            scope_context=scope_context,
+            callees=callees,
+            input_changed_scope_contexts=input_changed_scope_contexts,
         )
         (
             body_env,
@@ -749,6 +789,15 @@ class _StatementAnalysisMixin:
         handler_fallthrough = False
         for handler in stmt.handlers:
             handler_entry_env = copy_env(body_env)
+            if handler.type is not None:
+                self._eval_expr(
+                    scope,
+                    scope_context,
+                    handler.type,
+                    body_env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
             if handler.name:
                 handler_entry_env[handler.name] = self._exception_handler_values(
                     scope,
@@ -945,6 +994,9 @@ class _StatementAnalysisMixin:
                     nonlocal_writes=nonlocal_writes,
                     changed_instance_fields=changed_instance_fields,
                     changed_class_fields=changed_class_fields,
+                    scope_context=scope_context,
+                    callees=callees,
+                    input_changed_scope_contexts=input_changed_scope_contexts,
                 )
             exit_calls.append(
                 (
@@ -1103,7 +1155,22 @@ class _StatementAnalysisMixin:
             self._merge_value_maps(global_writes, branch_globals)
             self._merge_value_maps(nonlocal_writes, branch_nonlocals)
             if case.guard is None or guard_truth is True:
-                remaining_subject_values.difference_update(matched_subject_values)
+                if _is_irrefutable_pattern(case.pattern):
+                    remaining_subject_values.clear()
+                elif _pattern_exhausts_concrete_values(case.pattern):
+                    # Refutable patterns can only exhaust concrete non-unknown
+                    # values (e.g. a specific literal string, None, or class
+                    # without sub-patterns).  UNKNOWN_VALUE and BOOL_VALUE
+                    # represent multiple runtime values and must stay live for
+                    # subsequent ``case`` arms.
+                    exhausted = {
+                        val
+                        for val in matched_subject_values
+                        if val != UNKNOWN_VALUE
+                        and val != BOOL_VALUE
+                        and not (val.kind == STRING_KIND and val.name in {"<joined>", "#int"})
+                    }
+                    remaining_subject_values.difference_update(exhausted)
                 if not remaining_subject_values:
                     break
         env = merged_env
@@ -1153,11 +1220,13 @@ class _StatementAnalysisMixin:
         input_changed_scope_contexts = state.input_changed_scope_contexts
         falls_through = state.falls_through
 
-        if stmt.exc is not None:
+        for expr in (stmt.exc, stmt.cause):
+            if expr is None:
+                continue
             raised_values = self._eval_expr(
                 scope,
                 scope_context,
-                stmt.exc,
+                expr,
                 env,
                 callees,
                 input_changed_scope_contexts,
@@ -1165,8 +1234,8 @@ class _StatementAnalysisMixin:
             class_values = {value for value in raised_values if value.kind == "class"}
             if class_values:
                 raise_call = ast.copy_location(
-                    ast.Call(func=stmt.exc, args=[], keywords=[]),
-                    stmt.exc,
+                    ast.Call(func=expr, args=[], keywords=[]),
+                    expr,
                 )
                 self._invoke_targets(
                     caller_scope=scope,
@@ -1212,6 +1281,15 @@ class _StatementAnalysisMixin:
             callees,
             input_changed_scope_contexts,
         )
+        if stmt.msg is not None:
+            self._eval_expr(
+                scope,
+                scope_context,
+                stmt.msg,
+                env,
+                callees,
+                input_changed_scope_contexts,
+            )
         env = self._refine_env_for_test(scope, scope_context, stmt.test, env, True)
         state.env = env
         state.callees = callees
@@ -1229,13 +1307,17 @@ class _StatementAnalysisMixin:
         callees = state.callees
         input_changed_scope_contexts = state.input_changed_scope_contexts
 
-        for target in stmt.targets:
+        def _delete_target(target: ast.AST) -> None:
             if isinstance(target, ast.Name):
                 # A may-analysis does not kill a binding.  Another path
                 # or an earlier/later loop iteration can still expose
                 # any value previously assigned to this name.
-                continue
-            elif isinstance(target, ast.Attribute):
+                return
+            if isinstance(target, (ast.Tuple, ast.List)):
+                for elt in target.elts:
+                    _delete_target(elt)
+                return
+            if isinstance(target, ast.Attribute):
                 base_values = self._eval_expr(
                     scope,
                     scope_context,
@@ -1245,7 +1327,8 @@ class _StatementAnalysisMixin:
                     input_changed_scope_contexts,
                 )
                 self._mark_attribute_maybe_missing(base_values, {target.attr})
-            elif isinstance(target, ast.Subscript):
+                return
+            if isinstance(target, ast.Subscript):
                 base_values = self._eval_expr(
                     scope,
                     scope_context,
@@ -1266,6 +1349,9 @@ class _StatementAnalysisMixin:
                     )
                     key_names = self._string_constants(key_values)
                 self._mark_container_key_maybe_missing(base_values, key_names)
+
+        for target in stmt.targets:
+            _delete_target(target)
         state.env = env
         state.callees = callees
         state.input_changed_scope_contexts = input_changed_scope_contexts

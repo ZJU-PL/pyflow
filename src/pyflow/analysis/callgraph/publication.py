@@ -66,13 +66,55 @@ def _source_filename(catalog, code) -> str | None:
     return os.path.realpath(filename) if filename else None
 
 
-def _source_line(catalog, code, operation) -> int | None:
+def _source_location(catalog, code, operation) -> tuple[int, int] | None:
     try:
         origin = catalog.source_of(operation, code=code)
     except KeyError:
         return None
     span = getattr(origin, "span", None)
-    return getattr(span, "start_line", None)
+    start_line = getattr(span, "start_line", None)
+    start_column = getattr(span, "start_column", None)
+    if start_line is None or start_column is None:
+        return None
+    return (int(start_line), int(start_column))
+
+
+def _is_interpreter_helper_call(operation) -> bool:
+    if not isinstance(operation, ast.Call):
+        return False
+    expr = getattr(operation, "expr", None)
+    if not isinstance(expr, ast.Existing):
+        return False
+    obj = getattr(expr, "object", None)
+    pyobj = getattr(obj, "pyobj", None)
+    name = getattr(pyobj, "__name__", None) or str(obj)
+    return "interpreter" in str(name)
+
+
+def _matching_caller_scopes(
+    procedure, code, candidate_scopes: Iterable[str], is_module: bool
+) -> set[str]:
+    matched = {
+        scope
+        for scope in candidate_scopes
+        if _scope_matches(code, scope) or (is_module and scope == "main")
+    }
+    if is_module or len(matched) <= 1:
+        return matched
+    # Disambiguate same-named methods vs module-level functions in the same file
+    # (e.g. ``mod.foo`` vs ``mod.Class.foo``) using the IR procedure's qualname.
+    qual_parts = [
+        part
+        for part in procedure.code_id.qualname.split(".")
+        if part and part not in {"<module>", "<locals>"}
+    ]
+    if len(qual_parts) >= 2:
+        # Prefer scopes sharing the immediate enclosing qualifier (class or outer function).
+        tail2 = ".".join(qual_parts[-2:])
+        narrowed = {scope for scope in matched if scope == tail2 or scope.endswith(f".{tail2}")}
+        if narrowed:
+            return narrowed
+    return matched
 
 
 def extract_constraint_callgraph_edges(
@@ -185,7 +227,9 @@ def publish_constraint_callgraph_facts(
     """Publish a complete, context-conservative call-target snapshot."""
     catalog = program.ir
     edges = defaultdict(set)
+    edges_by_location = defaultdict(set)
     module_edges = defaultdict(set)
+    scopes_by_source = defaultdict(set)
     source_paths = tuple(Path(path).resolve() for path in paths)
     if entry_path is None:
         if not source_paths:
@@ -204,7 +248,12 @@ def publish_constraint_callgraph_facts(
     )
     for site, targets in computed_edges.items():
         site_source = os.path.realpath(site.source_path or analysis_entry)
+        scopes_by_source[site_source].add(site.caller_scope)
         edges[(site_source, site.caller_scope, site.ordinal)].update(targets)
+        if site.line > 0 and site.column >= 0:
+            edges_by_location[(site_source, site.caller_scope, site.line, site.column)].update(
+                targets
+            )
         if site.is_module_scope:
             module_edges[(site_source, site.line)].update(targets)
 
@@ -221,19 +270,26 @@ def publish_constraint_callgraph_facts(
         calls = tuple(op for op in getOps(code)[0] if isinstance(op, call_types))
         source_filename = _source_filename(catalog, code)
         is_module = procedure.construct_kind == "synthetic_module"
-        caller_scopes = {
-            scope
-            for edge_source, scope, _ordinal in edges
-            if edge_source == source_filename
-            and (_scope_matches(code, scope) or (is_module and scope == "main"))
-        }
+        caller_scopes = _matching_caller_scopes(
+            procedure,
+            code,
+            scopes_by_source.get(source_filename, ()),
+            is_module,
+        )
         for ordinal, operation in enumerate(calls):
-            if is_module:
-                target_names = set(
-                    module_edges.get((source_filename, _source_line(catalog, code, operation)), ())
-                )
+            location = _source_location(catalog, code, operation)
+            target_names = set()
+            if location is not None:
+                line, column = location
+                for scope in caller_scopes:
+                    target_names.update(
+                        edges_by_location.get((source_filename, scope, line, column), ())
+                    )
+                if is_module and not target_names and not _is_interpreter_helper_call(operation):
+                    target_names.update(module_edges.get((source_filename, line), ()))
+            elif is_module:
+                target_names.update(module_edges.get((source_filename, None), ()))
             else:
-                target_names = set()
                 for scope in caller_scopes:
                     target_names.update(edges.get((source_filename, scope, ordinal), ()))
             target_codes = {

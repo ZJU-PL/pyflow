@@ -1187,6 +1187,7 @@ class FlowInference(InferenceComponent):
         self,
         target: ast.Subscript,
         value: AbstractTypeValue,
+        environment: dict[str, AbstractTypeValue],
         current_function: _FunctionInfo | None,
     ) -> None:
         """Report ``list-item``/``dict-item`` for declared containers.
@@ -1203,22 +1204,39 @@ class FlowInference(InferenceComponent):
             else self.engine._module_name
         )
         declared: ProperType | None = None
-        if current_function is not None:
+        # Prefer a local re-annotation (e.g. ``features: dict[str, Tensor] = ...``)
+        # over an earlier parameter annotation on the same name.
+        entry = self.engine._declared_annotations.get(f"{scope}.{target.value.id}")
+        if entry is not None:
+            declared = entry[1]
+        elif current_function is not None:
             annotated_param = current_function.explicit_parameters.get(target.value.id)
             if annotated_param is not None:
                 declared = annotated_param.public_type()
         if declared is None:
-            entry = self.engine._declared_annotations.get(f"{scope}.{target.value.id}")
-            if entry is not None:
-                declared = entry[1]
-        if declared is None:
             return
+        if not isinstance(declared, Instance) or not declared.args:
+            return
+        # If the variable was rebound in the current flow to an unknown/gradual
+        # value or a different container type (e.g. a ``list[...]`` parameter
+        # reassigned to ``super().__call__(...)`` returning ``dict[str, Any]``),
+        # do not check against the stale declaration.
+        current_value = environment.get(target.value.id)
+        if current_value is not None:
+            if current_value.unknown:
+                return
+            current_type = current_value.public_type()
+            if isinstance(current_type, AnyType):
+                return
+            if (
+                isinstance(current_type, Instance)
+                and current_type.type.raw_type is not declared.type.raw_type
+            ):
+                return
         actual = value.public_type()
         if actual is None or value.unknown:
             return
         if isinstance(actual, (AnyType, TypeVarType)):
-            return
-        if not isinstance(declared, Instance) or not declared.args:
             return
         raw = declared.type.raw_type
         if raw in self._MAPPING_CONTAINERS and len(declared.args) > 1:
@@ -1302,7 +1320,7 @@ class FlowInference(InferenceComponent):
             if not isinstance(target.slice, ast.Slice):
                 environment[ast.unparse(target)] = value
             self.engine._record_expression(target, value)
-            self._check_subscript_assignment(target, value, current_function)
+            self._check_subscript_assignment(target, value, environment, current_function)
             if isinstance(target.slice, ast.Slice):
                 value = self.engine._value_rules._iterable_element(value)
             base = self.engine._expression_rules._evaluate_expression(

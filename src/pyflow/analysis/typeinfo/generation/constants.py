@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import abc
 import ast
+from fnmatch import fnmatchcase
 import logging
 import os
 import string
@@ -21,7 +22,40 @@ from abc import ABC
 from pathlib import Path
 from pkgutil import iter_modules
 
-from setuptools import find_packages  # pyright: ignore[reportMissingModuleSource]
+try:
+    from setuptools import (
+        find_packages as _setuptools_find_packages,
+    )  # pyright: ignore[reportMissingModuleSource]
+except ImportError:
+    _setuptools_find_packages = None
+
+
+def find_packages(
+    where: str | os.PathLike[str] = ".",
+    exclude: typing.Sequence[str] = (),
+) -> list[str]:
+    """Discover Python packages under ``where`` without requiring setuptools."""
+    if _setuptools_find_packages is not None:
+        return list(_setuptools_find_packages(where, exclude=exclude))
+    root = Path(where)
+    if not root.is_dir():
+        return []
+    discovered: list[str] = []
+    for current, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "__pycache__")
+        if current == str(root):
+            continue
+        if "__init__.py" not in files:
+            dirs[:] = []
+            continue
+        rel = Path(current).relative_to(root)
+        package = ".".join(rel.parts)
+        if any(fnmatchcase(package, pattern) for pattern in exclude):
+            dirs[:] = []
+            continue
+        discovered.append(package)
+    return discovered
+
 
 from pyflow.util import randomness
 from pyflow.util.orderedset import OrderedSet
@@ -295,10 +329,10 @@ def collect_static_constants(
             try:
                 tree = ast.parse(module_file.read())
                 collector.visit(tree)
-            except BaseException as exception:  # noqa: BLE001
+            except Exception as exception:  # noqa: BLE001
                 logger.warning(
                     "Could not collect constants from %s. Skipping constant collection (%s).",
-                    module,
+                    module_path,
                     exception,
                 )
 

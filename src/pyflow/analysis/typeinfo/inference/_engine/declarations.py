@@ -1059,22 +1059,24 @@ class DeclarationInference(InferenceComponent):
         return False
 
     def _name_is_bound(self, name: str) -> bool:
-        """Whether *name* is bound anywhere in the module (any statement)."""
+        """Whether *name* (or its dotted root) is bound anywhere in the module."""
+        root = name.split(".", 1)[0]
+        targets = {name, root}
         for node in ast.walk(self.engine._tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                if node.name == name:
+                if node.name in targets:
                     return True
             elif isinstance(node, ast.Name):
-                if isinstance(node.ctx, ast.Store) and node.id == name:
+                if isinstance(node.ctx, ast.Store) and node.id in targets:
                     return True
             elif isinstance(node, ast.alias):
-                if (node.asname or node.name.split(".")[0]) == name:
+                if (node.asname or node.name.split(".")[0]) in targets:
                     return True
             elif isinstance(node, ast.arg):
-                if node.arg == name:
+                if node.arg in targets:
                     return True
             elif isinstance(node, ast.ExceptHandler):
-                if node.name == name:
+                if node.name in targets:
                     return True
         return False
 

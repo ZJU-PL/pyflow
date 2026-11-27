@@ -189,6 +189,9 @@ class _StateAnalysisMixin:
         nonlocal_writes: Optional[Dict[str, Set[AbstractValue]]] = None,
         changed_instance_fields: Optional[Set[Tuple[str, str]]] = None,
         changed_class_fields: Optional[Set[Tuple[str, str]]] = None,
+        scope_context: Optional[ContextKey] = None,
+        callees: Optional[Set[str]] = None,
+        input_changed_scope_contexts: Optional[Set[Tuple[str, ContextKey]]] = None,
     ) -> bool:
         """
         Assign abstract values into a target (name, destructuring, attr, subscript).
@@ -304,6 +307,9 @@ class _StateAnalysisMixin:
                                 nonlocal_writes=nonlocal_writes,
                                 changed_instance_fields=changed_instance_fields,
                                 changed_class_fields=changed_class_fields,
+                                scope_context=scope_context,
+                                callees=callees,
+                                input_changed_scope_contexts=input_changed_scope_contexts,
                             )
                             or changed
                         )
@@ -325,6 +331,9 @@ class _StateAnalysisMixin:
                             nonlocal_writes=nonlocal_writes,
                             changed_instance_fields=changed_instance_fields,
                             changed_class_fields=changed_class_fields,
+                            scope_context=scope_context,
+                            callees=callees,
+                            input_changed_scope_contexts=input_changed_scope_contexts,
                         )
                         or changed
                     )
@@ -344,6 +353,9 @@ class _StateAnalysisMixin:
                         nonlocal_writes=nonlocal_writes,
                         changed_instance_fields=changed_instance_fields,
                         changed_class_fields=changed_class_fields,
+                        scope_context=scope_context,
+                        callees=callees,
+                        input_changed_scope_contexts=input_changed_scope_contexts,
                     )
                     or changed
                 )
@@ -405,32 +417,55 @@ class _StateAnalysisMixin:
                             changed_class_fields.add((owner, target.attr))
                         return changed
                 base_values = env.get(base_name, set())
-                class_values = {v.name for v in base_values if v.kind == CLASS_KIND}
-                instance_values = {v.name for v in base_values if v.kind == INSTANCE_KIND}
-                changed = False
-                for class_name in class_values:
-                    current = self.class_fields[class_name][target.attr]
-                    did_change = self._merge_value_set(
-                        current, set(values), preserve_callables=True
-                    )
-                    changed = changed or did_change
-                    if did_change and changed_class_fields is not None:
-                        changed_class_fields.add((class_name, target.attr))
-                for instance_or_class_name in instance_values:
-                    current = self.instance_fields[instance_or_class_name][target.attr]
-                    did_change = self._merge_value_set(
-                        current, set(values), preserve_callables=True
-                    )
-                    changed = changed or did_change
-                    if did_change and changed_instance_fields is not None:
-                        changed_instance_fields.add((instance_or_class_name, target.attr))
-                return changed
-            return False
+            elif (
+                scope_context is not None
+                and callees is not None
+                and input_changed_scope_contexts is not None
+            ):
+                base_values = self._eval_expr(
+                    scope,
+                    scope_context,
+                    target.value,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+            else:
+                return False
+            class_values = {v.name for v in base_values if v.kind == CLASS_KIND}
+            instance_values = {v.name for v in base_values if v.kind == INSTANCE_KIND}
+            changed = False
+            for class_name in class_values:
+                current = self.class_fields[class_name][target.attr]
+                did_change = self._merge_value_set(current, set(values), preserve_callables=True)
+                changed = changed or did_change
+                if did_change and changed_class_fields is not None:
+                    changed_class_fields.add((class_name, target.attr))
+            for instance_or_class_name in instance_values:
+                current = self.instance_fields[instance_or_class_name][target.attr]
+                did_change = self._merge_value_set(current, set(values), preserve_callables=True)
+                changed = changed or did_change
+                if did_change and changed_instance_fields is not None:
+                    changed_instance_fields.add((instance_or_class_name, target.attr))
+            return changed
 
         if isinstance(target, ast.Subscript):
             base_values: Set[AbstractValue] = set()
             if isinstance(target.value, ast.Name):
                 base_values = set(env.get(target.value.id, set()))
+            elif (
+                scope_context is not None
+                and callees is not None
+                and input_changed_scope_contexts is not None
+            ):
+                base_values = self._eval_expr(
+                    scope,
+                    scope_context,
+                    target.value,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
             elif isinstance(target.value, ast.Subscript) and isinstance(
                 target.value.value, ast.Name
             ):
@@ -451,7 +486,21 @@ class _StateAnalysisMixin:
                     base_values.update(
                         value for value in nested_values if value.kind == CONTAINER_KIND
                     )
-            key_names = self._subscript_keys(target)
+            key_names = set(self._subscript_keys(target))
+            if (
+                scope_context is not None
+                and callees is not None
+                and input_changed_scope_contexts is not None
+            ):
+                slice_values = self._eval_expr(
+                    scope,
+                    scope_context,
+                    target.slice,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
+                key_names.update(self._string_constants(slice_values))
             changed = False
             for base_value in base_values:
                 if base_value.kind != CONTAINER_KIND:

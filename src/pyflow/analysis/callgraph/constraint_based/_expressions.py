@@ -143,7 +143,16 @@ class _ExpressionAnalysisMixin:
                 callees=callees,
                 input_changed_scope_contexts=input_changed_scope_contexts,
             ) or {UNKNOWN_VALUE}
-            self._assign_target(scope, generator.target, iter_members, comp_env, weak=True)
+            self._assign_target(
+                scope,
+                generator.target,
+                iter_members,
+                comp_env,
+                weak=True,
+                scope_context=scope_context,
+                callees=callees,
+                input_changed_scope_contexts=input_changed_scope_contexts,
+            )
             for cond in generator.ifs:
                 condition_values = self._eval_expr(
                     scope,
@@ -1237,7 +1246,29 @@ class _ExpressionAnalysisMixin:
                 out7.update(self.container_elements.get(base_value.name, set()))
             return out7
 
+        if isinstance(expr, ast.Slice):
+            for bound in (expr.lower, expr.upper, expr.step):
+                if bound is not None:
+                    self._eval_expr(
+                        scope,
+                        scope_context,
+                        bound,
+                        env,
+                        callees,
+                        input_changed_scope_contexts,
+                    )
+            return {UNKNOWN_VALUE}
+
         if isinstance(expr, ast.FormattedValue):
+            if expr.format_spec is not None:
+                self._eval_expr(
+                    scope,
+                    scope_context,
+                    expr.format_spec,
+                    env,
+                    callees,
+                    input_changed_scope_contexts,
+                )
             return self._eval_expr(
                 scope,
                 scope_context,
@@ -1249,9 +1280,11 @@ class _ExpressionAnalysisMixin:
 
         if isinstance(expr, ast.JoinedStr):
             pieces: List[List[str]] = []
+            exact = True
             for value in expr.values:
                 if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                    pieces.append([value.value])
+                    if exact:
+                        pieces.append([value.value])
                     continue
                 evaluated = self._eval_expr(
                     scope,
@@ -1261,10 +1294,15 @@ class _ExpressionAnalysisMixin:
                     callees,
                     input_changed_scope_contexts,
                 )
+                if not exact:
+                    continue
                 strings = sorted(self._string_constants(evaluated))
                 if not strings:
-                    return {make_string("<joined>")}
-                pieces.append(strings)
+                    exact = False
+                else:
+                    pieces.append(strings)
+            if not exact:
+                return {make_string("<joined>")}
             if not pieces:
                 return {make_string("")}
             combination_count = 1
@@ -1292,7 +1330,15 @@ class _ExpressionAnalysisMixin:
                 callees,
                 input_changed_scope_contexts,
             )
-            self._assign_target(scope, expr.target, values, env)
+            self._assign_target(
+                scope,
+                expr.target,
+                values,
+                env,
+                scope_context=scope_context,
+                callees=callees,
+                input_changed_scope_contexts=input_changed_scope_contexts,
+            )
             return values
 
         if isinstance(expr, ast.Yield):

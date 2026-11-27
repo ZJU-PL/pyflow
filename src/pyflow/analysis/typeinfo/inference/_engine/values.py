@@ -16,8 +16,10 @@ from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
     AnyType,
     NEVER,
+    NONE_TYPE,
     CallableType,
     Instance,
+    LiteralType,
     NeverType,
     NoneType,
     ProperType,
@@ -516,6 +518,19 @@ class ValueInference(InferenceComponent):
             return
         if self.engine.type_system.is_subtype(actual, expected):
             return
+        if index_value.literal_values and index_value.literal_values_complete:
+            if all(
+                self.engine.type_system.is_subtype(
+                    (
+                        NONE_TYPE
+                        if lit is None
+                        else LiteralType(lit, self._proper_instance(type(lit)))
+                    ),
+                    expected,
+                )
+                for lit in index_value.literal_values
+            ):
+                return
         self.engine._add_diagnostic(
             "index",
             f'Invalid index type "{actual}" for "{typ}"',
