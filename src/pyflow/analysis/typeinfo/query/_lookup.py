@@ -659,7 +659,11 @@ class _TypeLookupMixin:
             raw_type = None
         if raw_type is None:
             module_name, _, class_name = full_name.rpartition(".")
-            raw_type = type(class_name, (), {"__module__": module_name})
+            raw_type = type(
+                class_name,
+                (),
+                {"__module__": module_name, "__pyflow_synthetic__": True},
+            )
         self._synthetic_types[full_name] = raw_type
         return Instance(self.type_system.to_class_descriptor(raw_type))
 

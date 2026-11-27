@@ -407,10 +407,24 @@ def run_typeinfo(args) -> int:
         return 2
 
     service = TypeInfoService(context)
+    directory_scan = input_path.is_dir() and not args.module
+    collected_modules: list[tuple[str, Path | None]] = []
     try:
         for module_name, path in modules:
-            _collect(service, module_name, path)
-        module_names = [name for name, _ in modules]
+            if not directory_scan:
+                _collect(service, module_name, path)
+                collected_modules.append((module_name, path))
+                continue
+            try:
+                _collect(service, module_name, path)
+            except (ValueError, OSError, SyntaxError, UnicodeDecodeError) as exc:
+                location = str(path) if path is not None else module_name
+                print(f"Warning: skipping {location}: {exc}", file=sys.stderr)
+            else:
+                collected_modules.append((module_name, path))
+        if not collected_modules:
+            raise ValueError(f"no valid Python modules could be analyzed under {input_path}")
+        module_names = [name for name, _ in collected_modules]
         if args.symbol:
             payload = _symbol_result(service, module_names[0], args.symbol)
             mode = "symbol"

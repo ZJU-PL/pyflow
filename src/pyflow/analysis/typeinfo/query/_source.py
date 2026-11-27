@@ -709,22 +709,48 @@ class _SourceCollectionMixin:
                     kind="property" if method_info.is_property else "method",
                 )
         raw_bases = tuple(_annotation_to_str(base) for base in node.bases)
+        if any(base.split("[", 1)[0].rsplit(".", 1)[-1] == "Protocol" for base in raw_bases):
+            class_typ.type.is_protocol = True
+        resolved_bases: list[ProperType] = []
+        for raw_base in raw_bases:
+            base_head = raw_base.split("[", 1)[0].rsplit(".", 1)[-1]
+            resolved = self._resolve_annotation(
+                raw_base,
+                module_name=module_name,
+                imports=imports,
+                collect_missing=collect_missing,
+            )
+            if isinstance(resolved, Instance):
+                resolved_bases.append(resolved)
+                if resolved.type is not class_typ.type and resolved.type.full_name not in {
+                    "typing.Generic",
+                    "typing_extensions.Generic",
+                }:
+                    self.type_system.add_subclass_edge(
+                        super_class=resolved.type,
+                        sub_class=class_typ.type,
+                    )
+                if getattr(resolved.type.raw_type, "__pyflow_unresolved_external__", False):
+                    class_typ.type.has_unresolved_bases = True
+            else:
+                if resolved is not None:
+                    resolved_bases.append(resolved)
+                if base_head not in {"Generic", "Protocol"}:
+                    class_typ.type.has_unresolved_bases = True
+            if base_head in {"IntEnum", "IntFlag"}:
+                self.type_system.add_subclass_edge(
+                    super_class=self.type_system.to_class_descriptor(int),
+                    sub_class=class_typ.type,
+                )
+            elif base_head == "StrEnum":
+                self.type_system.add_subclass_edge(
+                    super_class=self.type_system.to_class_descriptor(str),
+                    sub_class=class_typ.type,
+                )
         return ClassTypeInfo(
             name=qualified_name,
             typ=class_typ,
-            bases=tuple(
-                resolved
-                for raw_base in raw_bases
-                if (
-                    resolved := self._resolve_annotation(
-                        raw_base,
-                        module_name=module_name,
-                        imports=imports,
-                        collect_missing=collect_missing,
-                    )
-                )
-                is not None
-            ),
+            bases=tuple(resolved_bases),
             raw_bases=raw_bases,
             members=members,
             methods=methods,

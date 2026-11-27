@@ -210,3 +210,20 @@ def test_typeinfo_respects_pep263_non_utf8_encoding_cookie(tmp_path, monkeypatch
     assert code == 0, err
     report = json.loads(out)[0]
     assert report["types"]["latin1_mod.TITLE"]["type"] == "str"
+
+
+def test_typeinfo_directory_scan_skips_unparseable_files_with_warning(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    (tmp_path / "good.py").write_text("VALUE: int = 1\n", encoding="utf-8")
+    (tmp_path / "legacy_py2.py").write_text("print 'python2'\n", encoding="utf-8")
+    (tmp_path / "bad_bytes.py").write_bytes(b"\xff\xfeinvalid\n")
+
+    code, out, err = _run(monkeypatch, capsys, tmp_path, "--mode", "summary", "--json")
+
+    assert code == 0, err
+    assert "Warning: skipping" in err
+    payload = {item["module"]: item for item in json.loads(out)}
+    assert "good" in payload
+    assert payload["good"]["status"] == "complete"
+    assert "bad_bytes" not in payload

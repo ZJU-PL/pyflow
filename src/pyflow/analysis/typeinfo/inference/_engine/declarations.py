@@ -169,7 +169,20 @@ class DeclarationInference(InferenceComponent):
                     for text in decorator_texts
                 )
                 base_names = {base.rsplit(".", 1)[-1] for base in class_info.bases}
-                is_model_class = bool(base_names & {"BaseModel", "BaseSettings", "Struct"})
+                is_model_class = bool(base_names & {"BaseModel", "BaseSettings", "Struct"}) or any(
+                    (base_info := self.engine._classes.get(base)) is not None
+                    and base_info.is_model_class
+                    for base in class_info.bases
+                )
+                if not is_model_class:
+                    is_model_class = any(
+                        ancestor.full_name.rsplit(".", 1)[-1]
+                        in {"BaseModel", "BaseSettings", "Struct"}
+                        for ancestor in self.engine.type_system.get_superclasses(
+                            class_info.instance.type
+                        )
+                    )
+                class_info.is_model_class = is_model_class
                 all_keyword_only = any(
                     keyword.arg == "kw_only"
                     and isinstance(keyword.value, ast.Constant)

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed false-positive TypeInfo diagnostics, missing cross-module subtype
+  edges, union method TypeVar leaks, model subclass field inheritance, and CLI
+  directory-scan resilience across `top100` repositories (`pallets--flask`,
+  `scrapy--scrapy`, `apache--superset`, `fastapi--fastapi`,
+  `ultralytics--ultralytics`, `ZhuLinsen--daily_stock_analysis`,
+  `fighting41love--funNLP`, Wave 4):
+  - Marked synthetic placeholder classes in `BuiltinTypeLookup` and rejected
+    synthetic and non-stdlib external classes when checking `attr-defined`
+    diagnostics; also skipped `attr-defined` for `types.SimpleNamespace` and
+    stdlib classes defining stub `__getattr__`.
+  - Registered subclass edges, `is_protocol`, and `has_unresolved_bases` on
+    `TypeSystem` when collecting classes from source and `.pyi` stubs so
+    cross-module subclass assignability holds without bogus
+    `annotation-mismatch` errors.
+  - Enabled runtime class narrowing in `isinstance(other, self.__class__)` and
+    added membership narrowing for typed container variables (`set`, `frozenset`,
+    `list`, `tuple`, `dict`).
+  - Propagated `is_model_class` across Pydantic/Struct subclasses (`UserInDB(User)`)
+    so inherited models include their own annotated constructor fields.
+  - Ordered `_UNION_JOIN_METHODS` (including `pop`, `popitem`, `setdefault`) and
+    native container dispatch ahead of raw stub `CallableType` signatures so
+    dict union `.pop(...)` calls join values without leaking unbound `_T`.
+  - Updated directory-wide `pyflow typeinfo` scans to warn and skip individual
+    unparseable files instead of aborting the whole project report.
+
 - Fixed case-alias module duplication, try/except MRO self-cycles, and
   unbounded TypeInfo transitive collection / single-file runtime budgets
   uncovered across `top100` repositories (`xtekky--gpt4free`, `keras`,

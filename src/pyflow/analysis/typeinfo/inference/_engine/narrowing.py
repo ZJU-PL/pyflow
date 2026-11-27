@@ -97,11 +97,10 @@ class NarrowingInference(InferenceComponent):
         ):
             expression = condition.args[0]
             narrowed = self.engine._expression_rules._evaluate_type_expression(condition.args[1])
-            if narrowed.unknown and isinstance(condition.args[1], ast.Name):
-                # Local aliases such as ``_Segment = Segment`` are runtime
-                # class objects, not annotation aliases.  A tuple of classes
-                # (``expected = (str, bytes)``) narrows to the union of its
-                # elements rather than to the tuple itself.
+            if narrowed.unknown:
+                # Local aliases such as ``_Segment = Segment`` or
+                # ``self.__class__`` evaluate to runtime class objects or
+                # tuples of classes rather than annotation aliases.
                 runtime_alias = current(condition.args[1])
                 runtime_types = self._runtime_isinstance_types(runtime_alias)
                 if runtime_types is not None:
@@ -622,7 +621,42 @@ class NarrowingInference(InferenceComponent):
         ):
             return self._membership_element_types(container.args[0], current)
         if elements is None:
-            return None
+            container_value = current(container)
+            if container_value.unknown or not container_value.types:
+                return None
+            known_container_raws = {
+                list,
+                set,
+                frozenset,
+                tuple,
+                dict,
+                range,
+                cabc.Set,
+                cabc.Sequence,
+                cabc.Mapping,
+            }
+            container_parts = [
+                part
+                for typ in container_value.types
+                for part in (typ.items if isinstance(typ, UnionType) else (typ,))
+            ]
+            if not container_parts or not all(
+                isinstance(part, TupleType)
+                or (isinstance(part, Instance) and part.type.raw_type in known_container_raws)
+                for part in container_parts
+            ):
+                return None
+            element_value = self.engine._value_rules._iterable_element(container_value)
+            if element_value.unknown or not element_value.types:
+                return None
+            element_parts = [
+                part
+                for typ in element_value.types
+                for part in (typ.items if isinstance(typ, UnionType) else (typ,))
+            ]
+            if any(isinstance(part, AnyType) for part in element_parts):
+                return None
+            return element_value
         values: list[AbstractTypeValue] = []
         for element in elements:
             if isinstance(element, ast.Constant):

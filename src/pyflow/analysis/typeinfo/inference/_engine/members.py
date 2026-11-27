@@ -1482,6 +1482,8 @@ class MemberInference(InferenceComponent):
             return False
         if descriptor.is_protocol or descriptor.has_unresolved_bases:
             return False
+        if descriptor.full_name == "types.SimpleNamespace":
+            return False
         # ``has_unresolved_bases`` is per-descriptor bookkeeping that can be
         # reset by a later re-analysis; walk the observed hierarchy as well.
         # Only report when the whole MRO is known to this engine: classes from
@@ -1490,21 +1492,29 @@ class MemberInference(InferenceComponent):
         # incomplete by construction.
         stdlib = getattr(sys, "stdlib_module_names", frozenset())
         for ancestor in self.engine.type_system.get_superclasses(descriptor):
-            if ancestor is descriptor:
-                continue
             raw_ancestor = ancestor.raw_type
             if getattr(raw_ancestor, "__pyflow_unresolved_external__", False):
                 return False
             if (
                 ancestor.is_protocol
                 or ancestor.has_unresolved_bases
+                or ancestor.full_name == "types.SimpleNamespace"
                 or "__getattr__" in ancestor.members
             ):
                 return False
             if ancestor.full_name in self.engine._classes:
                 continue
+            if getattr(raw_ancestor, "__pyflow_synthetic__", False):
+                return False
             module_root = getattr(raw_ancestor, "__module__", "").split(".", 1)[0]
-            if module_root in stdlib or module_root == "builtins":
+            if (module_root in stdlib or module_root == "builtins") and isinstance(
+                raw_ancestor, type
+            ):
+                if (
+                    ancestor.full_name != "builtins.object"
+                    and self._external_type(f"{ancestor.full_name}.__getattr__") is not None
+                ):
+                    return False
                 continue
             return False
         class_info = self.engine._classes.get(descriptor.full_name)

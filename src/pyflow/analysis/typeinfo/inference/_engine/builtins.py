@@ -36,7 +36,10 @@ from pyflow.analysis.typeinfo.core.typesystem import (
 )
 from pyflow.analysis.typeinfo.inference._engine.component import InferenceComponent
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue, join_all
-from pyflow.analysis.typeinfo.resolution.typing_syntax import substitute_type_vars
+from pyflow.analysis.typeinfo.resolution.typing_syntax import (
+    collect_type_vars,
+    substitute_type_vars,
+)
 
 # Methods whose results are joined across receiver union alternatives.
 _UNION_JOIN_METHODS = frozenset(
@@ -45,6 +48,9 @@ _UNION_JOIN_METHODS = frozenset(
         "count",
         "index",
         "get",
+        "pop",
+        "popitem",
+        "setdefault",
         "keys",
         "values",
         "items",
@@ -577,10 +583,6 @@ class BuiltinInference(InferenceComponent):
                     target, arguments, keywords, node=call_node or node
                 )
 
-        native_override = self._native_call_attribute(node, base, arguments, keywords, call_node)
-        if native_override is not None:
-            return native_override
-
         union_parts = self.engine._operator_rules._flatten_union_parts(base)
         if len(union_parts) > 1 and node.attr in _UNION_JOIN_METHODS:
             results: list[AbstractTypeValue] = []
@@ -590,7 +592,7 @@ class BuiltinInference(InferenceComponent):
                     AbstractTypeValue.from_type(part),
                     arguments,
                     keywords,
-                    environment,
+                    dict(environment),
                     call_node=call_node,
                 )
                 if result is not None:
@@ -602,6 +604,10 @@ class BuiltinInference(InferenceComponent):
                     max_union_size=self.engine.options.max_union_size,
                 )
                 return replace(joined, unknown=joined.unknown or base.unknown)
+
+        native_override = self._native_call_attribute(node, base, arguments, keywords, call_node)
+        if native_override is not None:
+            return native_override
 
         for typ in base.types:
             pathlib_class: Instance | None = None
@@ -683,19 +689,6 @@ class BuiltinInference(InferenceComponent):
                                 ),
                             ),
                         )
-                    )
-            else:
-                member = typ.type.members.get(node.attr)
-                if isinstance(member, CallableType):
-                    substitutions = {
-                        parameter.name: argument
-                        for parameter, argument in zip(typ.type.type_parameters, typ.args)
-                    }
-                    if substitutions:
-                        member = substitute_type_vars(member, substitutions)
-                    selected = self.engine._call_rules._select_callable_overload(member, arguments)
-                    return AbstractTypeValue.from_type(
-                        selected.return_type if selected is not None else member.return_type
                     )
         if method_targets:
             return join_all(
@@ -1712,6 +1705,38 @@ class BuiltinInference(InferenceComponent):
                                     ),
                                 )
                         return AbstractTypeValue.from_type(NONE_TYPE)
+        external_results: list[AbstractTypeValue] = []
+        for typ in base.types:
+            if not isinstance(typ, Instance):
+                continue
+            if typ.type.full_name in self.engine._classes:
+                continue
+            member = typ.type.members.get(node.attr)
+            if not isinstance(member, CallableType):
+                continue
+            param_names = [parameter.name for parameter in typ.type.type_parameters]
+            if typ.args and not param_names:
+                param_names = list(
+                    self.engine._member_rules._external_type_parameters(typ.type.full_name)
+                )
+            substitutions = {name: argument for name, argument in zip(param_names, typ.args)}
+            if substitutions:
+                member = substitute_type_vars(member, substitutions)
+            selected = self.engine._call_rules._select_callable_overload(member, arguments)
+            returned = selected.return_type if selected is not None else member.return_type
+            remaining = collect_type_vars(returned)
+            if remaining:
+                fallback = {
+                    tv.name: (typ if tv.name == "Self" else (tv.bound or ANY)) for tv in remaining
+                }
+                returned = substitute_type_vars(returned, fallback)
+            external_results.append(AbstractTypeValue.from_type(returned))
+        if external_results:
+            return join_all(
+                external_results,
+                self.engine.type_system,
+                max_union_size=self.engine.options.max_union_size,
+            )
         return None
 
     def _method_arguments(self, function, base, arguments):

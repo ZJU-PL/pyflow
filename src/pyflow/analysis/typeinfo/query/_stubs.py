@@ -517,21 +517,35 @@ class _StubCollectionMixin:
                 source="stub",
                 kind="method",
             )
+        resolved_bases: list[ProperType] = []
+        for raw_base in cls.bases:
+            base_head = raw_base.split("[", 1)[0].rsplit(".", 1)[-1]
+            resolved = self._resolve_annotation(
+                raw_base,
+                module_name=module_name,
+                imports=imports,
+            )
+            if isinstance(resolved, Instance):
+                resolved_bases.append(resolved)
+                if resolved.type is not class_typ.type and resolved.type.full_name not in {
+                    "typing.Generic",
+                    "typing_extensions.Generic",
+                }:
+                    self.type_system.add_subclass_edge(
+                        super_class=resolved.type,
+                        sub_class=class_typ.type,
+                    )
+                if getattr(resolved.type.raw_type, "__pyflow_unresolved_external__", False):
+                    class_typ.type.has_unresolved_bases = True
+            else:
+                if resolved is not None:
+                    resolved_bases.append(resolved)
+                if base_head not in {"Generic", "Protocol"}:
+                    class_typ.type.has_unresolved_bases = True
         return ClassTypeInfo(
             name=qualified_name,
             typ=class_typ,
-            bases=tuple(
-                resolved
-                for raw_base in cls.bases
-                if (
-                    resolved := self._resolve_annotation(
-                        raw_base,
-                        module_name=module_name,
-                        imports=imports,
-                    )
-                )
-                is not None
-            ),
+            bases=tuple(resolved_bases),
             raw_bases=tuple(cls.bases),
             members=members,
             methods=methods,

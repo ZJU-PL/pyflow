@@ -1384,3 +1384,103 @@ def test_project_context_finds_dynamically_added_module_with_exact_case(tmp_path
     (tmp_path / "newly_added.py").write_text("X = 1\n", encoding="utf-8")
     assert ctx.find_module("newly_added") is not None
     assert ctx.find_module("NEWLY_ADDED") is None
+
+
+def test_external_synthetic_class_does_not_emit_false_attr_defined() -> None:
+    result = infer("""
+from missing_pkg.core import Context
+
+def inspect(ctx: Context):
+    return ctx.info_name
+""")
+    assert not [d for d in result.diagnostics if d.code in {"attr-defined", "union-attr"}]
+
+
+def test_cross_module_subclass_registers_subtype_edge(tmp_path: Path) -> None:
+    (tmp_path / "base_cfg.py").write_text(
+        "class BaseSettings:\n    value: int = 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "child_cfg.py").write_text(
+        "from base_cfg import BaseSettings\nclass Settings(BaseSettings):\n    extra: str = 'x'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "app.py").write_text(
+        "from base_cfg import BaseSettings\n"
+        "from child_cfg import Settings\n"
+        "def accept(cfg: BaseSettings) -> BaseSettings:\n"
+        "    return cfg\n"
+        "def run() -> BaseSettings:\n"
+        "    return accept(Settings())\n",
+        encoding="utf-8",
+    )
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("app")
+    assert not [d for d in service.diagnostics() if d.code == "annotation-mismatch"]
+
+
+def test_isinstance_self_class_narrows_other() -> None:
+    result = infer("""
+class Entry:
+    pr_number: int | None = None
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, self.__class__):
+            return other.pr_number == self.pr_number
+        return False
+""")
+    assert not [d for d in result.diagnostics if d.code in {"attr-defined", "union-attr"}]
+
+
+def test_inherited_pydantic_model_subclass_tracks_own_and_parent_fields() -> None:
+    result = infer("""
+from pydantic import BaseModel
+
+class User(BaseModel):
+    username: str
+    email: str | None = None
+
+class UserInDB(User):
+    hashed_password: str
+
+ok = UserInDB(username="alice", hashed_password="secret")
+bad = UserInDB(username="alice", hashed_password="secret", extra="nope")
+""")
+    arity = [d.message for d in result.diagnostics if d.code == "call-arity-mismatch"]
+    assert not any("hashed_password" in message for message in arity)
+    assert any("Unexpected keyword argument 'extra'" in message for message in arity)
+
+
+def test_union_dict_pop_joins_values_without_leaking_typevar() -> None:
+    result = infer("""
+def parse(flag: bool):
+    overrides = {"task": "detect"} if flag else {"verbose": True}
+    task = overrides.pop("task", None)
+    return task
+""")
+    returned = result.type_of("m.parse")
+    assert "_T" not in str(returned)
+
+
+def test_simple_namespace_dynamic_attributes_skip_attr_defined() -> None:
+    result = infer("""
+from types import SimpleNamespace
+import argparse
+
+def use_ns(cfg: SimpleNamespace, cli: argparse.Namespace):
+    return cfg.project, cli.output
+""")
+    assert not [d for d in result.diagnostics if d.code in {"attr-defined", "union-attr"}]
+
+
+def test_container_variable_membership_narrows_none() -> None:
+    result = infer("""
+_SAFE = frozenset({"text/plain", "text/html"})
+
+def choose(content_type: str | None) -> str:
+    if content_type in _SAFE:
+        return content_type
+    return "text/plain"
+""")
+    assert not [d for d in result.diagnostics if d.code == "annotation-mismatch"]
