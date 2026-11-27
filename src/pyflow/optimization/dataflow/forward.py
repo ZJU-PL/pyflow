@@ -179,7 +179,16 @@ class ForwardFlowTraverse(TypeDispatcher):
 
     @dispatch(ast.ExceptionHandler)
     def visitFlow(self, node):
-        return node.rewriteChildren(self)
+        preamble = self(node.preamble)
+        type_ = self(node.type)
+        value = node.value
+        if isinstance(value, ast.Local):
+            if self.flow._current is not None:
+                self.flow.undefine(value)
+        elif value is not None:
+            value = self(value)
+        body = self(node.body)
+        return ast.ExceptionHandler(preamble, type_, value, body)
 
     @dispatch(list, tuple)
     def visitContainer(self, node):
@@ -492,15 +501,20 @@ class ForwardFlowTraverse(TypeDispatcher):
                 break
             self.flow.restore(current.split())
 
-            # TODO Need to invalidate index every iteration.
-            # Really, we're evaluating index = next(iterator)
-
-            # HACK
-            # self.flow.undefine(node.index)
-            # index = node.index
+            # The loop index is freshly assigned on each iteration by
+            # ``next(iterator)``; invalidate any pre-loop constant binding so
+            # folding neither replaces the target Local with an Existing node
+            # nor leaks pre-loop constants into the loop body.
+            if isinstance(node.index, ast.Local) and self.flow._current is not None:
+                self.flow.undefine(node.index)
 
             bodyPreamble = self(node.bodyPreamble)
-            index = self(node.index)
+            candidate_index = self(node.index)
+            index = (
+                candidate_index
+                if isinstance(candidate_index, (ast.Local, ast.SymbolBase))
+                else node.index
+            )
 
             body = self(node.body)
 

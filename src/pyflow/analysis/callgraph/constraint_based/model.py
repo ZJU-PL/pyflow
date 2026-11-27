@@ -79,6 +79,7 @@ class AnalysisOptions:
     semi_naive_presolve: bool = True
     skip_stdlib_modules: bool = True
     skip_external_modules: bool = False
+    follow_imports: bool = True
     analyze_reachable_only: bool = False
     seed_entry_file_scopes: bool = False
     fixpoint_max_seconds: Optional[float] = 60.0

@@ -81,6 +81,7 @@ def extract_constraint_callgraph_edges(
     entry_path: str | Path | None = None,
     analyze_reachable_only: bool = False,
     max_iterations: int = 256,
+    follow_imports: bool = True,
 ):
     """Compute source-level constraint edges without mutating the IR catalog."""
     return analyze_constraint_callgraph_edges(
@@ -88,6 +89,7 @@ def extract_constraint_callgraph_edges(
         entry_path=entry_path,
         analyze_reachable_only=analyze_reachable_only,
         max_iterations=max_iterations,
+        follow_imports=follow_imports,
     ).edges
 
 
@@ -97,6 +99,7 @@ def analyze_constraint_callgraph_edges(
     entry_path: str | Path | None = None,
     analyze_reachable_only: bool = False,
     max_iterations: int = 256,
+    follow_imports: bool = True,
 ) -> ConstraintCallgraphAnalysis:
     """Compute constraint edges and expose whether the bounded pass converged."""
     source_paths = tuple(Path(path).resolve() for path in paths)
@@ -147,6 +150,7 @@ def analyze_constraint_callgraph_edges(
             fixpoint_max_iterations=max(1, int(max_iterations)),
             allow_fixture_graph_loading=False,
             skip_external_modules=True,
+            follow_imports=follow_imports,
             analyze_reachable_only=analyze_reachable_only,
             seed_entry_file_scopes=analyze_reachable_only,
         ),

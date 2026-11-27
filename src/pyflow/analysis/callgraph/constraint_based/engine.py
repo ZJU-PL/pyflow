@@ -288,21 +288,33 @@ class ConstraintCallGraphBuilder(
         return {site: frozenset(callees) for site, callees in self.callsite_callees.items()}
 
     def _index_call_sites(self) -> None:
-        """Assign stable per-scope ordinals to source AST call nodes."""
+        """Reset lazy per-scope call-site ordinal caches."""
         self._callsite_ordinals.clear()
-        for scope in self.scopes.values():
+        self._callsite_ordinals_by_scope: Dict[str, Dict[int, int]] = {}
+
+    def _callsite_ordinal(self, caller_scope: ScopeInfo, call_node: ast.Call) -> int:
+        """Lazily assign and return the stable per-scope ordinal for *call_node*."""
+        by_scope = getattr(self, "_callsite_ordinals_by_scope", None)
+        if by_scope is None:
+            by_scope = {}
+            self._callsite_ordinals_by_scope = by_scope
+        ordinals = by_scope.get(caller_scope.name)
+        if ordinals is None:
+            ordinals = {}
             ordinal = 0
 
-            class CallIndexer(ast.NodeVisitor):
-                def visit_Call(visitor_self, node: ast.Call) -> None:
-                    nonlocal ordinal
-                    visitor_self.generic_visit(node)
-                    self._callsite_ordinals[id(node)] = ordinal
+            def _visit(node: ast.AST) -> None:
+                nonlocal ordinal
+                for child in ast.iter_child_nodes(node):
+                    _visit(child)
+                if isinstance(node, ast.Call):
+                    ordinals[id(node)] = ordinal
                     ordinal += 1
 
-            indexer = CallIndexer()
-            for statement in scope.body:
-                indexer.visit(statement)
+            for statement in caller_scope.body:
+                _visit(statement)
+            by_scope[caller_scope.name] = ordinals
+        return ordinals.get(id(call_node), -1)
 
     def _record_callsite_callee(
         self,
@@ -321,7 +333,7 @@ class ConstraintCallGraphBuilder(
             caller_context=normalized_context,
             line=int(getattr(call_node, "lineno", -1) or -1),
             column=int(getattr(call_node, "col_offset", -1) or -1),
-            ordinal=self._callsite_ordinals.get(id(call_node), -1),
+            ordinal=self._callsite_ordinal(caller_scope, call_node),
             source_path=self._scope_source_path(caller_scope),
             is_module_scope=caller_scope.name in self.modules,
         )
@@ -346,7 +358,7 @@ class ConstraintCallGraphBuilder(
             caller_context=normalized_context,
             line=int(getattr(call_node, "lineno", -1) or -1),
             column=int(getattr(call_node, "col_offset", -1) or -1),
-            ordinal=self._callsite_ordinals.get(id(call_node), -1),
+            ordinal=self._callsite_ordinal(caller_scope, call_node),
             source_path=self._scope_source_path(caller_scope),
             is_module_scope=caller_scope.name in self.modules,
         )

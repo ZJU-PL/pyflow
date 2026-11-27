@@ -350,11 +350,10 @@ def resolve_forward_reference(
         The resolved type, or ``None`` if the string cannot be parsed
         or the name cannot be resolved.
     """
-    try:
-        tree = ast.parse(ref.strip(), mode="eval")
-    except SyntaxError:
+    expr = _parse_annotation_expr(ref.strip())
+    if expr is None:
         return None
-    return _resolve_expr(tree.body, lookup)
+    return _resolve_expr(expr, lookup)
 
 
 # ---------------------------------------------------------------------------

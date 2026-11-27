@@ -95,11 +95,17 @@ class Worklist:
     items_list: Deque[Dict[str, Any]]
     items_dict: Dict[PointerFlowNode, Dict[str, Any]]  # Maps node to index in list
 
-    def __init__(self, policy: str = "fifo", seed: int = 0):
+    def __init__(
+        self,
+        policy: str = "fifo",
+        seed: int = 0,
+        arena: Optional[AnalysisArena] = None,
+    ):
         if policy not in ("fifo", "lifo", "random"):
             raise ValueError(f"unsupported worklist policy: {policy}")
         self.policy = policy
         self._random = random.Random(seed)
+        self.arena = arena
         self.items_list = deque()
         self.items_dict = {}
         self._next_index = 0
@@ -109,8 +115,8 @@ class Worklist:
         assert isinstance(node, PointerFlowNode), f"node must be a PFNode, but got {type(node)}"
         if isinstance(node, NormalNode):
             assert isinstance(node.var, Ctx), f"node.var must be a Ctx, but got {type(node.var)}"
-
-        worklist_item: Tuple[Scope, PointerFlowNode, Box[PointsToSet]] = (scope, node, Box(pts))
+        if self.arena is not None and pts.arena is not self.arena:
+            pts = pts.rebase(self.arena)
 
         # Check if node already in worklist
         if node in self.items_dict:
@@ -119,6 +125,7 @@ class Worklist:
             item[2].val = item[2].val.union(pts)
         else:
             # Add new item
+            worklist_item: Tuple[Scope, PointerFlowNode, Box[PointsToSet]] = (scope, node, Box(pts))
             self.items_list.append(worklist_item)
             self.items_dict[node] = worklist_item
 
@@ -191,7 +198,7 @@ class PointerAnalysisState:
         self._pending_class_bindings = defaultdict(list)
         self._class_slots = {}
         self._variable_factory: VariableFactory = VariableFactory()
-        self._worklist: Worklist = Worklist(worklist_policy, worklist_seed)
+        self._worklist: Worklist = Worklist(worklist_policy, worklist_seed, arena=self.arena)
         self._static_policy = worklist_policy
         self._static_random = random.Random(worklist_seed + 1)
         self._static_constraints: List[Tuple["Scope", "AbstractContext", "Constraint"]] = []

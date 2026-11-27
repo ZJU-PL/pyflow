@@ -4,7 +4,7 @@ This module defines the representation of heap objects in the k-CFA pointer anal
 Objects are context-sensitive and identified by their allocation site and context.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 import ast
 from typing import Optional, Tuple, Union, Dict, TYPE_CHECKING
@@ -95,6 +95,7 @@ class AllocSite:
 
     stmt: "IRStatement"
     kind: AllocKind
+    _cached_hash: int = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRStatement
@@ -109,6 +110,19 @@ class AllocSite:
             assert isinstance(
                 self.stmt, IRStatement
             ), f"stmt must be an IRStatement, but got {type(self.stmt)}"
+        object.__setattr__(self, "_cached_hash", hash((self.stmt, self.kind)))
+
+    def __hash__(self) -> int:
+        return self._cached_hash
+
+    def __eq__(self, other) -> bool:
+        if self is other:
+            return True
+        if type(other) is not AllocSite:
+            return False
+        if self._cached_hash != other._cached_hash:
+            return False
+        return self.stmt == other.stmt and self.kind == other.kind
 
     def __str__(self) -> str:
         from pyflow.analysis.alias.kcfa._pythonstan.ir.ir_statements import IRStatement

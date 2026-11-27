@@ -224,6 +224,8 @@ class ShapeConstraintBuilder(TypeDispatcher):
         return self.statementPre[node], self.statementPost[node]
 
     def localExpr(self, lcl):
+        if isinstance(lcl, ast.DoNotCare):
+            return None
         if isinstance(lcl, ast.Existing):
             lcl = lcl.object
             slot = self.sys.canonical.localSlot(lcl)
@@ -360,6 +362,7 @@ class ShapeConstraintBuilder(TypeDispatcher):
         self.post(node)
 
     @dispatch(
+        ast.Import,
         ast.GlobalDecl,
         ast.NonlocalDecl,
         ast.TypeAlias,
@@ -868,16 +871,18 @@ class ShapeConstraintBuilder(TypeDispatcher):
 
         p = node.codeparameters
 
-        if p.selfparam:
+        if p.selfparam and not isinstance(p.selfparam, ast.DoNotCare):
             expr = self._makeParam("self", forget)
             self.assign(expr, self.localExpr(p.selfparam))
 
         # Assign positional params -> locals
         for i, param in enumerate(p.params):
+            if isinstance(param, ast.DoNotCare):
+                continue
             expr = self._makeParam(i, forget)
             self.assign(expr, self.localExpr(param))
 
-        if p.vparam:
+        if p.vparam and not isinstance(p.vparam, ast.DoNotCare):
             vparam = self.localExpr(p.vparam)
             base = len(p.params)
 
@@ -891,8 +896,6 @@ class ShapeConstraintBuilder(TypeDispatcher):
             for i in range(max_vparam):
                 expr = self._makeParam(i + base, forget)
                 self.assign(expr, self.indexExpr(vparam, i))
-
-        assert not p.kparam
 
         if forget:
             self.forgetAll(forget)

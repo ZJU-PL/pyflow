@@ -419,6 +419,7 @@ def load_analysis_session(
             entry_path=callgraph_entry,
             analyze_reachable_only=entry_file is not None,
             max_iterations=callgraph_max_iterations,
+            follow_imports=dependency_strategy != "stubs",
         )
         callgraph_edges = callgraph_analysis.edges
         if entry_file is not None:

@@ -193,6 +193,9 @@ class _ModuleAnalysisMixin:
             self.modules[module_name] = ModuleInfo(module_name, tree, normalized_path)
             modules_by_path[normalized_path] = module_name
 
+        if not self.options.follow_imports:
+            return
+
         queue: deque[str] = deque(self.modules)
         visited: Set[str] = set()
 

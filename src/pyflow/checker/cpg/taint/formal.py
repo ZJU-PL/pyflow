@@ -2981,7 +2981,7 @@ class FormalCPGTaintAnalysis:
 
     @staticmethod
     def _state_has_taint(state: CPGAbstractState) -> bool:
-        return bool(state.taint.facts)
+        return bool(state.taint._facts_by_root)
 
     def _unsupported(self, state: CPGAbstractState, node: PDGNode, code: str) -> CPGAbstractState:
         return state.with_uncertainty(

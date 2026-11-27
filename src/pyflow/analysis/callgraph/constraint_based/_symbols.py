@@ -26,6 +26,97 @@ from .model import (
 _BUILTIN_NAMES = frozenset(dir(builtins))
 
 
+_TRY_TYPES: tuple[type, ...] = (ast.Try, ast.TryStar) if hasattr(ast, "TryStar") else (ast.Try,)
+
+
+class _FunctionLocalNameVisitor(ast.NodeVisitor):
+    __slots__ = ("local_names", "loaded_names", "global_names", "nonlocal_names")
+
+    def __init__(self, local_names: set[str]) -> None:
+        self.local_names = local_names
+        self.loaded_names: Set[str] = set()
+        self.global_names: Set[str] = set()
+        self.nonlocal_names: Set[str] = set()
+
+    def visit_Name(self, inner: ast.Name) -> None:
+        if isinstance(inner.ctx, ast.Load):
+            self.loaded_names.add(inner.id)
+        elif isinstance(inner.ctx, (ast.Store, ast.Del)):
+            self.local_names.add(inner.id)
+
+    def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+        self.local_names.add(inner.name)
+
+    def visit_AsyncFunctionDef(self, inner: ast.AsyncFunctionDef) -> None:
+        self.local_names.add(inner.name)
+
+    def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+        self.local_names.add(inner.name)
+
+    def visit_Global(self, inner: ast.Global) -> None:
+        self.global_names.update(inner.names)
+
+    def visit_Nonlocal(self, inner: ast.Nonlocal) -> None:
+        self.nonlocal_names.update(inner.names)
+
+
+class _ClassBodyVisitor(ast.NodeVisitor):
+    __slots__ = ("local_names", "loaded_names")
+
+    def __init__(self) -> None:
+        self.local_names: set[str] = set()
+        self.loaded_names: Set[str] = set()
+
+    def visit_Name(self, inner: ast.Name) -> None:
+        if isinstance(inner.ctx, ast.Load):
+            self.loaded_names.add(inner.id)
+        elif isinstance(inner.ctx, (ast.Store, ast.Del)):
+            self.local_names.add(inner.id)
+
+    def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+        self.local_names.add(inner.name)
+        for decorator in inner.decorator_list:
+            self.visit(decorator)
+        for default in inner.args.defaults:
+            self.visit(default)
+        for default in inner.args.kw_defaults:
+            if default is not None:
+                self.visit(default)
+        if inner.returns is not None:
+            self.visit(inner.returns)
+
+    def visit_AsyncFunctionDef(self, inner: ast.AsyncFunctionDef) -> None:
+        self.local_names.add(inner.name)
+        for decorator in inner.decorator_list:
+            self.visit(decorator)
+        for default in inner.args.defaults:
+            self.visit(default)
+        for default in inner.args.kw_defaults:
+            if default is not None:
+                self.visit(default)
+        if inner.returns is not None:
+            self.visit(inner.returns)
+
+    def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+        self.local_names.add(inner.name)
+        for base in inner.bases:
+            self.visit(base)
+        for keyword in inner.keywords:
+            self.visit(keyword.value)
+        for decorator in inner.decorator_list:
+            self.visit(decorator)
+
+    def visit_Import(self, inner: ast.Import) -> None:
+        for alias in inner.names:
+            self.local_names.add(alias.asname or alias.name.split(".")[0])
+
+    def visit_ImportFrom(self, inner: ast.ImportFrom) -> None:
+        for alias in inner.names:
+            if alias.name == "*":
+                continue
+            self.local_names.add(alias.asname or alias.name)
+
+
 class _SymbolAnalysisMixin:
     """Collects functions, classes, and scopes from loaded modules."""
 
@@ -34,7 +125,7 @@ class _SymbolAnalysisMixin:
         if isinstance(stmt, (ast.If, ast.For, ast.AsyncFor, ast.While)):
             yield stmt.body
             yield stmt.orelse
-        elif isinstance(stmt, ast.Try):
+        elif isinstance(stmt, _TRY_TYPES):
             yield stmt.body
             for handler in stmt.handlers:
                 yield handler.body
@@ -46,13 +137,10 @@ class _SymbolAnalysisMixin:
             for case in stmt.cases:
                 yield case.body
 
-    def _infer_closure_vars(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
-        """
-        Infer free variables referenced by a function body.
-
-        This is a lightweight lexical pass; runtime rebinding is handled later
-        by the fixpoint when closure inputs are bound.
-        """
+    def _infer_function_scope_vars(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> tuple[set[str], set[str], set[str]]:
+        """Infer `(global_names, nonlocal_names, closure_vars)` in a single pass."""
         local_names: set[str] = {arg.arg for arg in node.args.posonlyargs}
         local_names.update(arg.arg for arg in node.args.args)
         local_names.update(arg.arg for arg in node.args.kwonlyargs)
@@ -61,42 +149,28 @@ class _SymbolAnalysisMixin:
         if node.args.kwarg:
             local_names.add(node.args.kwarg.arg)
 
-        loaded_names: Set[str] = set()
-        global_names: Set[str] = set()
-        nonlocal_names: Set[str] = set()
-
-        class LocalNameVisitor(ast.NodeVisitor):
-            def visit_Name(self, inner: ast.Name) -> None:
-                if isinstance(inner.ctx, ast.Load):
-                    loaded_names.add(inner.id)
-                elif isinstance(inner.ctx, (ast.Store, ast.Del)):
-                    local_names.add(inner.id)
-
-            def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
-                local_names.add(inner.name)
-
-            def visit_AsyncFunctionDef(self, inner: ast.AsyncFunctionDef) -> None:
-                local_names.add(inner.name)
-
-            def visit_ClassDef(self, inner: ast.ClassDef) -> None:
-                local_names.add(inner.name)
-
-            def visit_Global(self, inner: ast.Global) -> None:
-                global_names.update(inner.names)
-
-            def visit_Nonlocal(self, inner: ast.Nonlocal) -> None:
-                nonlocal_names.update(inner.names)
-
-        visitor = LocalNameVisitor()
+        visitor = _FunctionLocalNameVisitor(local_names)
         for stmt in node.body:
             visitor.visit(stmt)
 
+        global_names = visitor.global_names
+        nonlocal_names = visitor.nonlocal_names
         closure = {
             name
-            for name in loaded_names
+            for name in visitor.loaded_names
             if name not in local_names and name not in global_names and name not in _BUILTIN_NAMES
         }
         closure.update(nonlocal_names)
+        return global_names, nonlocal_names, closure
+
+    def _infer_closure_vars(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+        """
+        Infer free variables referenced by a function body.
+
+        This is a lightweight lexical pass; runtime rebinding is handled later
+        by the fixpoint when closure inputs are bound.
+        """
+        _, _, closure = self._infer_function_scope_vars(node)
         return closure
 
     def _infer_lambda_closure_vars(self, node: ast.Lambda) -> set[str]:
@@ -126,27 +200,37 @@ class _SymbolAnalysisMixin:
         """Collect direct-scope `global` and `nonlocal` declarations."""
         global_names: Set[str] = set()
         nonlocal_names: Set[str] = set()
-
-        class ScopeDirectiveVisitor(ast.NodeVisitor):
-            def visit_Global(self, inner: ast.Global) -> None:
-                global_names.update(inner.names)
-
-            def visit_Nonlocal(self, inner: ast.Nonlocal) -> None:
-                nonlocal_names.update(inner.names)
-
-            def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
-                return
-
-            def visit_AsyncFunctionDef(self, inner: ast.AsyncFunctionDef) -> None:
-                return
-
-            def visit_ClassDef(self, inner: ast.ClassDef) -> None:
-                return
-
-        visitor = ScopeDirectiveVisitor()
-        for stmt in statements:
-            visitor.visit(stmt)
-        return set(global_names), set(nonlocal_names)
+        stack: list[Sequence[ast.stmt]] = [statements]
+        while stack:
+            block = stack.pop()
+            for stmt in block:
+                if isinstance(stmt, ast.Global):
+                    global_names.update(stmt.names)
+                elif isinstance(stmt, ast.Nonlocal):
+                    nonlocal_names.update(stmt.names)
+                elif isinstance(stmt, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+                    if stmt.body:
+                        stack.append(stmt.body)
+                    if stmt.orelse:
+                        stack.append(stmt.orelse)
+                elif isinstance(stmt, _TRY_TYPES):
+                    if stmt.body:
+                        stack.append(stmt.body)
+                    for handler in stmt.handlers:
+                        if handler.body:
+                            stack.append(handler.body)
+                    if stmt.orelse:
+                        stack.append(stmt.orelse)
+                    if stmt.finalbody:
+                        stack.append(stmt.finalbody)
+                elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+                    if stmt.body:
+                        stack.append(stmt.body)
+                elif isinstance(stmt, ast.Match):
+                    for case in stmt.cases:
+                        if case.body:
+                            stack.append(case.body)
+        return global_names, nonlocal_names
 
     def _infer_global_nonlocal_names(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
@@ -154,70 +238,27 @@ class _SymbolAnalysisMixin:
         """Collect `global` and `nonlocal` declarations in direct function body."""
         return self._infer_scope_directives(node.body)
 
-    def _infer_class_closure_vars(self, node: ast.ClassDef) -> set[str]:
+    def _infer_class_closure_vars(
+        self,
+        node: ast.ClassDef,
+        *,
+        global_names: Optional[set[str]] = None,
+        nonlocal_names: Optional[set[str]] = None,
+    ) -> set[str]:
         """Infer outer-scope names read while executing a class body."""
-        local_names: set[str] = set()
-        loaded_names: Set[str] = set()
-        global_names, nonlocal_names = self._infer_scope_directives(node.body)
+        if global_names is None or nonlocal_names is None:
+            global_names, nonlocal_names = self._infer_scope_directives(node.body)
 
-        class ClassBodyVisitor(ast.NodeVisitor):
-            def visit_Name(self, inner: ast.Name) -> None:
-                if isinstance(inner.ctx, ast.Load):
-                    loaded_names.add(inner.id)
-                elif isinstance(inner.ctx, (ast.Store, ast.Del)):
-                    local_names.add(inner.id)
-
-            def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
-                local_names.add(inner.name)
-                for decorator in inner.decorator_list:
-                    self.visit(decorator)
-                for default in inner.args.defaults:
-                    self.visit(default)
-                for default in inner.args.kw_defaults:
-                    if default is not None:
-                        self.visit(default)
-                if inner.returns is not None:
-                    self.visit(inner.returns)
-
-            def visit_AsyncFunctionDef(self, inner: ast.AsyncFunctionDef) -> None:
-                local_names.add(inner.name)
-                for decorator in inner.decorator_list:
-                    self.visit(decorator)
-                for default in inner.args.defaults:
-                    self.visit(default)
-                for default in inner.args.kw_defaults:
-                    if default is not None:
-                        self.visit(default)
-                if inner.returns is not None:
-                    self.visit(inner.returns)
-
-            def visit_ClassDef(self, inner: ast.ClassDef) -> None:
-                local_names.add(inner.name)
-                for base in inner.bases:
-                    self.visit(base)
-                for keyword in inner.keywords:
-                    self.visit(keyword.value)
-                for decorator in inner.decorator_list:
-                    self.visit(decorator)
-
-            def visit_Import(self, inner: ast.Import) -> None:
-                for alias in inner.names:
-                    local_names.add(alias.asname or alias.name.split(".")[0])
-
-            def visit_ImportFrom(self, inner: ast.ImportFrom) -> None:
-                for alias in inner.names:
-                    if alias.name == "*":
-                        continue
-                    local_names.add(alias.asname or alias.name)
-
-        visitor = ClassBodyVisitor()
+        visitor = _ClassBodyVisitor()
         for stmt in node.body:
             visitor.visit(stmt)
 
         closure = {
             name
-            for name in loaded_names
-            if name not in local_names and name not in global_names and name not in _BUILTIN_NAMES
+            for name in visitor.loaded_names
+            if name not in visitor.local_names
+            and name not in global_names
+            and name not in _BUILTIN_NAMES
         }
         closure.update(nonlocal_names)
         return closure
@@ -232,7 +273,7 @@ class _SymbolAnalysisMixin:
         for stmt in statements:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 nested_qualname = f"{parent_qualname}.{stmt.name}"
-                global_names, nonlocal_names = self._infer_global_nonlocal_names(stmt)
+                global_names, nonlocal_names, closure_vars = self._infer_function_scope_vars(stmt)
                 self.functions[nested_qualname] = self._build_function_info(
                     module_name,
                     nested_qualname,
@@ -244,7 +285,7 @@ class _SymbolAnalysisMixin:
                     parent_scope=parent_qualname,
                     global_names=global_names,
                     nonlocal_names=nonlocal_names,
-                    closure_vars=self._infer_closure_vars(stmt),
+                    closure_vars=closure_vars,
                 )
                 self._collect_nested_functions(module_name, nested_qualname, stmt.body)
             elif isinstance(stmt, ast.ClassDef):
@@ -284,7 +325,11 @@ class _SymbolAnalysisMixin:
             parent_scope=parent_scope,
             global_names=global_names,
             nonlocal_names=nonlocal_names,
-            closure_vars=self._infer_class_closure_vars(node),
+            closure_vars=self._infer_class_closure_vars(
+                node,
+                global_names=global_names,
+                nonlocal_names=nonlocal_names,
+            ),
             bases_raw=list(node.bases),
             metaclass_raw=next(
                 (keyword.value for keyword in node.keywords if keyword.arg == "metaclass"),
@@ -323,7 +368,7 @@ class _SymbolAnalysisMixin:
                 or "builtins.classmethod" in decorator_names
                 or child.name == "__init_subclass__"
             )
-            global_names, nonlocal_names = self._infer_global_nonlocal_names(child)
+            global_names, nonlocal_names, closure_vars = self._infer_function_scope_vars(child)
             self.functions[method_qualname] = self._build_function_info(
                 module_name,
                 method_qualname,
@@ -335,7 +380,7 @@ class _SymbolAnalysisMixin:
                 parent_scope=None,
                 global_names=global_names,
                 nonlocal_names=nonlocal_names,
-                closure_vars=self._infer_closure_vars(child),
+                closure_vars=closure_vars,
             )
             class_info.methods[child.name] = method_qualname
             if is_staticmethod:
@@ -351,7 +396,9 @@ class _SymbolAnalysisMixin:
             for node in module_info.tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     qualname = f"{module_name}.{node.name}"
-                    global_names, nonlocal_names = self._infer_global_nonlocal_names(node)
+                    global_names, nonlocal_names, closure_vars = self._infer_function_scope_vars(
+                        node
+                    )
                     self.functions[qualname] = self._build_function_info(
                         module_name,
                         qualname,
@@ -363,7 +410,7 @@ class _SymbolAnalysisMixin:
                         parent_scope=None,
                         global_names=global_names,
                         nonlocal_names=nonlocal_names,
-                        closure_vars=self._infer_closure_vars(node),
+                        closure_vars=closure_vars,
                     )
                     exports[node.name].add(make_func(qualname))
                     self._collect_nested_functions(module_name, qualname, node.body)

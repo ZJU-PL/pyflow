@@ -59,6 +59,12 @@ class SemiNaiveConstraintSolver:
         self.edges: DefaultDict[str, set[str]] = defaultdict(set)
         self.constraints = 0
         self.propagated_facts = 0
+        self._func_by_node_id: dict[int, str] = {
+            id(info.node): name for name, info in self.builder.functions.items()
+        }
+        self._class_by_node_id: dict[int, str] = {
+            id(info.node): name for name, info in self.builder.classes.items()
+        }
 
     @staticmethod
     def _return_key(scope_name: str) -> BindingKey:
@@ -262,22 +268,12 @@ class SemiNaiveConstraintSolver:
     ) -> None:
         for statement in statements:
             if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                qualname = next(
-                    (
-                        name
-                        for name, info in self.builder.functions.items()
-                        if info.node is statement
-                    ),
-                    None,
-                )
+                qualname = self._func_by_node_id.get(id(statement))
                 if qualname:
                     self._add((scope.name, statement.name), {make_func(qualname)})
                 continue
             if isinstance(statement, ast.ClassDef):
-                qualname = next(
-                    (name for name, info in self.builder.classes.items() if info.node is statement),
-                    None,
-                )
+                qualname = self._class_by_node_id.get(id(statement))
                 if qualname:
                     self._add((scope.name, statement.name), {make_class(qualname)})
                 continue

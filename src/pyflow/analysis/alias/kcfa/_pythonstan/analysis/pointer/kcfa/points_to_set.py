@@ -146,7 +146,39 @@ class PointsToSet:
             return self
         if self.is_empty():
             return PointsToSet.empty(arena)
-        return PointsToSet.from_objects(self, arena=arena)
+        src_objs = self.arena._id_to_obj
+        objs_mask = self.objs_mask
+        cm_mask = self.classmethods_mask
+        im_mask = self.instancemethods_mask
+        # Fast path for singleton sets (the overwhelming majority of rebases).
+        total_mask = objs_mask | cm_mask | im_mask
+        if (total_mask & (total_mask - 1)) == 0:
+            obj = src_objs[total_mask.bit_length() - 1]
+            bit = 1 << arena.intern(obj)
+            if objs_mask:
+                return PointsToSet(bit, 0, 0, arena)
+            if cm_mask:
+                return PointsToSet(0, bit, 0, arena)
+            return PointsToSet(0, 0, bit, arena)
+        new_objs = 0
+        mask = objs_mask
+        while mask:
+            least = mask & -mask
+            new_objs |= 1 << arena.intern(src_objs[least.bit_length() - 1])
+            mask ^= least
+        new_cm = 0
+        mask = cm_mask
+        while mask:
+            least = mask & -mask
+            new_cm |= 1 << arena.intern(src_objs[least.bit_length() - 1])
+            mask ^= least
+        new_im = 0
+        mask = im_mask
+        while mask:
+            least = mask & -mask
+            new_im |= 1 << arena.intern(src_objs[least.bit_length() - 1])
+            mask ^= least
+        return PointsToSet(new_objs, new_cm, new_im, arena)
 
     def _common_arena(self, other: "PointsToSet") -> Optional[AnalysisArena]:
         if self.arena is not None:

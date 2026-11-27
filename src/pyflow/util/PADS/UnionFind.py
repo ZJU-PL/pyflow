@@ -53,8 +53,10 @@ class UnionFind(object):
 
     def union(self, *objects):
         """Find the sets containing the objects and merge them all."""
-        roots = [self[x] for x in objects]
-        heaviest = max([(self.weights[r], r) for r in roots])[1]
+        if not objects:
+            return None
+        roots = list(dict.fromkeys(self[x] for x in objects))
+        heaviest = max(roots, key=self.weights.__getitem__)
         for r in roots:
             if r != heaviest:
                 self.weights[heaviest] += self.weights[r]
