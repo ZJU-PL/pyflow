@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
+import time
 import tokenize
 from functools import lru_cache
 from pathlib import Path
@@ -669,8 +671,16 @@ class _SourceCollectionMixin:
             return
         self._needs_refresh = False
         self._refreshing_inference = True
+        refresh_budget = self._max_transitive_inference_seconds
+        refresh_deadline = (
+            time.monotonic() + refresh_budget
+            if refresh_budget is not None and refresh_budget > 0
+            else None
+        )
         try:
             for _ in range(3):
+                if refresh_deadline is not None and time.monotonic() >= refresh_deadline:
+                    break
                 stale: list[str] = []
                 for name, result in self._inference_results.items():
                     if name not in self._module_sources:
@@ -689,8 +699,22 @@ class _SourceCollectionMixin:
                     break
                 epoch_before = self._facts_epoch
                 for module_name in stale:
+                    if refresh_deadline is not None and time.monotonic() >= refresh_deadline:
+                        break
                     source, path = self._module_sources[module_name]
-                    self._collect_inferred_source_facts(module_name, source, path)
+                    refresh_options = None
+                    if refresh_deadline is not None:
+                        remaining = max(0.05, refresh_deadline - time.monotonic())
+                        existing = self.inference_options.max_seconds
+                        limit = (
+                            min(existing, remaining)
+                            if existing is not None and existing > 0
+                            else remaining
+                        )
+                        refresh_options = replace(self.inference_options, max_seconds=limit)
+                    self._collect_inferred_source_facts(
+                        module_name, source, path, options=refresh_options
+                    )
                 if self._facts_epoch == epoch_before:
                     break
         finally:

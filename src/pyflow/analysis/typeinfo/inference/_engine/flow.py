@@ -12,6 +12,7 @@ from typing import Iterable
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
     AnyType,
+    CallableType,
     NONE_TYPE,
     Instance,
     NeverType,
@@ -746,9 +747,12 @@ class FlowInference(InferenceComponent):
                 finally:
                     self.engine._annotation_owner = previous_owner
                     self.engine._type_vars = previous_vars
-                value = AbstractTypeValue.from_type(class_info.instance, class_target=qualified)
+                class_value = AbstractTypeValue.from_type(
+                    class_info.instance, class_target=qualified
+                )
+                value = class_value
                 for decorator, callee in reversed(decorators):
-                    value = self.engine._call_rules._invoke_value(
+                    decorated = self.engine._call_rules._invoke_value(
                         callee,
                         [value],
                         {},
@@ -756,6 +760,35 @@ class FlowInference(InferenceComponent):
                         environment=result,
                         current_function=current_function,
                     )
+                    has_passthrough_type_return = any(
+                        (
+                            isinstance(item, TypeType)
+                            and isinstance(item.item, (AnyType, TypeVarType))
+                        )
+                        or item == TypeType(class_info.instance)
+                        for item in decorated.types
+                    )
+                    if (
+                        not decorated.unknown
+                        and not decorated.class_targets
+                        and not decorated.callable_targets
+                        and has_passthrough_type_return
+                        and all(
+                            isinstance(item, (AnyType, CallableType))
+                            or (
+                                isinstance(item, TypeType)
+                                and isinstance(item.item, (AnyType, TypeVarType))
+                            )
+                            or item == TypeType(class_info.instance)
+                            for item in decorated.types
+                        )
+                    ):
+                        # Pass-through class decorators (e.g.
+                        # ``def rich_repr(cls: type[T]) -> type[T] | Callable[...]``)
+                        # return the decorated class without a concrete class target.
+                        value = class_value
+                    else:
+                        value = decorated
                 result[node.name] = value
             return _Outcome(result)
 

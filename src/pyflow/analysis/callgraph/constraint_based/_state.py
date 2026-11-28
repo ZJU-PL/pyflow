@@ -527,14 +527,18 @@ class _StateAnalysisMixin:
 
         return False
 
+    def _uses_conservative_dispatch(self, class_name: str) -> bool:
+        """Whether attribute/call dispatch should explore all candidate bases."""
+        return class_name in self._invalid_mro_classes or class_name in self._uncertain_mro_classes
+
     def _class_lookup_order(self, class_name: str) -> List[str]:
         """
         Return class lookup order.
 
         Uses C3 MRO when available; falls back to conservative BFS order for
-        classes with invalid/inconsistent MRO.
+        classes with invalid/inconsistent or polymorphic/uncertain MROs.
         """
-        if class_name in self._invalid_mro_classes:
+        if self._uses_conservative_dispatch(class_name):
             return self._conservative_mro(class_name)
         return self._mro(class_name)
 
@@ -616,7 +620,7 @@ class _StateAnalysisMixin:
 
             elif base_value.kind == CLASS_KIND:
                 class_order = self._class_lookup_order(base_value.name)
-                stop_after_first = base_value.name not in self._invalid_mro_classes
+                stop_after_first = not self._uses_conservative_dispatch(base_value.name)
                 for klass in class_order:
                     class_info = self.classes.get(klass)
                     if not class_info or attr_name not in class_info.methods:
@@ -649,7 +653,7 @@ class _StateAnalysisMixin:
                 base_instance_name = base_value.name
                 base_class_name = instance_class_name(base_value)
                 class_order = self._class_lookup_order(base_class_name)
-                stop_after_first = base_class_name not in self._invalid_mro_classes
+                stop_after_first = not self._uses_conservative_dispatch(base_class_name)
                 for klass in class_order:
                     class_info = self.classes.get(klass)
                     if class_info and attr_name in class_info.methods:
@@ -779,7 +783,6 @@ class _StateAnalysisMixin:
             # Alternatives at one base expression are not simultaneous bases.
             # Keep conservative dispatch without claiming the program's C3 is invalid.
             self._uncertain_mro_classes.add(class_name)
-            self._invalid_mro_classes.add(class_name)
             return self._conservative_mro(class_name)
 
         if active is None:
@@ -807,7 +810,6 @@ class _StateAnalysisMixin:
 
         if any(base in self._uncertain_mro_classes for base in class_info.bases):
             self._uncertain_mro_classes.add(class_name)
-            self._invalid_mro_classes.add(class_name)
             return self._conservative_mro(class_name)
 
         if class_name in self._invalid_mro_classes:

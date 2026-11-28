@@ -553,3 +553,115 @@ def test_case_sensitive_module_lookup_and_inode_alias_dedup(tmp_path: Path):
     loaded = [name for name in builder.modules if "functional" in name]
     assert loaded == ["pkg.functional"]
     assert builder.module_aliases.get("pkg.functional_alias") == "pkg.functional"
+
+
+def test_slice_handles_dynamic_int_and_hash_prefixed_keys():
+    source = textwrap.dedent("""
+        def target():
+            return 1
+
+        def permute_backtrack(nums):
+            def backtrack(start):
+                if start == len(nums) - 1:
+                    copied = nums[:]
+                    stepped = nums[::0]
+                    copied[0]()
+                    output.append(copied)
+                    return stepped
+                for i in range(start, len(nums)):
+                    nums[start], nums[i] = nums[i], nums[start]
+                    backtrack(start + 1)
+            output = []
+            backtrack(0)
+            return output
+
+        def slice_hash_dict():
+            table = {"#color": target}
+            sliced = table[:]
+            stepped = table[:1:0]
+            return sliced, stepped
+
+        permute_backtrack([target, target, target])
+        slice_hash_dict()
+    """)
+    builder = ConstraintCallGraphBuilder(source)
+    graph = builder.build()
+    assert graph.converged
+    edges = graph.get()
+    assert "main.permute_backtrack.backtrack" in edges["main.permute_backtrack"]
+    assert "main.target" in edges["main.permute_backtrack.backtrack"]
+
+
+def test_conditional_backend_bases_stay_uncertain_without_invalid_mro():
+    source = textwrap.dedent("""
+        class Operation:
+            def run(self):
+                return 1
+
+        class JaxLayer(Operation):
+            def backend_op(self):
+                return 2
+
+        class TorchLayer(Operation):
+            def backend_op(self):
+                return 3
+
+        flag = input()
+        if flag == "jax":
+            BackendLayer = JaxLayer
+        else:
+            BackendLayer = TorchLayer
+
+        class Layer(BackendLayer, Operation):
+            pass
+
+        class Dense(Layer):
+            pass
+
+        def entry():
+            d = Dense()
+            d.backend_op()
+            d.run()
+
+        entry()
+    """)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        builder = ConstraintCallGraphBuilder(source)
+        graph = builder.build().get()
+    assert not any("Inconsistent MRO" in str(item.message) for item in caught)
+    assert "main.Layer" in builder._uncertain_mro_classes
+    assert "main.Dense" in builder._uncertain_mro_classes
+    assert "main.Layer" not in builder._invalid_mro_classes
+    assert "main.Dense" not in builder._invalid_mro_classes
+    assert {
+        "main.JaxLayer.backend_op",
+        "main.TorchLayer.backend_op",
+        "main.Operation.run",
+    } <= graph["main.entry"]
+
+
+def test_project_context_source_map_versioned_and_src_layout(tmp_path: Path):
+    pkg = tmp_path / "src" / "demo"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    mod = pkg / "app.py"
+    mod.write_text("VALUE = 1\n", encoding="utf-8")
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    test_mod = tests_dir / "test_app.py"
+    test_mod.write_text("import demo.app\n", encoding="utf-8")
+
+    ctx = ProjectContext(tmp_path, source_files={str(mod): mod.read_text(encoding="utf-8")})
+    assert ctx.module_name_from_path(mod) == "demo.app"
+    assert ctx.module_name_from_path(test_mod) == "tests.test_app"
+    assert ctx.find_module("demo.app").path == str(mod)
+    first_map = ctx._source_map()
+    assert ctx._source_map() is first_map
+    assert first_map["demo.app"] == str(mod)
+
+    ctx.source_files[str(test_mod)] = test_mod.read_text(encoding="utf-8")
+    second_map = ctx._source_map()
+    assert second_map is not first_map
+    assert second_map["tests.test_app"] == str(test_mod)
+    assert ctx.find_module("tests.test_app").path == str(test_mod)

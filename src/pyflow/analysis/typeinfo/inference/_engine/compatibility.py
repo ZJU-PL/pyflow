@@ -9,6 +9,7 @@ from dataclasses import replace
 from pyflow.analysis.typeinfo.core.typesystem import (
     ANY,
     NONE_TYPE,
+    AnyType,
     CallableType,
     Instance,
     LiteralType,
@@ -469,6 +470,14 @@ class CompatibilityInference(InferenceComponent):
             if isinstance(candidate, Instance) and any(
                 isinstance(part, Instance) and candidate.type == part.type and not part.args
                 for part in expected_parts
+            ):
+                continue
+            if (
+                isinstance(candidate, TupleType)
+                and candidate.unknown_size
+                and len(candidate.args) == 1
+                and isinstance(candidate.args[0], AnyType)
+                and any(isinstance(part, TupleType) for part in expected_parts)
             ):
                 continue
             if (

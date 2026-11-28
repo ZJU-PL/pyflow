@@ -1185,18 +1185,18 @@ class _CallTargetMixin:
                     function_info = self.functions.get(call_name)
                     if function_info and function_info.is_async:
                         out.add(self._suspended_value(COROUTINE_KIND, call_name, callee_context))
-                        if target_class_name not in self._invalid_mro_classes:
+                        if not self._uses_conservative_dispatch(target_class_name):
                             break
                         continue
                     if function_info and function_info.is_generator:
                         out.add(self._suspended_value(GENERATOR_KIND, call_name, callee_context))
-                        if target_class_name not in self._invalid_mro_classes:
+                        if not self._uses_conservative_dispatch(target_class_name):
                             break
                         continue
                     self._add_call_dependency(call_name, callee_context, caller_scope_key)
                     out.update(self.scope_returns[(call_name, callee_context)])
                     self._apply_callee_side_effects(call_name, callee_context, env)
-                    if target_class_name not in self._invalid_mro_classes:
+                    if not self._uses_conservative_dispatch(target_class_name):
                         break
                 if not called:
                     unresolved_dynamic = True

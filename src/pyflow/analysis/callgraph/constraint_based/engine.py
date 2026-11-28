@@ -347,11 +347,13 @@ class ConstraintCallGraphBuilder(
                 return fixture_graph
 
         self._load_deadline: Optional[float] = None
+        self._symbols_deadline: Optional[float] = None
         self._entry_direct_import_modules: Set[str] = set()
         if self.options.fixpoint_max_seconds is not None:
             now = time.monotonic()
             self._fixpoint_deadline = now + self.options.fixpoint_max_seconds
             self._load_deadline = now + self.options.fixpoint_max_seconds * 0.15
+            self._symbols_deadline = now + self.options.fixpoint_max_seconds * 0.45
         self._load_modules()
         self._collect_symbols()
         self._resolve_import_bindings()
@@ -388,6 +390,9 @@ class ConstraintCallGraphBuilder(
 
     def _fixpoint_time_exhausted(self) -> bool:
         return self._fixpoint_deadline is not None and time.monotonic() >= self._fixpoint_deadline
+
+    def _symbols_time_exhausted(self) -> bool:
+        return self._symbols_deadline is not None and time.monotonic() >= self._symbols_deadline
 
     def call_site_edge_index(self) -> CallSiteEdgeIndex:
         """Return contextful direct call-site edges collected during analysis."""
@@ -841,7 +846,7 @@ class ConstraintCallGraphBuilder(
         graph.converged = not self.fixpoint_truncated
         graph.termination_reason = self.fixpoint_stop_reason
         graph.diagnostics = list(self.diagnostics)
-        if self.fixpoint_truncated:
+        if self.fixpoint_truncated and self.fixpoint_stop_reason.endswith("_limit"):
             graph.diagnostics.append(
                 f"Constraint fixpoint {self.fixpoint_stop_reason.removesuffix('_limit')} "
                 f"budget exhausted after {self.fixpoint_iterations} "

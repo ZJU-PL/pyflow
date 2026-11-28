@@ -227,3 +227,60 @@ def test_typeinfo_directory_scan_skips_unparseable_files_with_warning(
     assert "good" in payload
     assert payload["good"]["status"] == "complete"
     assert "bad_bytes" not in payload
+
+
+def test_typeinfo_directory_scan_uses_src_layout_and_skips_non_identifier_dirs(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    pkg = tmp_path / "src" / "demo"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "core.py").write_text("ANSWER: int = 42\n", encoding="utf-8")
+    (pkg / "app.py").write_text(
+        "from demo.core import ANSWER\nDOUBLE = ANSWER + ANSWER\n", encoding="utf-8"
+    )
+    template = tmp_path / "templates" / "{{cookiecutter.pkg}}"
+    template.mkdir(parents=True)
+    (template / "__init__.py").write_text("{{ cookiecutter.name }}\n", encoding="utf-8")
+    hyphen_dir = tmp_path / "my-scripts"
+    hyphen_dir.mkdir()
+    (hyphen_dir / "tool.py").write_text("X = 1\n", encoding="utf-8")
+
+    code, out, err = _run(monkeypatch, capsys, tmp_path, "--mode", "types", "--json")
+
+    assert code == 0, err
+    payload = {item["module"]: item for item in json.loads(out)}
+    assert "demo.core" in payload
+    assert "demo.app" in payload
+    assert not any(name.startswith("src.") for name in payload)
+    assert not any("cookiecutter" in name for name in payload)
+    assert not any("my-scripts" in name for name in payload)
+    assert payload["demo.app"]["types"]["demo.app.DOUBLE"]["type"] == "int"
+
+
+def test_typeinfo_directory_summary_computes_diagnostics_once(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    from pyflow.analysis.typeinfo.query.service import TypeInfoService
+
+    (tmp_path / "a.py").write_text("X: str = 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("Y: int = 2\n", encoding="utf-8")
+    (tmp_path / "c.py").write_text("Z: str = 3\nW: int = 'bad'\n", encoding="utf-8")
+
+    calls = 0
+    original = TypeInfoService.diagnostics
+
+    def counting_diagnostics(self, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(TypeInfoService, "diagnostics", counting_diagnostics)
+    code, out, err = _run(monkeypatch, capsys, tmp_path, "--mode", "summary", "--json")
+
+    assert code == 0, err
+    assert calls == 1
+    payload = {item["module"]: item for item in json.loads(out)}
+    assert payload["a"]["diagnostics"] >= 1
+    assert payload["b"]["diagnostics"] == 0
+    assert payload["c"]["diagnostics"] >= 2

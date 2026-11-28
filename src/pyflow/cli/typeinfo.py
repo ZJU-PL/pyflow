@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
+import os
 import sys
 import tokenize
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from pyflow.analysis.typeinfo import TypeInfoService
 from pyflow.analysis.typeinfo.inference.models import ModuleInferenceResult
@@ -105,12 +107,23 @@ def add_typeinfo_parser(subparsers) -> argparse.ArgumentParser:
 def _iter_project_modules(context: ProjectContext, root: Path) -> list[tuple[str, Path]]:
     """Return import-qualified Python modules under *root* in stable order."""
     modules: list[tuple[str, Path]] = []
-    for path in sorted(root.rglob("*.py")):
-        relative = path.relative_to(root)
-        if any(part in _IGNORED_DIRECTORIES or part.startswith(".") for part in relative.parts):
-            continue
-        module_name = context.module_name_from_path(path, allow_absolute_fallback=False)
-        if module_name:
+    for current, directories, filenames in os.walk(root):
+        directories[:] = sorted(
+            name
+            for name in directories
+            if name not in _IGNORED_DIRECTORIES and not name.startswith(".")
+        )
+        for filename in sorted(filenames):
+            if not filename.endswith(".py") or filename.startswith("."):
+                continue
+            path = Path(current, filename)
+            module_name = context.module_name_from_path(path, allow_absolute_fallback=False)
+            if not module_name:
+                continue
+            if module_name == "main" and path.stem != "main":
+                continue
+            if not all(part.isidentifier() for part in module_name.split(".")):
+                continue
             modules.append((module_name, path))
     return modules
 
@@ -200,10 +213,18 @@ def _module_types(service: TypeInfoService, module_name: str) -> dict[str, dict[
 
 
 def _module_report(
-    service: TypeInfoService, module_name: str, *, mode: str = "types"
+    service: TypeInfoService,
+    module_name: str,
+    *,
+    mode: str = "types",
+    diagnostic_counts: Mapping[str, int] | None = None,
 ) -> dict[str, object]:
     result = service.inference_result(module_name)
-    diagnostics = [item for item in service.diagnostics() if item.module_name == module_name]
+    diag_count = (
+        diagnostic_counts.get(module_name, 0)
+        if diagnostic_counts is not None
+        else sum(1 for item in service.diagnostics() if item.module_name == module_name)
+    )
     types = _module_types(service, module_name)
     if mode == "signatures":
         types = {
@@ -215,13 +236,22 @@ def _module_report(
         "converged": False if result is None else result.converged,
         "iterations": 0 if result is None else result.iterations,
         "types": types,
-        "diagnostics": len(diagnostics),
+        "diagnostics": diag_count,
     }
 
 
-def _module_summary(service: TypeInfoService, module_name: str) -> dict[str, object]:
+def _module_summary(
+    service: TypeInfoService,
+    module_name: str,
+    *,
+    diagnostic_counts: Mapping[str, int] | None = None,
+) -> dict[str, object]:
     result = service.inference_result(module_name)
-    diagnostics = [item for item in service.diagnostics() if item.module_name == module_name]
+    diag_count = (
+        diagnostic_counts.get(module_name, 0)
+        if diagnostic_counts is not None
+        else sum(1 for item in service.diagnostics() if item.module_name == module_name)
+    )
     if result is None:
         return {
             "module": module_name,
@@ -230,7 +260,7 @@ def _module_summary(service: TypeInfoService, module_name: str) -> dict[str, obj
             "symbols": 0,
             "functions": 0,
             "expressions": 0,
-            "diagnostics": len(diagnostics),
+            "diagnostics": diag_count,
         }
     return {
         "module": module_name,
@@ -240,7 +270,7 @@ def _module_summary(service: TypeInfoService, module_name: str) -> dict[str, obj
         "symbols": len(result.symbols),
         "functions": len(result.functions),
         "expressions": len(result.expressions),
-        "diagnostics": len(diagnostics),
+        "diagnostics": diag_count,
     }
 
 
@@ -435,10 +465,22 @@ def run_typeinfo(args) -> int:
             payload = _diagnostic_result(service, module_names)
             mode = "diagnostics"
         elif args.mode == "summary":
-            payload = [_module_summary(service, name) for name in module_names]
+            for name in module_names:
+                service.inference_result(name)
+            diag_counts = Counter(item.module_name for item in service.diagnostics())
+            payload = [
+                _module_summary(service, name, diagnostic_counts=diag_counts)
+                for name in module_names
+            ]
             mode = "summary"
         else:
-            payload = [_module_report(service, name, mode=args.mode) for name in module_names]
+            for name in module_names:
+                service.inference_result(name)
+            diag_counts = Counter(item.module_name for item in service.diagnostics())
+            payload = [
+                _module_report(service, name, mode=args.mode, diagnostic_counts=diag_counts)
+                for name in module_names
+            ]
             mode = args.mode
     except (ValueError, OSError, SyntaxError) as exc:
         print(f"Error: {exc}", file=sys.stderr)

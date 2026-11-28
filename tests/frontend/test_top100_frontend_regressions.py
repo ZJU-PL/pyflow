@@ -511,3 +511,138 @@ def test_cli_lsp_source_query_index_handles_non_utf8_and_parent_build_dir(tmp_pa
     names = {sym.name for sym in index.symbols}
     assert "greet" in names
     assert any(name.startswith("caf") for name in names)
+
+
+def test_class_hierarchy_partial_mro_fallback_and_dotted_external_bases():
+    import pytest
+    from pyflow.frontend.resolution.hierarchy import MROError
+
+    hierarchy = ClassHierarchy(verbose=False)
+    # Dotted imported base resolves even when target class is unregistered/external.
+    assert hierarchy.resolve_base_class("nn.Module", "mod", {"nn": "torch.nn"}) == "torch.nn.Module"
+
+    # Partial extraction pattern (Home Assistant ModbusThermostat without RestoreEntity loaded):
+    # ModbusStructEntity(ModbusBaseEntity, RestoreEntity) + ClimateEntity(Entity)
+    # where RestoreEntity is unregistered creates a synthetic C3 conflict unless handled safely.
+    hierarchy.register_class("Entity", [], "ha.entity", methods={"entity_id"})
+    hierarchy.register_class("ModbusBaseEntity", ["Entity"], "ha.modbus")
+    hierarchy.get_class_info("ha.modbus.ModbusBaseEntity").resolved_bases = ["ha.entity.Entity"]
+    hierarchy.register_class(
+        "ModbusStructEntity", ["ModbusBaseEntity", "RestoreEntity"], "ha.modbus"
+    )
+    hierarchy.get_class_info("ha.modbus.ModbusStructEntity").resolved_bases = [
+        "ha.modbus.ModbusBaseEntity",
+        "ha.restore.RestoreEntity",
+    ]
+    hierarchy.register_class("ClimateEntity", ["Entity"], "ha.climate", methods={"set_temp"})
+    hierarchy.get_class_info("ha.climate.ClimateEntity").resolved_bases = ["ha.entity.Entity"]
+    hierarchy.register_class(
+        "ModbusThermostat", ["ModbusStructEntity", "RestoreEntity", "ClimateEntity"], "ha.modbus"
+    )
+    hierarchy.get_class_info("ha.modbus.ModbusThermostat").resolved_bases = [
+        "ha.modbus.ModbusStructEntity",
+        "ha.restore.RestoreEntity",
+        "ha.climate.ClimateEntity",
+    ]
+
+    mro = hierarchy.get_mro("ha.modbus.ModbusThermostat")
+    assert mro[0] == "ha.modbus.ModbusThermostat"
+    assert mro[-1] == "builtins.object"
+    assert (
+        hierarchy.resolve_method("ha.modbus.ModbusThermostat", "set_temp")
+        == "ha.climate.ClimateEntity"
+    )
+    assert hierarchy.resolve_method("ha.modbus.ModbusThermostat", "entity_id") == "ha.entity.Entity"
+
+    # Genuinely inconsistent fully-registered hierarchies must still raise MROError.
+    bad = ClassHierarchy(verbose=False)
+    bad.register_class("X", [], "m")
+    bad.register_class("Y", [], "m")
+    bad.register_class("A", ["X", "Y"], "m")
+    bad.get_class_info("m.A").resolved_bases = ["m.X", "m.Y"]
+    bad.register_class("B", ["Y", "X"], "m")
+    bad.get_class_info("m.B").resolved_bases = ["m.Y", "m.X"]
+    bad.register_class("C", ["A", "B"], "m")
+    bad.get_class_info("m.C").resolved_bases = ["m.A", "m.B"]
+    with pytest.raises(MROError):
+        bad.get_mro("m.C")
+
+
+def test_extractor_strips_non_package_src_prefix_and_preserves_nested_origins(tmp_path):
+    pkg = tmp_path / "src" / "demo"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    mod = pkg / "worker.py"
+    src = (
+        "def run(items):\n"
+        "    total = 0\n"
+        "    for item in items:\n"
+        "        if item:\n"
+        "            with ctx():\n"
+        "                total += item\n"
+        "    return total\n"
+    )
+    mod.write_text(src, encoding="utf-8")
+
+    ext = Extractor(
+        CompilerContext(Console(verbose=False)),
+        verbose=False,
+        source_code={str(mod): src},
+        analysis_root=str(tmp_path),
+    )
+    assert ext._get_module_name(str(mod)) == "demo.worker"
+    prog = ext.extract_from_multiple_files({str(mod): src})
+    run_code = next(c for c in prog.liveCode if c.codeName() == "run")
+    assert run_code.annotation.origin is not None
+
+    conv = ASTConverter(verbose=False, retain_source_syntax=False)
+    conv.current_filename = str(mod)
+    suite = conv.convert_python_ast_to_pyflow(ast.parse(src).body)
+    assert conv._origin_propagated_ids
+    assert suite.blocks[0].annotation.origin is not None
+
+
+def test_interface_builder_default_entry_args_fast_path():
+    import inspect
+    from pyflow.frontend.interface_builder import _default_entry_args
+    from pyflow.frontend.resolution.ast_index import ASTFunctionProxy
+
+    sig = inspect.Signature(
+        [
+            inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            inspect.Parameter("x", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            inspect.Parameter("y", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=1),
+        ]
+    )
+    proxy = ASTFunctionProxy(
+        name="compute",
+        qualname="Demo.compute",
+        module="mod",
+        filename="mod.py",
+        firstlineno=1,
+        signature=sig,
+    )
+    with patch(
+        "pyflow.frontend.interface_builder.inspect.signature", wraps=inspect.signature
+    ) as spy:
+        assert _default_entry_args(object.__init__, skip_first=True) == ((), ())
+        args, keywords = _default_entry_args(proxy, skip_first=True)
+        assert len(args) == 2
+        assert keywords == ()
+        assert spy.call_count == 0
+
+
+def test_detect_entry_file_skips_parsing_nested_scripts(tmp_path):
+    from pyflow.frontend.entry_discovery import detect_entry_file
+
+    nested = tmp_path / "sub" / "tool.py"
+    nested.parent.mkdir()
+    nested.write_text("if __name__ == '__main__':\n    pass\n", encoding="utf-8")
+
+    with patch("pyflow.frontend.entry_discovery.ast.parse", wraps=ast.parse) as mock_parse:
+        assert detect_entry_file(tmp_path) is None
+        assert mock_parse.call_count == 0
+
+    candidates = discover_entry_files(tmp_path)
+    assert len(candidates) == 1
+    assert not candidates[0].auto_select

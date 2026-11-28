@@ -13,6 +13,7 @@ NOTE: This extractor is intentionally source/AST-based (no bytecode decompilatio
 
 import tokenize
 import ast
+import gc
 import os
 import re
 import traceback
@@ -261,6 +262,17 @@ class Extractor:
         # deferring them avoids re-walking every procedure once per file.
         previous_batch = self._batch_extraction
         self._batch_extraction = True
+        previous_gc_threshold = None
+        if len(source_files) > 32 and gc.isenabled():
+            # Batch extraction accumulates millions of long-lived IR nodes; raising
+            # GC thresholds avoids O(N^2) Gen-2 rescans while keeping Gen-0/1 active
+            # so temporary ASTs are reclaimed without a post-batch GC pause.
+            previous_gc_threshold = gc.get_threshold()
+            gc.set_threshold(
+                max(previous_gc_threshold[0], 5000),
+                max(previous_gc_threshold[1], 20),
+                max(previous_gc_threshold[2], 50),
+            )
         try:
             for filename, source in source_files.items():
                 if deadline is not None and monotonic() >= deadline:
@@ -285,6 +297,8 @@ class Extractor:
                     self._record_file_diagnostic(filename, "extract", e)
         finally:
             self._batch_extraction = previous_batch
+            if previous_gc_threshold is not None:
+                gc.set_threshold(*previous_gc_threshold)
 
         self._retry_unresolved_bases()
 
@@ -367,6 +381,7 @@ class Extractor:
         # Windows. Source maps may still contain POSIX-style absolute paths,
         # so recognize that form independently of the host path module.
         is_absolute = os.path.isabs(filename) or filename.startswith("/")
+        root: Optional[str] = self.analysis_root
         if not is_absolute:
             rel = filename
         else:
@@ -387,6 +402,14 @@ class Extractor:
         # separator so module identities remain platform-independent.
         parts = re.split(r"[\\/]+", rel)
         parts = [p for p in parts if p and p != ".."]
+        if (
+            len(parts) > 1
+            and parts[0] == "src"
+            and root is not None
+            and os.path.isdir(os.path.join(root, "src"))
+            and not os.path.isfile(os.path.join(root, "src", "__init__.py"))
+        ):
+            parts = parts[1:]
         if parts and parts[-1] == "__init__":
             parts = parts[:-1]
         if not parts:

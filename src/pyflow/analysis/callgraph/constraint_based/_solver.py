@@ -747,6 +747,22 @@ class _FixpointSolverMixin:
         self._global_heap_stamp = 0
         self._global_return_stamp = 0
 
+        if self._fixpoint_time_exhausted():
+            self.fixpoint_iterations = 0
+            self.fixpoint_truncated = True
+            self.fixpoint_stop_reason = "time_limit"
+            self.solver_stats.iterations = 0
+            if self.options.warn_on_fixpoint_truncation:
+                warnings.warn(
+                    (
+                        "Constraint call graph fixpoint hit the time cap before convergence "
+                        "(0 steps); results may be incomplete."
+                    ),
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            return
+
         def _enqueue(
             scope_name: str,
             scope_context: ContextKey,
@@ -929,7 +945,7 @@ class _FixpointSolverMixin:
                     )
 
         self.fixpoint_iterations = iterations
-        self.fixpoint_truncated = _has_pending()
+        self.fixpoint_truncated = self.fixpoint_truncated or _has_pending()
         if self.fixpoint_truncated and self.fixpoint_stop_reason != "time_limit":
             self.fixpoint_stop_reason = "iteration_limit"
         self.solver_stats.iterations = iterations

@@ -12,7 +12,7 @@ from functools import lru_cache
 from typing import Dict, Iterable, Mapping, Optional, Set
 
 from pyflow.language.modules.type_stubs import default_typeshed_roots
-from pyflow.language.source_compat import normalize_legacy_python_syntax
+from pyflow.language.source_compat import parse_python_source
 
 from .model import (
     AbstractValue,
@@ -62,14 +62,42 @@ def _is_stdlib_module_name(module_name: str) -> bool:
     return root in stdlib_names
 
 
-def _is_within_path(path: str, root: str) -> bool:
+_STMT_CONTAINER_ATTRS = ("body", "orelse", "finalbody")
+
+
+def _iter_all_import_nodes(tree: ast.Module) -> Iterable[ast.Import | ast.ImportFrom]:
+    """Yield every ``Import``/``ImportFrom`` statement without walking expressions."""
+    stack: list[list[ast.stmt]] = [tree.body]
+    while stack:
+        block = stack.pop()
+        for stmt in block:
+            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                yield stmt
+                continue
+            for attr in _STMT_CONTAINER_ATTRS:
+                nested = getattr(stmt, attr, None)
+                if nested:
+                    stack.append(nested)
+            handlers = getattr(stmt, "handlers", None)
+            if handlers:
+                for handler in handlers:
+                    if handler.body:
+                        stack.append(handler.body)
+            cases = getattr(stmt, "cases", None)
+            if cases:
+                for case in cases:
+                    if case.body:
+                        stack.append(case.body)
+
+
+def _is_within_path(path: str, root: str, *, real_root: Optional[str] = None) -> bool:
     """Return whether *path* is located within *root*."""
-    try:
-        return os.path.commonpath(
-            [os.path.realpath(path), os.path.realpath(root)]
-        ) == os.path.realpath(root)
-    except ValueError:
-        return False
+    resolved_root = real_root if real_root is not None else os.path.realpath(root)
+    resolved_path = os.path.realpath(path)
+    if resolved_path == resolved_root:
+        return True
+    prefix = resolved_root if resolved_root.endswith(os.sep) else resolved_root + os.sep
+    return resolved_path.startswith(prefix)
 
 
 class _ModuleAnalysisMixin:
@@ -80,9 +108,7 @@ class _ModuleAnalysisMixin:
         key = os.path.realpath(path) if path else "<string>"
         if key not in self._source_trees:
             try:
-                self._source_trees[key] = ast.parse(
-                    normalize_legacy_python_syntax(source), filename=key
-                )
+                self._source_trees[key] = parse_python_source(source, filename=key)
             except SyntaxError as exc:
                 # Do not retain discovery/loading frames in cached tracebacks.
                 self._source_trees[key] = type(exc)(*exc.args)
@@ -99,6 +125,7 @@ class _ModuleAnalysisMixin:
         Do not cut inside a regular package or guess between duplicate packages.
         """
         root = os.path.realpath(import_root)
+        root_prefix = root if root.endswith(os.sep) else root + os.sep
         sources = {
             os.path.realpath(path): source for path, source in self.additional_sources.items()
         }
@@ -110,6 +137,9 @@ class _ModuleAnalysisMixin:
         visited = {root}
         package_dirs = {}
 
+        def within_root(candidate_path: str) -> bool:
+            return candidate_path == root or candidate_path.startswith(root_prefix)
+
         def is_package(directory):
             if directory not in package_dirs:
                 package_dirs[directory] = any(
@@ -119,8 +149,15 @@ class _ModuleAnalysisMixin:
                 )
             return package_dirs[directory]
 
+        discovery_deadline: Optional[float] = None
+        if len(sources) > 64 and self.options.fixpoint_max_seconds is not None:
+            discovery_deadline = time.monotonic() + max(
+                0.5, self.options.fixpoint_max_seconds * 0.25
+            )
+        parse_budget_hit = False
+
         for path, source in sources.items():
-            if not _is_within_path(path, root):
+            if not within_root(path):
                 continue
             parts = os.path.relpath(path, root).split(os.sep)
             parts[-1] = os.path.splitext(parts[-1])[0]
@@ -128,23 +165,29 @@ class _ModuleAnalysisMixin:
                 parts.pop()
             module_paths.append(parts)
             parent = os.path.dirname(path)
-            while parent not in visited and _is_within_path(parent, root):
+            while parent not in visited and within_root(parent):
                 visited.add(parent)
                 component = os.path.basename(parent)
                 if (not component.isidentifier() or component == "src") and not is_package(parent):
                     roots.add(parent)
                     break
                 parent = os.path.dirname(parent)
+            if parse_budget_hit:
+                continue
+            if discovery_deadline is not None and time.monotonic() >= discovery_deadline:
+                parse_budget_hit = True
+                continue
             try:
                 tree = self._parse_module_source(source, path)
             except SyntaxError:
                 continue  # The loader reports syntax diagnostics.
-            for node in ast.walk(tree):
-                names = []
+            for node in _iter_all_import_nodes(tree):
                 if isinstance(node, ast.Import):
                     names = [alias.name for alias in node.names]
-                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                elif node.level == 0 and node.module:
                     names = [node.module]
+                else:
+                    continue
                 for name in names:
                     imported = tuple(name.split("."))
                     imports[imported[0]].add(imported)
@@ -207,6 +250,7 @@ class _ModuleAnalysisMixin:
         if not self.entry_path:
             return
 
+        real_project_root = os.path.realpath(self.project_root)
         entry_path = os.path.realpath(self.entry_path)
         modules_by_path = {entry_path: entry_name}
         modules_by_inode: Dict[tuple[int, int], str] = {}
@@ -215,7 +259,16 @@ class _ModuleAnalysisMixin:
             modules_by_inode[(st.st_dev, st.st_ino)] = entry_name
         except OSError:
             pass
+        load_deadline = getattr(self, "_load_deadline", None)
+        additional_loaded_truncated = False
         for source_path, source in sorted(self.additional_sources.items()):
+            if (
+                load_deadline is not None
+                and len(self.modules) > 1
+                and time.monotonic() >= load_deadline
+            ):
+                additional_loaded_truncated = True
+                break
             normalized_path = os.path.realpath(source_path)
             if normalized_path in modules_by_path:
                 continue
@@ -239,18 +292,25 @@ class _ModuleAnalysisMixin:
             modules_by_path[normalized_path] = module_name
             if file_inode is not None:
                 modules_by_inode[file_inode] = module_name
+        if additional_loaded_truncated:
+            self.diagnostics.append(
+                f"Stopped project source loading at time budget ({len(self.modules)} modules)"
+            )
+            self.fixpoint_truncated = True
+            self.fixpoint_stop_reason = "time_limit"
+            return
 
         if not self.options.follow_imports:
             return
 
         queue: deque[str] = deque(self.modules)
-        initial_modules = set(self.modules)
         visited: Set[str] = set()
-        load_deadline = getattr(self, "_load_deadline", None)
         entry_direct_imports = getattr(self, "_entry_direct_import_modules", None)
         if entry_direct_imports is None:
             entry_direct_imports = set()
             self._entry_direct_import_modules = entry_direct_imports
+        stub_path_cache: Dict[tuple[str, Optional[str]], Optional[str]] = {}
+        missing_external_cache: Set[str] = set()
 
         while queue:
             module_name = queue.popleft()
@@ -259,7 +319,7 @@ class _ModuleAnalysisMixin:
             visited.add(module_name)
             if (
                 load_deadline is not None
-                and module_name not in initial_modules
+                and module_name != entry_name
                 and time.monotonic() >= load_deadline
             ):
                 self.diagnostics.append(
@@ -272,10 +332,11 @@ class _ModuleAnalysisMixin:
                 continue
 
             is_entry_module = module_name == self.entry_module_name
+            script_dir = os.path.dirname(module_info.path) if module_info.path else None
             for imported in self._iter_imported_modules(module_info):
                 if (
                     load_deadline is not None
-                    and module_name not in initial_modules
+                    and module_name != entry_name
                     and time.monotonic() >= load_deadline
                 ):
                     self.diagnostics.append(
@@ -289,6 +350,8 @@ class _ModuleAnalysisMixin:
                     continue
                 if is_entry_module:
                     entry_direct_imports.add(imported)
+                if imported in missing_external_cache:
+                    continue
                 resolution = self.project_context.find_module(
                     imported,
                     script_path=module_info.path,
@@ -299,29 +362,44 @@ class _ModuleAnalysisMixin:
                     else None
                 )
                 is_project_local = resolved_source_path is not None and _is_within_path(
-                    resolved_source_path, self.project_root
+                    resolved_source_path, self.project_root, real_root=real_project_root
                 )
                 if self.options.skip_stdlib_modules and not is_project_local:
                     if _is_stdlib_module_name(imported):
+                        missing_external_cache.add(imported)
                         continue
                     if resolved_source_path is not None and _is_stdlib_path(resolved_source_path):
+                        missing_external_cache.add(imported)
                         continue
                 if resolved_source_path is None:
-                    imported_path = self.stub_resolver.resolve_path(
-                        imported,
-                        script_path=module_info.path,
-                    )
+                    # ProjectContext.find_module already finds project-local .pyi files;
+                    # when external and stdlib modules are skipped, probing external
+                    # stub packages/typeshed only discovers stubs that are immediately
+                    # discarded below.
+                    if self.options.skip_external_modules and self.options.skip_stdlib_modules:
+                        continue
+                    stub_key = (imported, script_dir)
+                    if stub_key not in stub_path_cache:
+                        stub_path_cache[stub_key] = self.stub_resolver.resolve_path(
+                            imported,
+                            script_path=module_info.path,
+                        )
+                    imported_path = stub_path_cache[stub_key]
                     if imported_path is None:
                         continue
                 else:
                     imported_path = resolved_source_path
                     if not imported_path.endswith(".pyi"):
-                        stub_path = self.stub_resolver.resolve_path(
-                            imported,
-                            script_path=module_info.path,
-                        )
-                        if stub_path is not None:
-                            imported_path = stub_path
+                        if not (self.options.skip_external_modules and not is_project_local):
+                            stub_key = (imported, script_dir)
+                            if stub_key not in stub_path_cache:
+                                stub_path_cache[stub_key] = self.stub_resolver.resolve_path(
+                                    imported,
+                                    script_path=module_info.path,
+                                )
+                            stub_path = stub_path_cache[stub_key]
+                            if stub_path is not None:
+                                imported_path = stub_path
                 if (
                     self.options.skip_stdlib_modules
                     and not is_project_local
@@ -329,7 +407,7 @@ class _ModuleAnalysisMixin:
                 ):
                     continue
                 if self.options.skip_external_modules and not _is_within_path(
-                    str(imported_path), self.project_root
+                    str(imported_path), self.project_root, real_root=real_project_root
                 ):
                     continue
                 normalized_path = os.path.realpath(imported_path)

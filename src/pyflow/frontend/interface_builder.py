@@ -55,10 +55,14 @@ class InterfaceBuildOptions:
 
 
 def _default_entry_args(callable_obj, *, skip_first: bool = False):
-    try:
-        signature = inspect.signature(callable_obj)
-    except (TypeError, ValueError):
+    if callable_obj is object.__init__:
         return (), ()
+    signature = getattr(callable_obj, "__signature__", None)
+    if not isinstance(signature, inspect.Signature):
+        try:
+            signature = inspect.signature(callable_obj)
+        except (TypeError, ValueError):
+            return (), ()
 
     parameters = list(signature.parameters.values())
     if skip_first and parameters:

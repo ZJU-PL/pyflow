@@ -322,9 +322,7 @@ class ClassHierarchy:
                 head, tail = base_name.split(".", 1)
                 imported_target = imported_names.get(head)
                 if isinstance(imported_target, str) and imported_target:
-                    candidate = f"{imported_target}.{tail}"
-                    if candidate in self.classes:
-                        return candidate
+                    return f"{imported_target}.{tail}"
             if base_name in self.classes:
                 return base_name
             return None
@@ -481,10 +479,36 @@ class ClassHierarchy:
 
         base_mros.append(effective_bases)
 
-        result = self._c3_merge(qualified_name, base_mros)
+        try:
+            result = self._c3_merge(qualified_name, base_mros)
+        except MROError:
+            has_unregistered_ancestor = any(
+                entry not in self.classes for seq in base_mros for entry in seq
+            )
+            if not has_unregistered_ancestor:
+                visited.remove(qualified_name)
+                raise
+            # Partial extraction / external bases omit superclass links for
+            # unregistered classes, which can create synthetic C3 conflicts.
+            result = self._conservative_mro(qualified_name, base_mros)
 
         self._mro_cache[qualified_name] = result
         visited.remove(qualified_name)
+        return result
+
+    @staticmethod
+    def _conservative_mro(class_name: str, base_mros: List[List[str]]) -> List[str]:
+        """Order-preserving fallback MRO when external/unregistered bases conflict."""
+        result = [class_name]
+        seen = {class_name}
+        for seq in base_mros:
+            for entry in seq:
+                if entry == "builtins.object" or entry in seen:
+                    continue
+                seen.add(entry)
+                result.append(entry)
+        if class_name != "builtins.object":
+            result.append("builtins.object")
         return result
 
     def _c3_merge(self, class_name: str, mro_lists: List[List[str]]) -> List[str]:

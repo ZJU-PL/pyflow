@@ -71,11 +71,69 @@ def default_import_root(path: Path) -> Path:
             return candidate.parent
         if any((candidate / marker).exists() for marker in _IMPORT_ROOT_MARKERS):
             source_root = candidate / "src"
-            if entry.is_relative_to(source_root):
+            if entry.is_relative_to(source_root) and not (source_root / "__init__.py").is_file():
                 return source_root
             return candidate
         candidate = candidate.parent
     return entry
+
+
+class _VersionedSourceDict(dict):
+    """Dictionary that tracks structural mutations in O(1) for source-map caching."""
+
+    __slots__ = ("_version",)
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._version = 0
+
+    def _bump(self) -> None:
+        self._version += 1
+
+    def __setitem__(self, key, value) -> None:
+        is_new = key not in self
+        super().__setitem__(key, value)
+        if is_new:
+            self._bump()
+
+    def __delitem__(self, key) -> None:
+        super().__delitem__(key)
+        self._bump()
+
+    def pop(self, *args):
+        existed = bool(args) and args[0] in self
+        result = super().pop(*args)
+        if existed:
+            self._bump()
+        return result
+
+    def popitem(self):
+        result = super().popitem()
+        self._bump()
+        return result
+
+    def clear(self) -> None:
+        if self:
+            super().clear()
+            self._bump()
+
+    def update(self, *args, **kwargs) -> None:
+        before_len = len(self)
+        super().update(*args, **kwargs)
+        if len(self) != before_len or args or kwargs:
+            self._bump()
+
+    def setdefault(self, key, default=None):
+        is_new = key not in self
+        result = super().setdefault(key, default)
+        if is_new:
+            self._bump()
+        return result
+
+    def __ior__(self, other):
+        result = super().__ior__(other)
+        self._bump()
+        return result
 
 
 @dataclass(frozen=True)
@@ -349,7 +407,7 @@ class ProjectContext:
         self._sys_path = list(map(str, sys_path)) if sys_path is not None else None
         self.added_sys_path = [str(p) for p in added_sys_path]
         self.smart_sys_path = smart_sys_path
-        self.source_files: Dict[str, str] = dict(source_files or {})
+        self.source_files: Dict[str, str] = _VersionedSourceDict(source_files or {})
         self.module_identity = ModuleIdentityResolver(workspace_roots)
         self.module_name_overrides = {
             os.path.realpath(filename): name
@@ -357,6 +415,8 @@ class ProjectContext:
         }
         self._source_map_cache: Optional[Dict[str, str]] = None
         self._source_map_cache_keys: Optional[frozenset[str]] = None
+        self._source_map_cache_version: Optional[int] = None
+        self._source_map_cache_identity: Optional[int] = None
         self._find_module_cache: Dict[tuple[object, ...], Optional[ModuleResolution]] = {}
         self._find_module_cache_order: List[tuple[object, ...]] = []
         self._max_find_module_cache = 8192
@@ -506,6 +566,15 @@ class ProjectContext:
         self._sys_path_cache[cache_key] = tuple(result)
         return result
 
+    def _project_root_entries(self) -> List[str]:
+        roots = [str(self.path)]
+        if self.smart_sys_path:
+            src_dir = self.path.joinpath("src")
+            if src_dir.is_dir() and not src_dir.joinpath("__init__.py").is_file():
+                roots.append(str(src_dir))
+        roots.extend(self.added_sys_path)
+        return roots
+
     def module_name_from_path(
         self, file_path: str | os.PathLike[str], *, allow_absolute_fallback: bool = True
     ) -> str:
@@ -528,7 +597,7 @@ class ProjectContext:
         abs_path = path if path.is_absolute() else path.absolute()
 
         path_real, is_package = _prepare_module_realpath(abs_path, self._realpath)
-        project_roots = self._resolve_roots([str(self.path)] + list(self.added_sys_path))
+        project_roots = self._resolve_roots(self._project_root_entries())
         dotted, _ = _transform_realpath_to_dotted(project_roots, path_real, is_package)
         if dotted is None:
             base_roots = self._resolve_roots(self.get_base_sys_path())
@@ -588,19 +657,38 @@ class ProjectContext:
     def _source_map(self) -> Dict[str, str]:
         # The map depends only on the set of source file paths and the (stable)
         # search roots, so it is rebuilt only when new files are registered
-        # instead of on every module lookup.  Cross-module base-class resolution
-        # calls this once per unresolved base, which previously rebuilt the map
-        # over the whole project each time.
-        current_keys = frozenset(self.source_files.keys())
-        if self._source_map_cache is not None and self._source_map_cache_keys == current_keys:
-            return self._source_map_cache
+        # instead of on every module lookup.  Use O(1) version checking when
+        # ``source_files`` is the internal versioned dict so large projects do
+        # not allocate and compare an O(F) frozenset on every ``find_module()``.
+        source_files = self.source_files
+        if isinstance(source_files, _VersionedSourceDict):
+            version = (
+                source_files._version,
+                len(self.module_name_overrides),
+                len(self.added_sys_path),
+                str(self.path),
+            )
+            source_id = id(source_files)
+            if (
+                self._source_map_cache is not None
+                and self._source_map_cache_version == version
+                and self._source_map_cache_identity == source_id
+            ):
+                return self._source_map_cache
+            current_keys: Optional[frozenset[str]] = None
+        else:
+            version = None
+            source_id = id(source_files)
+            current_keys = frozenset(source_files.keys())
+            if self._source_map_cache is not None and self._source_map_cache_keys == current_keys:
+                return self._source_map_cache
         mapping: Dict[str, str] = {}
         aliases: Dict[str, str] = {}
         ambiguous_aliases: Set[str] = set()
         resolved_roots = self._resolve_roots(
-            [str(self.path)] + self.get_base_sys_path() + self.added_sys_path
+            self._project_root_entries() + self.get_base_sys_path()
         )
-        for filename in self.source_files:
+        for filename in source_files:
             name = self.module_name_from_path(filename)
             mapping[name] = filename
             if name.endswith(".__init__"):
@@ -623,6 +711,8 @@ class ProjectContext:
                 mapping.setdefault(alias, filename)
         self._source_map_cache = mapping
         self._source_map_cache_keys = current_keys
+        self._source_map_cache_version = version
+        self._source_map_cache_identity = source_id
         return mapping
 
     def find_module(

@@ -389,9 +389,32 @@ class _SymbolAnalysisMixin:
                 class_info.class_methods.add(child.name)
             self._collect_nested_functions(module_name, method_qualname, child.body)
 
+    def _module_source_text(self, module_name: str, module_info) -> Optional[str]:
+        if module_name == self.entry_module_name:
+            return self.source_code
+        if module_info.path:
+            source = self.additional_sources.get(module_info.path)
+            if source is not None:
+                return source
+            return self.project_context.source_files.get(module_info.path)
+        return None
+
     def _collect_symbols(self) -> None:
         """Collect top-level functions/classes and bootstrap module exports."""
+        multi_module = len(self.modules) > 1
+        truncated_at = False
+        collected_modules: list[str] = []
         for module_name, module_info in self.modules.items():
+            if (
+                multi_module
+                and module_name != self.entry_module_name
+                and self._symbols_time_exhausted()
+            ):
+                self.fixpoint_truncated = True
+                self.fixpoint_stop_reason = "time_limit"
+                truncated_at = True
+                break
+            collected_modules.append(module_name)
             exports: DefaultDict[str, Set[AbstractValue]] = defaultdict(set)
             for node in module_info.tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -424,7 +447,9 @@ class _SymbolAnalysisMixin:
                     )
                     exports[node.name].add(make_class(class_qualname))
 
-            self._collect_lambdas(module_name, module_info.tree)
+            source_text = self._module_source_text(module_name, module_info)
+            if source_text is None or "lambda" in source_text:
+                self._collect_lambdas(module_name, module_info.tree)
 
             self.module_bindings[module_name] = {
                 name: set(values) for name, values in exports.items()
@@ -473,6 +498,11 @@ class _SymbolAnalysisMixin:
             self.module_bindings[module_name] = {
                 name: set(values) for name, values in exports.items()
             }
+
+        if truncated_at:
+            kept = set(collected_modules)
+            for skipped_module in [m for m in self.modules if m not in kept]:
+                del self.modules[skipped_module]
 
     def _resolve_module_annotated_bindings(self) -> None:
         """Resolve module-level ``AnnAssign`` targets after imports and classes are collected."""
@@ -638,19 +668,25 @@ class _SymbolAnalysisMixin:
         dependents = defaultdict(set)
         for module_name, module_info in self.modules.items():
             self._register_imported_module_chain(module_name)
+            bindings = self.module_bindings.setdefault(module_name, {})
             imports[module_name] = []
             for node in module_info.tree.body:
                 if isinstance(node, ast.Import):
-                    self._bind_import(node, module_name, self.module_bindings[module_name])
+                    self._bind_import(node, module_name, bindings)
                 elif isinstance(node, ast.ImportFrom):
                     imports[module_name].append(node)
                     source = self._resolve_import_module_name(module_name, node.module, node.level)
                     if source in self.modules:
                         dependents[source].add(module_name)
 
+        multi_module = len(self.modules) > 1
         queue = deque(self.modules)
         pending = set(queue)
         while queue:
+            if multi_module and self._fixpoint_time_exhausted():
+                self.fixpoint_truncated = True
+                self.fixpoint_stop_reason = "time_limit"
+                break
             module_name = queue.popleft()
             pending.remove(module_name)
             env = copy_env(self.module_bindings[module_name])

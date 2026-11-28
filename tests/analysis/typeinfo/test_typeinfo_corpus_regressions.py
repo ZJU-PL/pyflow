@@ -1710,3 +1710,111 @@ def test_bare_module_type_aliases_and_cross_module_typevar(tmp_path: Path) -> No
         for d in service._inference_results["app"].diagnostics
         if d.code in {"dict-item", "annotation-mismatch", "unresolved-annotation"}
     ]
+
+
+def test_generic_passthrough_class_decorator_and_variadic_any_tuple_compatibility(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "repr_mod.py").write_text(
+        "from typing import Callable, Optional, Type, TypeVar, Union, overload\n"
+        "T = TypeVar('T')\n"
+        "@overload\n"
+        "def auto(cls: Optional[Type[T]]) -> Type[T]: ...\n"
+        "@overload\n"
+        "def auto(*, angular: bool = False) -> Callable[[Type[T]], Type[T]]: ...\n"
+        "def auto(cls: Optional[Type[T]] = None, *, angular: Optional[bool] = None) -> Union[Type[T], Callable[[Type[T]], Type[T]]]:\n"
+        "    return cls\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "style.py").write_text(
+        "from typing import Any, Callable, Optional, Tuple\n"
+        "from repr_mod import auto as rich_repr\n"
+        "@rich_repr\n"
+        "class Style:\n"
+        "    def __init__(self, bgcolor: Optional[str] = None) -> None:\n"
+        "        self.bgcolor = bgcolor\n"
+        "    @classmethod\n"
+        "    def null(cls) -> 'Style':\n"
+        "        return NULL_STYLE\n"
+        "    @property\n"
+        "    def background_style(self) -> 'Style':\n"
+        "        return Style(bgcolor=self.bgcolor)\n"
+        "NULL_STYLE = Style()\n"
+        "def from_external(raw: tuple) -> Tuple[str, Optional[str], Optional[Callable[[], bool]]]:\n"
+        "    return raw\n"
+        "def get_raw() -> Tuple[Any, ...]:\n"
+        "    return ('a', None)\n"
+        "def convert() -> Tuple[str, Optional[str]]:\n"
+        "    trv: Optional[Tuple[str, Optional[str]]] = get_raw()\n"
+        "    assert trv is not None\n"
+        "    return trv\n",
+        encoding="utf-8",
+    )
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("style")
+    diags = service._inference_results["style"].diagnostics
+    assert not [d for d in diags if d.code == "annotation-mismatch"]
+
+
+def test_collect_module_undefers_transitively_collected_modules(tmp_path: Path) -> None:
+    (tmp_path / "dep.py").write_text(
+        "VALUE: int = 1\ndef helper() -> int:\n    return VALUE\n", encoding="utf-8"
+    )
+    (tmp_path / "app.py").write_text(
+        "from dep import helper\nRESULT = helper()\n", encoding="utf-8"
+    )
+
+    service = TypeInfoService(ProjectContext(tmp_path))
+    service.collect_module("app")
+    assert "dep" in service._collected_modules
+    assert "dep" in service._deferred_inference_modules
+
+    service.collect_module("dep")
+    assert "dep" not in service._deferred_inference_modules
+    assert "dep" in service._inference_results
+
+    # Repeated inference_result queries must not re-run inference.
+    calls = 0
+    original = service._collect_inferred_source_facts
+
+    def counting_infer(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    service._collect_inferred_source_facts = counting_infer
+    assert service.inference_result("app") is not None
+    assert service.inference_result("dep") is not None
+    assert calls == 0
+    assert isinstance(service.diagnostics(), list)
+
+
+def test_project_engine_honors_time_budget_during_module_loading(tmp_path: Path) -> None:
+    from pyflow.analysis.typeinfo import ProjectTypeInferenceEngine
+
+    (tmp_path / "m0.py").write_text("import m1\nX = 1\n", encoding="utf-8")
+    (tmp_path / "m1.py").write_text("import m2\nY = 2\n", encoding="utf-8")
+    (tmp_path / "m2.py").write_text("Z = 3\n", encoding="utf-8")
+    engine = ProjectTypeInferenceEngine(
+        ProjectContext(tmp_path),
+        time_budget_seconds=1e-9,
+    )
+    res = engine.infer_project(["m0"], discover_imports=True)
+    assert any(d.code == "project-inference-time-budget-exceeded" for d in res.diagnostics)
+
+
+def test_project_type_inference_namespace_walk_skips_ignored_dirs(tmp_path: Path) -> None:
+    from pyflow.analysis.typeinfo.inference.project import ProjectTypeInferenceEngine
+
+    pkg = tmp_path / "ns_pkg"
+    ignored = pkg / "node_modules" / "junk"
+    ignored.mkdir(parents=True)
+    (pkg / "mod.py").write_text("X: int = 1\n", encoding="utf-8")
+    (ignored / "bad.py").write_text("def broken(:\n", encoding="utf-8")
+
+    engine = ProjectTypeInferenceEngine(
+        ProjectContext(tmp_path), max_modules=10, time_budget_seconds=5.0
+    )
+    res = engine.infer_project(["ns_pkg"], discover_imports=True)
+    assert "ns_pkg.mod" in res.modules
+    assert not any("node_modules" in name for name in res.modules)

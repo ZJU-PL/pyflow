@@ -304,7 +304,11 @@ def _deduplicate(candidates: list[EntryCandidate]) -> list[EntryCandidate]:
     return unique
 
 
-def discover_entry_files(project_root: str | Path) -> list[EntryCandidate]:
+def _discover_entry_files(
+    project_root: str | Path,
+    *,
+    include_nested_scripts: bool = True,
+) -> list[EntryCandidate]:
     """Return candidates from the strongest evidence tier that is present."""
     root = Path(project_root)
     data = _read_pyproject(root)
@@ -329,9 +333,13 @@ def discover_entry_files(project_root: str | Path) -> list[EntryCandidate]:
     if package_mains:
         return package_mains
 
+    base_set = set(bases)
     guarded = []
     nested_scripts = []
     for path in sources:
+        in_base = path.parent in base_set
+        if not in_base and not include_nested_scripts:
+            continue
         if not _is_application_package_root(path.relative_to(root)):
             continue
         try:
@@ -359,7 +367,7 @@ def discover_entry_files(project_root: str | Path) -> list[EntryCandidate]:
                 and isinstance(left, ast.Constant)
                 and left.value == "__main__"
             ):
-                if path.parent in bases:
+                if in_base:
                     guarded.append(EntryCandidate(path.relative_to(root), "__name__ guard"))
                 else:
                     nested_scripts.append(
@@ -384,6 +392,11 @@ def discover_entry_files(project_root: str | Path) -> list[EntryCandidate]:
     return conventions or nested_scripts
 
 
+def discover_entry_files(project_root: str | Path) -> list[EntryCandidate]:
+    """Return candidates from the strongest evidence tier that is present."""
+    return _discover_entry_files(project_root, include_nested_scripts=True)
+
+
 def _unique_path(candidates: list[EntryCandidate]) -> Path | None:
     paths = list(dict.fromkeys(candidate.path for candidate in candidates))
     return paths[0] if len(paths) == 1 else None
@@ -391,7 +404,7 @@ def _unique_path(candidates: list[EntryCandidate]) -> Path | None:
 
 def detect_entry_file(project_root: str | Path) -> Path | None:
     """Select an entry only when the strongest candidate tier is unambiguous."""
-    candidates = discover_entry_files(project_root)
+    candidates = _discover_entry_files(project_root, include_nested_scripts=False)
     if any(not candidate.auto_select for candidate in candidates):
         return None
     return _unique_path(candidates)

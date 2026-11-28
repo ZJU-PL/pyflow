@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from dataclasses import replace
 import hashlib
+import os
 import time
 
 import networkx as nx
@@ -91,8 +92,13 @@ class ProjectTypeInferenceEngine:
         discover_imports: bool = True,
     ) -> ProjectInferenceResult:
         """Infer entry modules and, by default, their project import closure."""
-        sources, paths, diagnostics, discovered_imports = self._load_modules(
-            entry_modules, discover_imports=discover_imports
+        deadline = (
+            time.monotonic() + self.time_budget_seconds
+            if self.time_budget_seconds is not None and self.time_budget_seconds > 0
+            else None
+        )
+        sources, paths, diagnostics, discovered_imports, load_time_limited = self._load_modules(
+            entry_modules, discover_imports=discover_imports, deadline=deadline
         )
         results: dict[str, ModuleInferenceResult] = {}
         failed_modules: set[str] = set()
@@ -133,12 +139,7 @@ class ProjectTypeInferenceEngine:
         targets = set(sources) - cached_modules
         if not targets:
             converged = True
-        deadline = (
-            time.monotonic() + self.time_budget_seconds
-            if self.time_budget_seconds is not None and self.time_budget_seconds > 0
-            else None
-        )
-        time_limited = False
+        time_limited = load_time_limited
         typeshed_symbol_cache: dict[str, ProperType | None] = {}
         typeshed_return_cache: dict[str, bool | None] = {}
 
@@ -329,18 +330,39 @@ class ProjectTypeInferenceEngine:
             converged=converged and all(r.converged for r in results.values()),
         )
 
+    _IGNORED_NAMESPACE_DIRS = frozenset(
+        {
+            "__pycache__",
+            ".git",
+            ".hg",
+            ".svn",
+            ".venv",
+            "venv",
+            "node_modules",
+            "site-packages",
+            "dist-packages",
+        }
+    )
+
     def _load_modules(
         self,
         entry_modules: Iterable[str],
         *,
         discover_imports: bool,
-    ) -> tuple[dict[str, str], dict[str, str], list[InferenceDiagnostic], dict[str, list[str]]]:
+        deadline: float | None = None,
+    ) -> tuple[
+        dict[str, str], dict[str, str], list[InferenceDiagnostic], dict[str, list[str]], bool
+    ]:
         sources: dict[str, str] = {}
         paths: dict[str, str] = {}
         diagnostics: list[InferenceDiagnostic] = []
         discovered_imports: dict[str, list[str]] = {}
         pending = list(dict.fromkeys(entry_modules))
+        time_limited = False
         while pending:
+            if deadline is not None and sources and time.monotonic() >= deadline:
+                time_limited = True
+                break
             if self.max_modules is not None and len(sources) >= self.max_modules:
                 diagnostics.append(
                     InferenceDiagnostic(
@@ -371,12 +393,30 @@ class ProjectTypeInferenceEngine:
                     paths[module_name] = ""
                     discovered_imports[module_name] = []
                     for namespace_path in resolution.namespace_paths:
-                        for child in Path(namespace_path).rglob("*.py"):
-                            if "__pycache__" in child.parts:
-                                continue
-                            child_name = self.project_context.module_name_from_path(child)
-                            if child_name and child_name not in sources:
-                                pending.append(child_name)
+                        for current, directories, filenames in os.walk(namespace_path):
+                            if deadline is not None and time.monotonic() >= deadline:
+                                time_limited = True
+                                break
+                            directories[:] = sorted(
+                                name
+                                for name in directories
+                                if name not in self._IGNORED_NAMESPACE_DIRS
+                                and not name.startswith(".")
+                            )
+                            for filename in sorted(filenames):
+                                if not filename.endswith(".py") or filename.startswith("."):
+                                    continue
+                                child = Path(current, filename)
+                                child_name = self.project_context.module_name_from_path(child)
+                                if child_name and child_name not in sources:
+                                    pending.append(child_name)
+                                    if (
+                                        self.max_modules is not None
+                                        and len(sources) + len(pending) >= self.max_modules * 2
+                                    ):
+                                        break
+                        if time_limited:
+                            break
                     continue
                 diagnostics.append(
                     InferenceDiagnostic(
@@ -415,7 +455,7 @@ class ProjectTypeInferenceEngine:
                 deps = self._project_imports(module_name, source, path)
                 discovered_imports[module_name] = deps
                 pending.extend(imported for imported in deps if imported not in sources)
-        return sources, paths, diagnostics, discovered_imports
+        return sources, paths, diagnostics, discovered_imports, time_limited
 
     def _project_imports(
         self,

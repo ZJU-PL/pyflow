@@ -150,6 +150,7 @@ class ASTConverter:
             tuple[int, ...], tuple[frozenset[str], frozenset[str]]
         ] = {}
         self._function_analysis_cache: Dict[tuple[int, ...], FunctionBodyAnalysis] = {}
+        self._origin_propagated_ids: Set[int] = set()
         # Names bound at module scope by the file currently being converted.
         # Existing analyses resolve module-level definitions by local name, so
         # keep that representation for compatibility; unresolved/builtin names
@@ -204,14 +205,19 @@ class ASTConverter:
         # statements that may become independent CFG nodes. Preserve the
         # nearest source span on those nodes as well as on their wrapper.
         if not lineno or isinstance(converted, _CHILDLESS_STMT_TYPES):
+            if lineno:
+                self._origin_propagated_ids.add(id(converted))
             return converted
         children_fn = getattr(converted, "children", None)
         if children_fn is None:
+            self._origin_propagated_ids.add(id(converted))
             return converted
         pending: list[object] = list(children_fn())
         if not pending:
+            self._origin_propagated_ids.add(id(converted))
             return converted
         seen_ids: set[int] = set()
+        propagated_ids = self._origin_propagated_ids
         while pending:
             child = pending.pop()
             if child is None or isinstance(child, _NON_PROPAGATED_CHILD_TYPES):
@@ -220,7 +226,7 @@ class ASTConverter:
                 pending.extend(child)
                 continue
             child_id = id(child)
-            if child_id in seen_ids:
+            if child_id in seen_ids or child_id in propagated_ids:
                 continue
             seen_ids.add(child_id)
             ann = getattr(child, "annotation", None)
@@ -250,6 +256,7 @@ class ASTConverter:
             child_children = getattr(child, "children", None)
             if child_children is not None:
                 pending.extend(child_children())
+        propagated_ids.add(id(converted))
         return converted
 
     def _tmp_local(self, hint: str, node: python_ast.AST) -> pyflow_ast.Local:
@@ -317,6 +324,7 @@ class ASTConverter:
         self._scope_names_cache.clear()
         self._descendant_scope_cache.clear()
         self._function_analysis_cache.clear()
+        self._origin_propagated_ids.clear()
 
     def get_telemetry(self) -> Dict[str, Any]:
         out: Dict[str, Any] = dict(self._telemetry)

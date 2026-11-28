@@ -192,6 +192,8 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
                 self._collected_modules.add(module_name)
                 return
         if module_name in self._collected_modules or module_name in self._collecting_modules:
+            if not self._collecting_modules and module_name in self._deferred_inference_modules:
+                self._ensure_inferred(module_name)
             return
         is_transitive = bool(self._collecting_modules)
         if is_transitive:
@@ -491,15 +493,13 @@ class TypeInfoService(_SourceCollectionMixin, _StubCollectionMixin, _TypeLookupM
         """Return source, inference, and stub-resolution diagnostics."""
         self._ensure_refreshed()
         diagnostics = [*self.stub_resolver.get_diagnostics(), *self._collection_diagnostics]
+        seen = {(d.module_name, d.code, d.message) for d in diagnostics}
         for module_name, result in self._inference_results.items():
             for item in result.diagnostics:
-                if any(
-                    d.module_name == module_name
-                    and d.code == item.code
-                    and d.message == item.message
-                    for d in diagnostics
-                ):
+                key = (module_name, item.code, item.message)
+                if key in seen:
                     continue
+                seen.add(key)
                 diagnostics.append(
                     StubDiagnostic(
                         code=item.code,

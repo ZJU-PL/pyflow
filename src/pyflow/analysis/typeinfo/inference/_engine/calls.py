@@ -467,6 +467,14 @@ class CallInference(InferenceComponent):
         except (ImportError, LookupError, OSError, RuntimeError):
             return False
 
+    @staticmethod
+    def _expects_type_object(formal: ProperType) -> bool:
+        if isinstance(formal, TypeType):
+            return True
+        if isinstance(formal, UnionType):
+            return any(isinstance(item, TypeType) for item in formal.items)
+        return False
+
     def _specialize_callable_return(
         self,
         signature: CallableType,
@@ -478,6 +486,13 @@ class CallInference(InferenceComponent):
         if signature.arg_types is not None:
             for formal, actual in zip(signature.arg_types, arguments):
                 actual_type = actual.public_type()
+                if (
+                    actual_type is not None
+                    and self._expects_type_object(formal)
+                    and actual.class_targets
+                    and isinstance(actual_type, Instance)
+                ):
+                    actual_type = TypeType(actual_type)
                 if actual_type is not None:
                     self._match_type_variables(formal, actual_type, substitutions, fixed)
         returned = (
@@ -905,6 +920,54 @@ class CallInference(InferenceComponent):
         )
         return names
 
+    def _matches_overload_parameter(
+        self,
+        actual: AbstractTypeValue,
+        actual_type: ProperType,
+        expected: ProperType,
+    ) -> bool:
+        if isinstance(expected, UnionType):
+            return any(
+                self._matches_overload_parameter(actual, actual_type, item)
+                for item in expected.items
+            )
+        candidate = actual_type
+        if (
+            isinstance(expected, TypeType)
+            and actual.class_targets
+            and isinstance(actual_type, Instance)
+        ):
+            candidate = TypeType(actual_type)
+        if isinstance(expected, TypeType) and isinstance(candidate, TypeType):
+            if isinstance(expected.item, TypeVarType):
+                if expected.item.bound is not None:
+                    return self.engine.type_system.is_subtype(candidate.item, expected.item.bound)
+                if expected.item.constraints:
+                    return any(
+                        self.engine.type_system.is_subtype(candidate.item, constraint)
+                        for constraint in expected.item.constraints
+                    )
+                return True
+        if self._is_unresolved_external_type(expected) and not isinstance(expected, Instance):
+            return True
+        if self._is_unresolved_external_type(expected):
+            # Protocol parameters from stubs carry type variables and
+            # unknown module names.  When the protocol's members are
+            # known, check structurally instead of accepting every
+            # actual type (which selects the wrong overload).
+            if not self._protocol_is_checkable(expected):
+                return True
+        if self.engine.type_system.is_subtype(candidate, expected):
+            return True
+        expected_literals = self.engine._compatibility_rules._literal_expected_values(expected)
+        if (
+            expected_literals is not None
+            and actual.literal_values
+            and actual.literal_values.issubset(expected_literals)
+        ):
+            return True
+        return False
+
     def _select_callable_overload(
         self,
         callable_type: CallableType,
@@ -922,27 +985,7 @@ class CallInference(InferenceComponent):
                 actual_type = actual.public_type()
                 if actual_type is None or actual.unknown:
                     continue
-                if self._is_unresolved_external_type(expected) and not isinstance(
-                    expected, Instance
-                ):
-                    continue
-                if self._is_unresolved_external_type(expected):
-                    # Protocol parameters from stubs carry type variables and
-                    # unknown module names.  When the protocol's members are
-                    # known, check structurally instead of accepting every
-                    # actual type (which selects the wrong overload).
-                    if not self._protocol_is_checkable(expected):
-                        continue
-                if self.engine.type_system.is_subtype(actual_type, expected):
-                    continue
-                expected_literals = self.engine._compatibility_rules._literal_expected_values(
-                    expected
-                )
-                if (
-                    expected_literals is not None
-                    and actual.literal_values
-                    and actual.literal_values.issubset(expected_literals)
-                ):
+                if self._matches_overload_parameter(actual, actual_type, expected):
                     continue
                 accepted = False
                 break
@@ -1517,7 +1560,7 @@ class CallInference(InferenceComponent):
             actual_type = actual.public_type()
             if (
                 actual_type is not None
-                and isinstance(formal, TypeType)
+                and self._expects_type_object(formal)
                 and actual.class_targets
                 and isinstance(actual_type, Instance)
             ):
@@ -1588,6 +1631,12 @@ class CallInference(InferenceComponent):
             for item in formal.items:
                 if isinstance(item, TypeVarType):
                     self._match_type_variables(item, actual, substitutions, fixed)
+                elif (
+                    isinstance(item, TypeType)
+                    and isinstance(actual, TypeType)
+                    and isinstance(item.item, TypeVarType)
+                ):
+                    self._match_type_variables(item.item, actual.item, substitutions, fixed)
                 elif item == actual or self.engine.type_system.is_subtype(actual, item):
                     self._match_type_variables(item, actual, substitutions, fixed)
             return

@@ -1194,11 +1194,16 @@ class _ExpressionAnalysisMixin:
                     # Preserve positional precision for slices by creating a
                     # dedicated abstract container representing the slice view.
                     self._register_container_dependency(base_value.name, "*")
-                    index_keys = sorted(
-                        [k for k in key_map if k.startswith("#")],
-                        key=lambda k: int(k[1:]),
-                    )
-                    index_values = [set(key_map[key]) for key in index_keys]
+                    indexed_pairs: List[Tuple[int, str]] = []
+                    for key in key_map:
+                        if not key.startswith("#"):
+                            continue
+                        try:
+                            indexed_pairs.append((int(key[1:]), key))
+                        except ValueError:
+                            continue
+                    indexed_pairs.sort(key=lambda pair: pair[0])
+                    index_values = [set(key_map[key]) for _idx, key in indexed_pairs]
                     start = None
                     stop = None
                     step = None
@@ -1213,7 +1218,7 @@ class _ExpressionAnalysisMixin:
                     if isinstance(expr.slice.step, ast.Constant) and isinstance(
                         expr.slice.step.value, int
                     ):
-                        step = expr.slice.step.value
+                        step = expr.slice.step.value if expr.slice.step.value != 0 else None
                     sliced_values = index_values[slice(start, stop, step)]
                     slice_container = self._new_container("slice", scope, scope_context, expr)
                     for index, values in enumerate(sliced_values):
@@ -1225,6 +1230,13 @@ class _ExpressionAnalysisMixin:
                         self._merge_value_set(
                             self.container_key_values[slice_container.name][f"#{index}"],
                             set(values),
+                            preserve_callables=True,
+                        )
+                    dynamic_int_values = key_map.get("#int")
+                    if dynamic_int_values:
+                        self._merge_value_set(
+                            self.container_elements[slice_container.name],
+                            set(dynamic_int_values),
                             preserve_callables=True,
                         )
                     if not sliced_values:
