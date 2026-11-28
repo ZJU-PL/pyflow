@@ -92,7 +92,8 @@
   "rules": [
     {
       "id": "PYFLOW-SERIALIZATION-EXECDESERIALIZATIONSINK",
-      "title": "Untrusted data reaches execdeserializationsink sink",
+      "cwe": "CWE-502",
+      "title": "Untrusted data reaches unsafe deserialization sink",
       "sources": [
         "user_input",
         "network",

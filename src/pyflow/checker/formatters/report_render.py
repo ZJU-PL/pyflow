@@ -14,10 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 import html as html_lib
+import os
 from pathlib import Path
+import re
 from typing import Any, Mapping, Sequence
 
-from pyflow.util.cwe import normalize_cwe
+from pyflow.util.cwe import default_cwe_for_rule_id, default_cwe_suggestion, normalize_cwe
 
 _ANSI = {
     "reset": "\033[0m",
@@ -133,6 +135,62 @@ def _single_source_line(uri: str, line: int) -> str:
     return ""
 
 
+def _expand_call_span(source_line: str, idx: int, token_len: int) -> tuple[int, int]:
+    """Expand a matched sink token to cover dotted receiver and single-line call args."""
+    start = idx
+    while start > 0 and (source_line[start - 1].isalnum() or source_line[start - 1] in "_."):
+        start -= 1
+    while start < idx and source_line[start] == ".":
+        start += 1
+    end = idx + token_len
+    if end < len(source_line) and source_line[end] == "(":
+        depth = 0
+        pos = end
+        while pos < len(source_line):
+            ch = source_line[pos]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    end = pos + 1
+                    break
+            pos += 1
+    return start, max(1, end - start)
+
+
+def _expand_call_from_start(source_line: str, col: int) -> tuple[int, int]:
+    """Expand from *col* over a dotted identifier/call expression on *source_line*."""
+    end = col
+    while end < len(source_line) and (source_line[end].isalnum() or source_line[end] in "_."):
+        end += 1
+    if end < len(source_line) and source_line[end] == "(":
+        depth = 0
+        pos = end
+        while pos < len(source_line):
+            ch = source_line[pos]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    end = pos + 1
+                    break
+            pos += 1
+    return col, max(1, end - col)
+
+
+def _find_token_in_segment(segment: str, hint_token: str) -> tuple[int, int] | None:
+    """Locate *hint_token* (or its terminal attribute name) at a word boundary in *segment*."""
+    for needle in (hint_token, hint_token.rsplit(".", 1)[-1]):
+        if not needle:
+            continue
+        match = re.search(rf"(?<![A-Za-z0-9_]){re.escape(needle)}(?![A-Za-z0-9_])", segment)
+        if match is not None:
+            return match.start(), len(needle)
+    return None
+
+
 def _caret_span(
     source_line: str,
     column: int | None,
@@ -143,21 +201,226 @@ def _caret_span(
     if not source_line.strip():
         return None
     if column is not None and column >= 0 and column < len(source_line):
+        slice_end = (
+            min(end_column, len(source_line))
+            if end_column is not None and end_column > column
+            else len(source_line)
+        )
+        segment = source_line[column:slice_end]
+        # Narrow whole-statement spans (e.g. "return cur.execute(q)",
+        # "with open(path) as f:", "resp = requests.get(url)", or multiline
+        # assignments where end_column belongs to a later line) to the actual
+        # sink call expression when the hint token appears on the line.
+        if hint_token:
+            rest = source_line[column:]
+            rest_stripped = rest.lstrip()
+            is_compound_stmt = rest_stripped.startswith(
+                ("return ", "await ", "yield ", "with ", "async with ")
+            )
+            has_assignment = "=" in rest and not rest_stripped.startswith(("==", "!="))
+            if is_compound_stmt or has_assignment:
+                found = _find_token_in_segment(rest, hint_token)
+                if found is not None and found[0] > 0:
+                    return _expand_call_span(source_line, column + found[0], found[1])
         if end_column is not None and end_column > column:
             length = min(end_column - column, len(source_line) - column)
-        else:
-            length = max(1, len(hint_token.rsplit(".", 1)[-1]) if hint_token else 1)
-            length = min(length, len(source_line) - column)
-        return column, max(length, 1)
+            return column, max(length, 1)
+        return _expand_call_from_start(source_line, column)
     if hint_token:
-        for needle in (hint_token, hint_token.rsplit(".", 1)[-1]):
-            if needle:
-                idx = source_line.find(needle)
-                if idx >= 0:
-                    return idx, len(needle)
+        found = _find_token_in_segment(source_line, hint_token)
+        if found is not None:
+            return _expand_call_span(source_line, found[0], found[1])
     stripped = source_line.lstrip()
     leading = len(source_line) - len(stripped)
     return leading, max(1, min(len(stripped), 40))
+
+
+def _resolve_base_dir(doc: RenderedReport, base_dir: str | Path | None) -> Path | None:
+    if base_dir is not None:
+        try:
+            resolved = Path(base_dir).resolve()
+            return resolved if resolved.is_dir() else resolved.parent
+        except OSError:
+            return None
+    abs_dirs: list[str] = []
+    for finding in doc.findings:
+        for candidate in (finding.uri, finding.source_uri, finding.sink_uri):
+            if candidate and os.path.isabs(candidate) and not candidate.startswith("<"):
+                try:
+                    abs_dirs.append(str(Path(candidate).resolve().parent))
+                except OSError:
+                    continue
+        for step in finding.steps:
+            if step.uri and os.path.isabs(step.uri) and not step.uri.startswith("<"):
+                try:
+                    abs_dirs.append(str(Path(step.uri).resolve().parent))
+                except OSError:
+                    continue
+    if not abs_dirs:
+        return None
+    try:
+        common = Path(os.path.commonpath(abs_dirs))
+    except ValueError:
+        return None
+    # Avoid collapsing against filesystem root or top-level temp folders alone.
+    if len(common.parts) <= 1:
+        return None
+    return common
+
+
+def _display_uri(uri: str, base_dir: Path | None) -> str:
+    if not uri or uri.startswith("<") or "://" in uri or base_dir is None:
+        return uri
+    if not os.path.isabs(uri):
+        return uri
+    try:
+        rel = Path(uri).resolve().relative_to(base_dir)
+        return rel.as_posix()
+    except (OSError, ValueError):
+        return uri
+
+
+def _format_location(
+    uri: str,
+    line: int,
+    column: int | None = None,
+    *,
+    base_dir: Path | None = None,
+) -> str:
+    if not uri and line <= 0:
+        return "<source location unavailable>"
+    if line <= 0:
+        return "<source location unavailable>"
+    display_uri = _display_uri(uri, base_dir) or "<unknown source>"
+    if column is not None and column >= 0:
+        return f"{display_uri}:{line}:{column + 1}"
+    return f"{display_uri}:{line}"
+
+
+_UNKNOWN_CALL_RE = re.compile(
+    r"Unknown call(?: effects for)?\s+([^\s]+)",
+    re.IGNORECASE,
+)
+
+
+def _relativize_text(text: str, base_dir: Path | None) -> str:
+    if not text or base_dir is None:
+        return text
+    prefix = str(base_dir)
+    if not prefix or prefix == os.sep:
+        return text
+    text = text.replace(prefix + os.sep, "")
+    text = text.replace(prefix, ".")
+    return text
+
+
+def _humanize_diagnostic(
+    diag: Mapping[str, Any], *, verbose: bool = False, base_dir: Path | None = None
+) -> str:
+    code = str(diag.get("code") or "")
+    raw_msg = str(diag.get("message") or "").strip()
+    if not raw_msg:
+        return raw_msg
+    if verbose:
+        return _relativize_text(raw_msg, base_dir)
+    if code in {"unknown-call-effect", "cpg-unknown-call-effect"}:
+        match = _UNKNOWN_CALL_RE.search(raw_msg)
+        callee = match.group(1) if match else "external call"
+        return f"Unmodeled call '{callee}' — taint conservatively preserved"
+    if code == "cpg-expression-call-summary":
+        return (
+            "Nested local call used a conservative summary "
+            "(some side effects may be over-approximated)"
+        )
+    return _relativize_text(raw_msg, base_dir)
+
+
+_SUMMARY_DIAGNOSTIC_CODES = frozenset(
+    {
+        "unknown-call-effect",
+        "cpg-unknown-call-effect",
+        "ambiguous-call-target",
+        "exception-prefix-overapproximation",
+        "context-manager-exit-effects",
+        "finally-abrupt-outcome-overapproximation",
+        "cpg-expression-call-summary",
+        "cpg-loop-convergence-threshold",
+        "container-clear-alias-unknown",
+    }
+)
+
+_SUMMARY_CATEGORY_LABELS = {
+    "unknown-call-effect": "unmodeled calls (taint conservatively preserved)",
+    "cpg-unknown-call-effect": "unmodeled calls (taint conservatively preserved)",
+    "ambiguous-call-target": "ambiguous local call targets",
+    "exception-prefix-overapproximation": "conservative exception-edge joins",
+    "context-manager-exit-effects": "conservative context-manager __exit__ effects",
+    "finally-abrupt-outcome-overapproximation": "conservative finally-block abrupt outcomes",
+    "cpg-expression-call-summary": "conservative nested-call summaries",
+    "cpg-loop-convergence-threshold": "loops exceeded convergence-reporting threshold (continued to convergence)",
+    "container-clear-alias-unknown": "conservative container-clear alias checks",
+}
+
+
+def _group_diagnostics(
+    diagnostics: Sequence[Mapping[str, Any]],
+    *,
+    engine: str,
+    base_dir: Path | None = None,
+    verbose: bool = False,
+) -> list[tuple[str, str, list[str]]]:
+    if not verbose and len(diagnostics) > 5:
+        important: dict[tuple[str, str], list[str]] = {}
+        summarized_counts: dict[str, int] = {}
+        summarized_examples: dict[str, list[str]] = {}
+        for diag in diagnostics:
+            code = str(diag.get("code") or f"{engine}-diagnostic")
+            raw_msg = str(diag.get("message") or "").strip()
+            if code in _SUMMARY_DIAGNOSTIC_CODES:
+                summarized_counts[code] = summarized_counts.get(code, 0) + 1
+                ex = summarized_examples.setdefault(code, [])
+                if len(ex) < 3:
+                    match = _UNKNOWN_CALL_RE.search(raw_msg)
+                    token = match.group(1) if match else ""
+                    if not token and "'" in raw_msg:
+                        parts = raw_msg.split("'")
+                        if len(parts) >= 2 and parts[1]:
+                            token = parts[1]
+                    if token and token != "<dynamic>" and token not in ex:
+                        ex.append(token)
+                continue
+            msg = _humanize_diagnostic(diag, verbose=False, base_dir=base_dir)
+            loc = ""
+            if diag.get("filename") or diag.get("line"):
+                uri = _display_uri(str(diag.get("filename") or "<unknown>"), base_dir)
+                line = diag.get("line") or 0
+                loc = f"{uri}:{line}" if line else uri
+            important.setdefault((code, msg), []).append(loc)
+
+        out: list[tuple[str, str, list[str]]] = [
+            (code, msg, locs) for (code, msg), locs in important.items()
+        ]
+        for code in sorted(summarized_counts):
+            count = summarized_counts[code]
+            label = _SUMMARY_CATEGORY_LABELS.get(code, code)
+            examples = summarized_examples.get(code) or []
+            ex_suffix = f" (e.g. {', '.join(examples)})" if examples else ""
+            out.append((code, f"{count} {label}{ex_suffix}", [""]))
+        if summarized_counts:
+            out.append(("hint", "Re-run with --verbose to list all individual diagnostics", [""]))
+        return out
+
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for diag in diagnostics:
+        code = str(diag.get("code") or f"{engine}-diagnostic")
+        msg = _humanize_diagnostic(diag, verbose=verbose, base_dir=base_dir)
+        loc = ""
+        if diag.get("filename") or diag.get("line"):
+            uri = _display_uri(str(diag.get("filename") or "<unknown>"), base_dir)
+            line = diag.get("line") or 0
+            loc = f"{uri}:{line}" if line else uri
+        grouped.setdefault((code, msg), []).append(loc)
+    return [(code, msg, locs) for (code, msg), locs in grouped.items()]
 
 
 def _style(text: str, code: str, *, color: bool) -> str:
@@ -175,17 +438,6 @@ def _severity_color(severity: str) -> str:
     return "cyan"
 
 
-def _format_location(uri: str, line: int, column: int | None = None) -> str:
-    if not uri and line <= 0:
-        return "<source location unavailable>"
-    if line <= 0:
-        return "<source location unavailable>"
-    display_uri = uri or "<unknown source>"
-    if column is not None and column >= 0:
-        return f"{display_uri}:{line}:{column + 1}"
-    return f"{display_uri}:{line}"
-
-
 def _step_badge(kind: str) -> str:
     mapping = {
         "source": "SOURCE",
@@ -199,6 +451,8 @@ def _step_badge(kind: str) -> str:
         "sink": "SINK",
         "assign": "ASSIGN",
         "propagate": "FLOW",
+        "branch": "BRANCH",
+        "ellipsis": "...",
     }
     return mapping.get(kind.lower(), kind.upper()[:10] or "FLOW")
 
@@ -219,21 +473,53 @@ def normalize_report_for_render(engine: str, report: Mapping[str, Any]) -> Rende
 
     if engine == "ast-dataflow":
         for item in report.get("findings") or ():
-            steps = tuple(
-                RenderedFlowStep(
-                    kind=str(step.get("operation") or "flow"),
-                    message=str(
-                        step.get("detail")
-                        or step.get("location")
-                        or step.get("operation")
-                        or "flow"
-                    ),
-                    uri=str(step.get("filename") or item.get("filename") or ""),
-                    line=int(step.get("line") or 0),
-                    column=step.get("column"),
+            raw_steps: list[RenderedFlowStep] = []
+            for step in item.get("trace") or ():
+                op = str(step.get("operation") or "flow")
+                msg = str(
+                    step.get("detail") or step.get("location") or step.get("operation") or "flow"
                 )
-                for step in (item.get("trace") or ())
-            )
+                step_uri = str(step.get("filename") or item.get("filename") or "")
+                step_line = int(step.get("line") or 0)
+                step_nest = int(step.get("nesting_level") or 0)
+                # Merge redundant same-line assign immediately following source/call.
+                if (
+                    raw_steps
+                    and op == "assign"
+                    and raw_steps[-1].uri == step_uri
+                    and raw_steps[-1].line == step_line
+                    and raw_steps[-1].kind in {"source", "call"}
+                    and raw_steps[-1].nesting_level == step_nest
+                ):
+                    loc_var = str(step.get("location") or "")
+                    if (
+                        loc_var
+                        and not loc_var.startswith("(")
+                        and f"'{loc_var}'" not in raw_steps[-1].message
+                    ):
+                        prev = raw_steps[-1]
+                        raw_steps[-1] = RenderedFlowStep(
+                            kind=prev.kind,
+                            message=f"{prev.message} -> '{loc_var}'",
+                            uri=prev.uri,
+                            line=prev.line,
+                            column=prev.column,
+                            procedure=prev.procedure,
+                            nesting_level=prev.nesting_level,
+                        )
+                    continue
+                raw_steps.append(
+                    RenderedFlowStep(
+                        kind=op,
+                        message=msg,
+                        uri=step_uri,
+                        line=step_line,
+                        column=step.get("column"),
+                        procedure=str(step.get("procedure") or ""),
+                        nesting_level=step_nest,
+                    )
+                )
+            steps = tuple(raw_steps)
             related = tuple(
                 str(r.get("rule_id"))
                 for r in (item.get("related_rules") or ())
@@ -244,9 +530,11 @@ def normalize_report_for_render(engine: str, report: Mapping[str, Any]) -> Rende
             source_kinds = tuple(str(k) for k in (item.get("source_kinds") or ()))
             sink_name = str(item.get("sink_name") or "")
             rule_title = str(item.get("rule_title") or "")
+            rule_id = str(item.get("rule_id") or "PYFLOW-AST-DATAFLOW")
+            cwe = normalize_cwe(item.get("cwe")) or default_cwe_for_rule_id(rule_id)
             rendered_findings.append(
                 RenderedFinding(
-                    rule_id=str(item.get("rule_id") or "PYFLOW-AST-DATAFLOW"),
+                    rule_id=rule_id,
                     rule_title=rule_title,
                     message=rule_title or f"Tainted data reaches {sink_name}",
                     severity=str(item.get("severity") or "medium"),
@@ -254,9 +542,10 @@ def normalize_report_for_render(engine: str, report: Mapping[str, Any]) -> Rende
                     uri=str(item.get("filename") or ""),
                     line=int(item.get("sink_line") or 0),
                     column=item.get("sink_column"),
+                    end_column=item.get("sink_end_column"),
                     procedure=str(item.get("function") or ""),
-                    cwe=normalize_cwe(item.get("cwe")),
-                    suggestion=str(item.get("suggestion") or ""),
+                    cwe=cwe,
+                    suggestion=str(item.get("suggestion") or default_cwe_suggestion(cwe)),
                     sink_name=sink_name,
                     source_kinds=source_kinds,
                     precision_reasons=tuple(str(r) for r in (item.get("precision_reasons") or ())),
@@ -300,6 +589,7 @@ def normalize_report_for_render(engine: str, report: Mapping[str, Any]) -> Rende
             message = str(
                 item.get("message") or item.get("sink_name") or item.get("kind") or "IFDS finding"
             )
+            cwe = normalize_cwe(item.get("cwe")) or default_cwe_for_rule_id(rule_id)
             rendered_findings.append(
                 RenderedFinding(
                     rule_id=rule_id,
@@ -312,8 +602,8 @@ def normalize_report_for_render(engine: str, report: Mapping[str, Any]) -> Rende
                     column=col,
                     end_column=end_col,
                     procedure=str(item.get("procedure") or ""),
-                    cwe=normalize_cwe(item.get("cwe")),
-                    suggestion=str(item.get("suggestion") or ""),
+                    cwe=cwe,
+                    suggestion=str(item.get("suggestion") or default_cwe_suggestion(cwe)),
                     sink_name=sink_name,
                     tainted_arguments=tainted_args,
                     related_rules=related,
@@ -343,7 +633,10 @@ def normalize_report_for_render(engine: str, report: Mapping[str, Any]) -> Rende
                 conf_level = (
                     "HIGH" if conf_score >= 0.85 else "MEDIUM" if conf_score >= 0.6 else "LOW"
                 )
-            suggestion = str(item.get("suggestion") or rule_obj.get("help_text") or "")
+            cwe = normalize_cwe(item.get("cwe")) or default_cwe_for_rule_id(rule_id)
+            suggestion = str(
+                item.get("suggestion") or rule_obj.get("help_text") or default_cwe_suggestion(cwe)
+            )
             steps = tuple(
                 RenderedFlowStep(
                     kind=str(step.get("kind") or "flow"),
@@ -351,6 +644,8 @@ def normalize_report_for_render(engine: str, report: Mapping[str, Any]) -> Rende
                     uri=str(step.get("filename") or sink_uri or source_uri),
                     line=int(step.get("line") or 0),
                     column=step.get("column"),
+                    procedure=str(step.get("procedure") or ""),
+                    nesting_level=int(step.get("nesting_level") or 0),
                 )
                 for step in (item.get("path_preview") or ())
                 if isinstance(step, dict)
@@ -372,7 +667,8 @@ def normalize_report_for_render(engine: str, report: Mapping[str, Any]) -> Rende
                     line=sink_line or source_line,
                     column=item.get("sink_column"),
                     end_column=item.get("sink_end_column"),
-                    cwe=normalize_cwe(item.get("cwe")),
+                    procedure=str(item.get("procedure") or ""),
+                    cwe=cwe,
                     suggestion=suggestion,
                     sink_name=sink_label,
                     precision_reasons=tuple(str(r) for r in (item.get("precision_reasons") or ())),
@@ -391,16 +687,19 @@ def normalize_report_for_render(engine: str, report: Mapping[str, Any]) -> Rende
             cwe_val = item.get("cwe")
             if not cwe_val and isinstance(item.get("issue_cwe"), dict):
                 cwe_val = item["issue_cwe"].get("id")
+            rule_id = str(item.get("test_id") or item.get("rule_id") or "PYFLOW-AST")
+            cwe = normalize_cwe(cwe_val) or default_cwe_for_rule_id(rule_id)
             rendered_findings.append(
                 RenderedFinding(
-                    rule_id=str(item.get("test_id") or item.get("rule_id") or "PYFLOW-AST"),
+                    rule_id=rule_id,
                     rule_title=str(item.get("test_name") or item.get("rule_title") or ""),
                     message=str(item.get("text") or item.get("message") or "Security issue"),
                     severity=str(item.get("severity") or "medium"),
                     confidence=str(item.get("confidence") or "medium"),
                     uri=str(item.get("filename") or ""),
                     line=int(item.get("line") or item.get("line_number") or 0),
-                    cwe=normalize_cwe(cwe_val),
+                    cwe=cwe,
+                    suggestion=default_cwe_suggestion(cwe),
                 )
             )
 
@@ -471,6 +770,7 @@ def _render_flow_text(
     *,
     indent: str = "       ",
     color: bool = False,
+    base_dir: Path | None = None,
 ) -> list[str]:
     if not steps:
         return []
@@ -480,7 +780,7 @@ def _render_flow_text(
         badge = _style(f"[{_step_badge(step.kind)}]", "cyan", color=color)
         loc_part = ""
         if step.line > 0:
-            loc_str = _format_location(step.uri, step.line)
+            loc_str = _format_location(step.uri, step.line, base_dir=base_dir)
             loc_part = f" {_style(loc_str, 'dim', color=color)}"
         out.append(f"{indent}  {nest}{idx}. {badge} {step.message}{loc_part}")
         code_line = _single_source_line(step.uri, step.line)
@@ -496,9 +796,11 @@ def render_bug_report_text(
     color: bool = False,
     verbose: bool = False,
     context_lines: int = 1,
+    base_dir: str | Path | None = None,
 ) -> str:
     """Render a structured, user-friendly plain-text or ANSI-colored bug report."""
     doc = normalize_report_for_render(engine, report)
+    resolved_base = _resolve_base_dir(doc, base_dir)
     lines: list[str] = []
 
     if engine == "ifds":
@@ -509,7 +811,13 @@ def render_bug_report_text(
         lines.append(f"Status: {doc.status}")
 
     if doc.termination_reason:
-        lines.append(_style(f"Notice: {doc.termination_reason}", "yellow", color=color))
+        lines.append(
+            _style(
+                f"Notice: {_relativize_text(doc.termination_reason, resolved_base)}",
+                "yellow",
+                color=color,
+            )
+        )
 
     sev_counts = _severity_counts(doc.findings)
     if not doc.findings:
@@ -519,160 +827,106 @@ def render_bug_report_text(
             lines.append("No issues found.")
     else:
         breakdown = ", ".join(f"{k}: {v}" for k, v in sev_counts.items())
-        if engine == "cpg":
-            lines.append(f"\n{len(doc.findings)} security finding(s) ({breakdown}):\n")
-        elif engine == "ast-dataflow":
-            lines.append(f"Found {len(doc.findings)} issue(s) ({breakdown}):\n")
-        elif engine == "ifds":
+        if engine == "ifds":
             lines.append(f"Summary: {breakdown}")
             lines.append("")
+        elif engine == "cpg":
+            lines.append(f"\n{len(doc.findings)} security finding(s) ({breakdown}):\n")
         else:
             lines.append(f"Found {len(doc.findings)} issue(s) ({breakdown}):\n")
 
     for index, finding in enumerate(doc.findings, 1):
         sev_col = _severity_color(finding.severity)
+        cwe_badge = f" ({finding.cwe})" if finding.cwe else ""
+        title = finding.rule_title or finding.message
+        header_rule = _style(f"[{finding.rule_id}]", "bold", color=color)
+        lines.append(f"  [{index}] {header_rule} {title}{cwe_badge}")
+
+        # Unified metadata block across IFDS, AST-dataflow, CPG, and AST-scanner
+        meta_parts = [f"Severity: {_style(finding.severity, sev_col, color=color)}"]
+        if finding.confidence_score is not None:
+            filled = max(0, min(10, int(finding.confidence_score * 10)))
+            bar = "█" * filled + "░" * (10 - filled)
+            conf_tag = f" ({finding.confidence})" if finding.confidence else ""
+            meta_parts.append(f"Confidence: {finding.confidence_score:.0%} [{bar}]{conf_tag}")
+        elif finding.confidence:
+            meta_parts.append(f"Confidence: {finding.confidence}")
+        lines.append("       " + "  ".join(meta_parts))
+
         if engine == "cpg":
-            conf_str = ""
-            if finding.confidence_score is not None:
-                filled = max(0, min(10, int(finding.confidence_score * 10)))
-                bar = "█" * filled + "░" * (10 - filled)
-                conf_str = f" confidence={finding.confidence_score:.0%} [{bar}]"
-            elif finding.confidence:
-                conf_str = f" confidence={finding.confidence}"
-            cwe_part = finding.cwe or finding.rule_id
-            title_suffix = f" - {finding.rule_title}" if finding.rule_title else ""
-            header = (
-                f"  [{index}] {_style(cwe_part, 'bold', color=color)} "
-                f"[{_style(finding.severity, sev_col, color=color)}]{conf_str}{title_suffix}"
-            )
-            lines.append(header)
+            if finding.line > 0:
+                loc_str = _format_location(
+                    finding.uri, finding.line, finding.column, base_dir=resolved_base
+                )
+                proc_suffix = f"  Function: {finding.procedure}" if finding.procedure else ""
+                lines.append(f"       Location: {loc_str}{proc_suffix}")
             src_pos = (
-                f"{finding.source_uri or '<unknown source>'}:{finding.source_line}"
+                _format_location(finding.source_uri, finding.source_line, base_dir=resolved_base)
                 if finding.source_line > 0
                 else "<source location unavailable>"
             )
             snk_pos = (
-                f"{finding.sink_uri or '<unknown source>'}:{finding.sink_line}"
+                _format_location(finding.sink_uri, finding.sink_line, base_dir=resolved_base)
                 if finding.sink_line > 0
                 else "<source location unavailable>"
             )
-            lines.append(f"      source: {finding.source_label or 'unknown'} ({src_pos})")
-            lines.append(f"      sink:   {finding.sink_label or 'unknown'} ({snk_pos})")
-            snippet = _render_snippet_lines(
+            lines.append(f"       Source: {finding.source_label or 'unknown'} ({src_pos})")
+            lines.append(f"       Sink:   {finding.sink_label or 'unknown'} ({snk_pos})")
+        else:
+            loc_str = _format_location(
+                finding.uri,
+                finding.line,
+                finding.column if engine == "ast-dataflow" else None,
+                base_dir=resolved_base,
+            )
+            proc_suffix = f"  Function: {finding.procedure}" if finding.procedure else ""
+            lines.append(f"       Location: {loc_str}{proc_suffix}")
+            if finding.message and finding.message != title:
+                lines.append(f"       Detail: {finding.message}")
+            if finding.sink_name:
+                sink_parts = [f"Sink: {finding.sink_name}"]
+                if finding.source_kinds:
+                    sink_parts.append(f"Sources: {', '.join(finding.source_kinds)}")
+                if finding.tainted_arguments:
+                    sink_parts.append(f"Tainted args: {', '.join(finding.tainted_arguments)}")
+                lines.append("       " + "  ".join(sink_parts))
+
+        lines.extend(
+            _render_snippet_lines(
                 finding.uri,
                 finding.line,
                 column=finding.column,
                 end_column=finding.end_column,
                 hint_token=finding.sink_name,
                 context_lines=context_lines,
-                indent="      ",
+                indent="       ",
                 color=color,
             )
-            lines.extend(snippet)
-            lines.extend(_render_flow_text(finding.steps, indent="      ", color=color))
-            if finding.suggestion:
-                lines.append(
-                    f"      {_style('Suggestion:', 'green', color=color)} {finding.suggestion}"
-                )
-            if finding.precision_reasons:
-                lines.append(f"      Notes: {', '.join(finding.precision_reasons)}")
-            lines.append("")
-        elif engine == "ast-dataflow":
-            cwe_badge = f" ({finding.cwe})" if finding.cwe else ""
+        )
+        lines.extend(
+            _render_flow_text(finding.steps, indent="       ", color=color, base_dir=resolved_base)
+        )
+        if finding.suggestion:
             lines.append(
-                f"  [{index}] {_style(f'[{finding.rule_id}]', 'bold', color=color)} "
-                f"{finding.rule_title or finding.message}{cwe_badge}"
+                f"       {_style('Suggestion:', 'green', color=color)} {finding.suggestion}"
             )
-            lines.append(
-                f"       Severity: {_style(finding.severity.upper(), sev_col, color=color)}  "
-                f"Confidence: {finding.confidence}"
-            )
-            lines.append(
-                f"       File: {_format_location(finding.uri, finding.line, finding.column)}"
-                + (f"  Function: {finding.procedure}" if finding.procedure else "")
-            )
-            lines.append(
-                f"       Sink: {finding.sink_name}  " f"Kinds: {', '.join(finding.source_kinds)}"
-            )
-            lines.extend(
-                _render_snippet_lines(
-                    finding.uri,
-                    finding.line,
-                    column=finding.column,
-                    hint_token=finding.sink_name,
-                    context_lines=context_lines,
-                    color=color,
-                )
-            )
-            lines.extend(_render_flow_text(finding.steps, color=color))
-            if finding.suggestion:
-                lines.append(
-                    f"       {_style('Suggestion:', 'green', color=color)} {finding.suggestion}"
-                )
-            if finding.related_rules:
-                lines.append(f"       Related rules: {', '.join(finding.related_rules)}")
-            if finding.precision_reasons:
-                lines.append(f"       Notes: {', '.join(finding.precision_reasons)}")
-            lines.append("")
-        else:
-            # IFDS (taint, nullness, typestate, class-pollution) and fallback ast-scanner
-            position = (
-                f"{finding.uri}:{finding.line}"
-                if finding.uri and finding.line > 0
-                else "<source location unavailable>"
-            )
-            cwe_part = f"  CWE: {finding.cwe}" if finding.cwe else ""
-            conf_part = f"  Confidence: {finding.confidence}" if finding.confidence else ""
-            lines.append(
-                f"  {_style(f'[{finding.rule_id}]', 'bold', color=color)} "
-                f"Severity: {_style(finding.severity, sev_col, color=color)}{conf_part}{cwe_part}  "
-                f"Location: {position}"
-            )
-            lines.append(f"       {finding.message}")
-            if finding.procedure:
-                lines.append(f"       Procedure: {finding.procedure}")
-            if finding.sink_name:
-                args_str = ", ".join(finding.tainted_arguments) or "<none>"
-                proc_str = finding.procedure or "<unknown>"
-                lines.append(
-                    f"       sink={finding.sink_name} procedure={proc_str} args=[{args_str}]"
-                )
-            lines.extend(
-                _render_snippet_lines(
-                    finding.uri,
-                    finding.line,
-                    column=finding.column,
-                    end_column=finding.end_column,
-                    hint_token=finding.sink_name,
-                    context_lines=context_lines,
-                    color=color,
-                )
-            )
-            lines.extend(_render_flow_text(finding.steps, color=color))
-            if finding.suggestion:
-                lines.append(
-                    f"       {_style('Suggestion:', 'green', color=color)} {finding.suggestion}"
-                )
-            if finding.related_rules:
-                lines.append(f"       Related rules: {', '.join(finding.related_rules)}")
-            lines.append("")
+        if finding.related_rules:
+            lines.append(f"       Related rules: {', '.join(finding.related_rules)}")
+        if finding.precision_reasons:
+            lines.append(f"       Notes: {', '.join(finding.precision_reasons)}")
+        lines.append("")
 
     if doc.diagnostics:
         lines.append(_style("Diagnostics:", "bold", color=color))
-        grouped: dict[tuple[str, str], list[str]] = {}
-        for diag in doc.diagnostics:
-            code = str(diag.get("code") or f"{engine}-diagnostic")
-            msg = str(diag.get("message") or "")
-            loc = ""
-            if diag.get("filename") or diag.get("line"):
-                loc = f" ({diag.get('filename') or '<unknown>'}:{diag.get('line') or 0})"
-            grouped.setdefault((code, msg), []).append(loc)
-        for (code, msg), locs in grouped.items():
+        for code, msg, locs in _group_diagnostics(
+            doc.diagnostics, engine=engine, base_dir=resolved_base, verbose=verbose
+        ):
             count = len(locs)
             if count > 1:
                 lines.append(f"  [{code}] {msg} ({count} occurrences)")
             else:
-                lines.append(f"  [{code}] {msg}{locs[0]}")
+                loc_suffix = f" ({locs[0]})" if locs and locs[0] else ""
+                lines.append(f"  [{code}] {msg}{loc_suffix}")
 
     if verbose and doc.statistics:
         lines.append("")
@@ -683,9 +937,15 @@ def render_bug_report_text(
     return "\n".join(lines).rstrip()
 
 
-def render_bug_report_markdown(engine: str, report: Mapping[str, Any]) -> str:
+def render_bug_report_markdown(
+    engine: str,
+    report: Mapping[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> str:
     """Render a GitHub-Flavored Markdown bug report suitable for PR comments & reviews."""
     doc = normalize_report_for_render(engine, report)
+    resolved_base = _resolve_base_dir(doc, base_dir)
     sev_counts = _severity_counts(doc.findings)
     lines: list[str] = [
         f"# PyFlow Security Report (`{doc.engine}`)",
@@ -696,7 +956,7 @@ def render_bug_report_markdown(engine: str, report: Mapping[str, Any]) -> str:
         f"| Total Findings | **{len(doc.findings)}** |",
     ]
     if doc.entry:
-        lines.append(f"| Entry | `{doc.entry}` |")
+        lines.append(f"| Entry | `{_display_uri(doc.entry, resolved_base)}` |")
     if sev_counts:
         summary = ", ".join(f"`{k}`: {v}" for k, v in sev_counts.items())
         lines.append(f"| By Severity | {summary} |")
@@ -718,17 +978,22 @@ def render_bug_report_markdown(engine: str, report: Mapping[str, Any]) -> str:
                 meta.append(
                     f"**CWE:** [{finding.cwe}]({url})" if url else f"**CWE:** `{finding.cwe}`"
                 )
-            meta.append(
-                f"**Location:** `{_format_location(finding.uri, finding.line, finding.column)}`"
+            loc_md = _format_location(
+                finding.uri, finding.line, finding.column, base_dir=resolved_base
             )
+            meta.append(f"**Location:** `{loc_md}`")
             if finding.procedure:
-                meta.append(f"**Procedure:** `{finding.procedure}`")
+                meta.append(f"**Function:** `{finding.procedure}`")
             lines.append("- " + " | ".join(meta))
             if finding.message and finding.message != title:
                 lines.append(f"- **Details:** {finding.message}")
             if finding.source_label or finding.sink_label:
-                src_pos = _format_location(finding.source_uri, finding.source_line)
-                snk_pos = _format_location(finding.sink_uri, finding.sink_line)
+                src_pos = _format_location(
+                    finding.source_uri, finding.source_line, base_dir=resolved_base
+                )
+                snk_pos = _format_location(
+                    finding.sink_uri, finding.sink_line, base_dir=resolved_base
+                )
                 lines.append(
                     f"- **Endpoint:** `{finding.source_label or 'source'}` (`{src_pos}`) "
                     f"-> `{finding.sink_label or 'sink'}` (`{snk_pos}`)"
@@ -767,7 +1032,11 @@ def render_bug_report_markdown(engine: str, report: Mapping[str, Any]) -> str:
                 )
                 for step_idx, step in enumerate(finding.steps, 1):
                     indent_prefix = "&nbsp;&nbsp;" * min(max(step.nesting_level, 0), 5)
-                    loc = _format_location(step.uri, step.line) if step.line > 0 else "-"
+                    loc = (
+                        _format_location(step.uri, step.line, base_dir=resolved_base)
+                        if step.line > 0
+                        else "-"
+                    )
                     code_cell = _single_source_line(step.uri, step.line).replace("|", "\\|")
                     msg_cell = step.message.replace("|", "\\|")
                     code_fmt = f"`{code_cell[:90]}`" if code_cell else "-"
@@ -783,18 +1052,28 @@ def render_bug_report_markdown(engine: str, report: Mapping[str, Any]) -> str:
 
     if doc.diagnostics:
         lines.extend(["## Diagnostics", ""])
-        for diag in doc.diagnostics:
-            code = diag.get("code") or f"{engine}-diagnostic"
-            msg = diag.get("message") or ""
-            lines.append(f"- `{code}`: {msg}")
+        for code, msg, locs in _group_diagnostics(
+            doc.diagnostics, engine=engine, base_dir=resolved_base, verbose=False
+        ):
+            if len(locs) > 1:
+                lines.append(f"- `{code}`: {msg} ({len(locs)} occurrences)")
+            else:
+                loc_suffix = f" (`{locs[0]}`)" if locs and locs[0] else ""
+                lines.append(f"- `{code}`: {msg}{loc_suffix}")
         lines.append("")
 
     return "\n".join(lines).rstrip()
 
 
-def render_bug_report_html(engine: str, report: Mapping[str, Any]) -> str:
+def render_bug_report_html(
+    engine: str,
+    report: Mapping[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> str:
     """Render a self-contained, XSS-safe HTML5 interactive bug report."""
     doc = normalize_report_for_render(engine, report)
+    resolved_base = _resolve_base_dir(doc, base_dir)
     sev_counts = _severity_counts(doc.findings)
     esc = html_lib.escape
 
@@ -818,7 +1097,23 @@ def render_bug_report_html(engine: str, report: Mapping[str, Any]) -> str:
             else ""
         )
         proc_html = f" &middot; <code>{esc(finding.procedure)}</code>" if finding.procedure else ""
-        loc_text = _format_location(finding.uri, finding.line, finding.column)
+        loc_text = _format_location(
+            finding.uri, finding.line, finding.column, base_dir=resolved_base
+        )
+
+        endpoint_html = ""
+        if finding.source_label or finding.sink_label:
+            src_pos = _format_location(
+                finding.source_uri, finding.source_line, base_dir=resolved_base
+            )
+            snk_pos = _format_location(finding.sink_uri, finding.sink_line, base_dir=resolved_base)
+            src_label_esc = esc(finding.source_label or "source")
+            snk_label_esc = esc(finding.sink_label or "sink")
+            endpoint_html = (
+                f'<div class="location">Endpoint: <code>{src_label_esc}</code> '
+                f"({esc(src_pos)}) &rarr; <code>{snk_label_esc}</code> "
+                f"({esc(snk_pos)})</div>"
+            )
 
         snippet_html = ""
         source_lines = _source_lines(finding.uri)
@@ -839,7 +1134,11 @@ def render_bug_report_html(engine: str, report: Mapping[str, Any]) -> str:
             step_items = []
             for step_idx, step in enumerate(finding.steps, 1):
                 pad_px = min(max(step.nesting_level, 0), 6) * 18
-                step_loc = _format_location(step.uri, step.line) if step.line > 0 else ""
+                step_loc = (
+                    _format_location(step.uri, step.line, base_dir=resolved_base)
+                    if step.line > 0
+                    else ""
+                )
                 step_code = _single_source_line(step.uri, step.line)
                 code_el = (
                     f'<code class="step-code">{esc(step_code[:110])}</code>' if step_code else ""
@@ -880,7 +1179,7 @@ def render_bug_report_html(engine: str, report: Mapping[str, Any]) -> str:
             f'<span class="badges-right">{cwe_html}{conf_html}</span>'
             f"</div>"
             f'<div class="location">Location: <code>{esc(loc_text)}</code>{proc_html}</div>'
-            f"{msg_html}{snippet_html}{trace_html}{suggestion_html}"
+            f"{endpoint_html}{msg_html}{snippet_html}{trace_html}{suggestion_html}"
             f"</article>"
         )
 
@@ -889,12 +1188,22 @@ def render_bug_report_html(engine: str, report: Mapping[str, Any]) -> str:
 
     diag_html = ""
     if doc.diagnostics:
-        items = "".join(
-            f'<li><code>{esc(str(d.get("code") or "diagnostic"))}</code>: '
-            f'{esc(str(d.get("message") or ""))}</li>'
-            for d in doc.diagnostics
+        grouped_diags = _group_diagnostics(
+            doc.diagnostics, engine=engine, base_dir=resolved_base, verbose=False
         )
-        diag_html = f'<section class="diagnostics"><h2>Diagnostics</h2><ul>{items}</ul></section>'
+        items_list = []
+        for code, msg, locs in grouped_diags:
+            if len(locs) > 1:
+                suffix = f" ({len(locs)} occurrences)"
+            elif locs and locs[0]:
+                suffix = f" (<code>{esc(locs[0])}</code>)"
+            else:
+                suffix = ""
+            items_list.append(f"<li><code>{esc(code)}</code>: {esc(msg)}{suffix}</li>")
+        diag_html = (
+            f'<section class="diagnostics"><h2>Diagnostics</h2>'
+            f'<ul>{"".join(items_list)}</ul></section>'
+        )
 
     filter_buttons = ['<button class="filter active" data-sev="all">All</button>']
     for sev, count in sev_counts.items():

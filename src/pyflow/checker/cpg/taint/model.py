@@ -7,7 +7,14 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, FrozenSet, List, Tuple
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.ir.core.source import syntax_source_span
-from pyflow.util.cwe import cwe_ancestors, cwe_identifiers
+from pyflow.util.cwe import (
+    cwe_ancestors,
+    cwe_identifiers,
+    cwe_url,
+    default_cwe_for_rule_id,
+    default_cwe_suggestion,
+    normalize_cwe,
+)
 
 
 @dataclass(frozen=True)
@@ -344,9 +351,15 @@ class TaintFinding:
     rule_title: str = ""
     suggestion: str = ""
     precision_reasons: Tuple[str, ...] = ()
+    procedure: str = ""
+    path_steps: Tuple[Dict[str, Any], ...] = ()
+    source_line_override: int = 0
+    source_filename_override: str = ""
 
     @property
     def source_line(self) -> int:
+        if self.source_line_override > 0:
+            return self.source_line_override
         if self.source_node is None:
             return 0
         span = syntax_source_span(self.source_node.ast_node)
@@ -412,7 +425,7 @@ class TaintFinding:
         return (
             self.effective_rule_id,
             self.source_label,
-            self._filename(self.source_node),
+            self.source_filename_override or self._filename(self.source_node),
             self.source_line,
             self.sink_label,
             self._filename(self.sink_node),
@@ -426,28 +439,71 @@ class TaintFinding:
 
     @property
     def rule_metadata(self) -> RuleMetadata:
+        effective_cwe = normalize_cwe(self.cwe) or default_cwe_for_rule_id(self.effective_rule_id)
+        cwe_meta = _metadata_for_cwe(effective_cwe) if effective_cwe else None
+        fallback_help = (
+            self.suggestion
+            or (cwe_meta.help_text if cwe_meta is not None else "")
+            or default_cwe_suggestion(effective_cwe)
+        )
+        help_uri = (cwe_meta.help_uri if cwe_meta is not None else "") or cwe_url(effective_cwe)
         if self.rule_id and self.rule_title:
             return RuleMetadata(
                 self.rule_id,
                 self.rule_title,
                 self.rule_title,
-                self.suggestion,
+                fallback_help,
+                help_uri=help_uri,
                 precision="high",
-                tags=(("security", "taint", self.cwe) if self.cwe else ("security", "taint")),
+                tags=(
+                    ("security", "taint", effective_cwe) if effective_cwe else ("security", "taint")
+                ),
             )
-        return _metadata_for_cwe(self.effective_rule_id)
+        return _metadata_for_cwe(effective_cwe or self.effective_rule_id)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
         rule = self.rule_metadata
-        suggestion = self.suggestion or rule.help_text or ""
+        effective_cwe = normalize_cwe(self.cwe) or default_cwe_for_rule_id(self.effective_rule_id)
+        suggestion = self.suggestion or rule.help_text or default_cwe_suggestion(effective_cwe)
+        if self.path_steps:
+            if len(self.path_steps) > 25:
+                omitted = len(self.path_steps) - 24
+                path_preview = [
+                    *[dict(step) for step in self.path_steps[:12]],
+                    {
+                        "kind": "ellipsis",
+                        "line": 0,
+                        "column": None,
+                        "filename": "",
+                        "procedure": "",
+                        "nesting_level": 0,
+                        "label": f"... ({omitted} intermediate step(s) omitted) ...",
+                    },
+                    *[dict(step) for step in self.path_steps[-12:]],
+                ]
+            else:
+                path_preview = [dict(step) for step in self.path_steps]
+        else:
+            path_preview = [
+                {
+                    "kind": n.kind,
+                    "line": span.start_line if (span := syntax_source_span(n.ast_node)) else 0,
+                    "column": span.start_column if span else None,
+                    "filename": self._filename(n),
+                    "label": (n.label or "")[:120],
+                }
+                for n in self.path_nodes[:25]
+            ]
         return {
             "rule_id": self.effective_rule_id,
             "rule_title": self.rule_title or rule.name,
-            "cwe": self.cwe,
-            "cwes": list(cwe_identifiers(self.cwe)),
-            "cwe_ancestors": list(cwe_ancestors(self.cwe)),
+            "cwe": effective_cwe or self.cwe,
+            "cwe_url": cwe_url(effective_cwe or self.cwe) or None,
+            "cwes": list(cwe_identifiers(effective_cwe or self.cwe)),
+            "cwe_ancestors": list(cwe_ancestors(effective_cwe or self.cwe)),
             "severity": self.severity,
+            "procedure": self.procedure,
             "source_label": self.source_label,
             "sink_label": self.sink_label,
             "source_line": self.source_line,
@@ -455,7 +511,7 @@ class TaintFinding:
             "sink_line": self.sink_line,
             "sink_column": self.sink_column,
             "sink_end_column": self.sink_end_column,
-            "source_filename": self._filename(self.source_node),
+            "source_filename": self.source_filename_override or self._filename(self.source_node),
             "sink_filename": self._filename(self.sink_node),
             "path_length": self.path_length,
             "confidence": round(self.confidence, 2),
@@ -465,16 +521,7 @@ class TaintFinding:
             "precision_reasons": list(self.precision_reasons),
             "suggestion": suggestion,
             "rule": rule.to_dict(),
-            "path_preview": [
-                {
-                    "kind": n.kind,
-                    "line": span.start_line if (span := syntax_source_span(n.ast_node)) else 0,
-                    "column": span.start_column if span else None,
-                    "filename": self._filename(n),
-                    "label": (n.label or "")[:120],
-                }
-                for n in self.path_nodes[:25]
-            ],
+            "path_preview": path_preview,
         }
 
     def to_taint_path(self) -> TaintPath:

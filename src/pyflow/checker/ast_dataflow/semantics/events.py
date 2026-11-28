@@ -16,6 +16,9 @@ class TaintSinkEvent:
     argument_index: int | None
     line: int | None
     facts: frozenset[TaintFact]
+    column: int | None = None
+    end_column: int | None = None
+    call_site: tuple[str, str | None, int | None, str] | None = None
 
     @property
     def source_kinds(self) -> frozenset[str]:

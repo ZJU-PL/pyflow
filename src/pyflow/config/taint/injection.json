@@ -1724,7 +1724,8 @@
     },
     {
       "id": "PYFLOW-INJECTION-EXECARGSINK",
-      "title": "Untrusted data reaches execargsink sink",
+      "cwe": "CWE-78",
+      "title": "Untrusted data reaches command argument sink",
       "sources": [
         "user_input",
         "network",
@@ -1744,7 +1745,8 @@
     },
     {
       "id": "PYFLOW-INJECTION-EXECDESERIALIZATIONSINK",
-      "title": "Untrusted data reaches execdeserializationsink sink",
+      "cwe": "CWE-502",
+      "title": "Untrusted data reaches unsafe deserialization sink",
       "sources": [
         "user_input",
         "network",
@@ -1764,7 +1766,8 @@
     },
     {
       "id": "PYFLOW-INJECTION-EXECENVSINK",
-      "title": "Untrusted data reaches execenvsink sink",
+      "cwe": "CWE-78",
+      "title": "Untrusted data reaches environment execution sink",
       "sources": [
         "user_input",
         "network",
@@ -1784,7 +1787,8 @@
     },
     {
       "id": "PYFLOW-INJECTION-EXECIMPORTSINK",
-      "title": "Untrusted data reaches execimportsink sink",
+      "cwe": "CWE-470",
+      "title": "Untrusted data reaches dynamic import sink",
       "sources": [
         "user_input",
         "network",

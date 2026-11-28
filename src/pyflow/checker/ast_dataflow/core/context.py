@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import ast
+import io
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
@@ -46,7 +47,7 @@ class AnalysisSession:
         include: Optional[Iterable[str]] = None,
         exclude: Optional[Iterable[str]] = None,
     ) -> "AnalysisSession":
-        console = Console(verbose=verbose)
+        console = Console(out=None if verbose else io.StringIO(), verbose=verbose)
         compiler = CompilerContext(console)
         program = Program()
 

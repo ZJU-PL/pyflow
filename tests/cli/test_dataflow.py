@@ -126,7 +126,8 @@ def main():
     else:
         assert f"Entry: {target}" in out
         assert "Diagnostics:" not in out
-        assert "sink=sink procedure=sinkproc args=[b]" in out
+        assert "Function: sinkproc" in out
+        assert "Sink: sink  Tainted args: b" in out
 
 
 def test_security_cli_falls_back_to_tainted_argument_labels(monkeypatch, tmp_path, capsys):

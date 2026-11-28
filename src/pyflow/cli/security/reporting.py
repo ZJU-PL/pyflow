@@ -5,7 +5,6 @@ import os
 import string
 import sys
 
-from pyflow.checker.common import constants as b_constants
 from pyflow.checker.formatters.security import (
     security_html,
     security_json,
@@ -97,18 +96,29 @@ def _output_results(engine: str, result, args) -> None:
             out_file = open(args.output, "w", encoding="utf-8")
         output = out_file or sys.stdout
         verbose = bool(getattr(args, "verbose", False))
+        base_dir = None
+        targets = getattr(args, "targets", None) or ()
+        if len(targets) == 1:
+            from pathlib import Path
+
+            target_path = Path(targets[0])
+            base_dir = target_path if target_path.is_dir() else target_path.parent
 
         if fmt == "text":
-            output.write(security_text(engine, result, color=False, verbose=verbose))
+            output.write(
+                security_text(engine, result, color=False, verbose=verbose, base_dir=base_dir)
+            )
             output.write("\n")
         elif fmt == "screen":
-            output.write(security_text(engine, result, color=True, verbose=verbose))
+            output.write(
+                security_text(engine, result, color=True, verbose=verbose, base_dir=base_dir)
+            )
             output.write("\n")
         elif fmt == "markdown":
-            output.write(security_markdown(engine, result))
+            output.write(security_markdown(engine, result, base_dir=base_dir))
             output.write("\n")
         elif fmt == "html":
-            output.write(security_html(engine, result))
+            output.write(security_html(engine, result, base_dir=base_dir))
             output.write("\n")
         elif fmt == "json":
             json.dump(security_json(engine, result), output, indent=2)

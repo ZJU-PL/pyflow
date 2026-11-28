@@ -36,6 +36,7 @@ from pyflow.checker.common.taint import (
 )
 from pyflow.checker.common.taint.refinement import RefinementProvider
 from pyflow.ir.cpg.graph import CPGEdgeKind, CodePropertyGraph
+from pyflow.ir.core.source import syntax_source_span
 from pyflow.ir.pdg.graph import PDGNode
 from pyflow.ir.cfg import graph as cfg_graph
 from pyflow.language.python import ast as py_ast
@@ -496,11 +497,27 @@ class FormalCPGTaintAnalysis:
         diagnostics = tuple(sorted(self._diagnostics, key=repr))
         status = "partial" if any(item.affects_completeness for item in diagnostics) else "complete"
         if status == "partial":
-            reasons = tuple(sorted(item.code for item in diagnostics if item.affects_completeness))
+            global_reasons = {
+                item.code for item in diagnostics if item.affects_completeness and not item.function
+            }
+            func_reasons: dict[str, set[str]] = {}
+            for item in diagnostics:
+                if item.affects_completeness and item.function:
+                    func_reasons.setdefault(item.function, set()).add(item.code)
             for finding in findings:
-                finding.precision_reasons = tuple(
-                    sorted(set(finding.precision_reasons) | set(reasons))
-                )
+                touched_funcs: set[str] = set()
+                for node in (finding.source_node, finding.sink_node, *finding.path_nodes):
+                    if node is not None:
+                        fn = self.cpg.node_func_name(node)
+                        if fn:
+                            touched_funcs.add(fn)
+                relevant = set(global_reasons)
+                for fn in touched_funcs:
+                    relevant.update(func_reasons.get(fn, ()))
+                if relevant:
+                    finding.precision_reasons = tuple(
+                        sorted(set(finding.precision_reasons) | relevant)
+                    )
         return CPGTaintResult(
             tuple(findings),
             status=status,
@@ -775,8 +792,14 @@ class FormalCPGTaintAnalysis:
         if local.name:
             return local.name
         code = self.cpg._pdgs[function].cfg.code
-        symbol = code.ir_catalog.symbol_id(local, code)
-        return f"<temporary:{symbol.scope.ordinal}:{symbol.ordinal}>"
+        catalog = getattr(code, "ir_catalog", None)
+        if catalog is not None:
+            try:
+                symbol = catalog.symbol_id(local, code)
+                return f"<temporary:{symbol.scope.ordinal}:{symbol.ordinal}>"
+            except KeyError:
+                pass
+        return f"<temporary:{id(local)}>"
 
     def _local(self, function: str, name: str) -> TaintLocation:
         if name in self._global_declarations.get(function, frozenset()) or (
@@ -2513,6 +2536,22 @@ class FormalCPGTaintAnalysis:
                         continue
                     seen.add(key)
                     path = self._witness_path(source_node, sink_node, origin)
+                    clean_source = self._format_source_label(origin)
+                    sink_proc = self._display_func_name(self.cpg.node_func_name(sink_node))
+                    entry_source_span: tuple[str, int, int | None] | None = None
+                    origin_sym = (origin.symbol or "").strip()
+                    if origin_sym.startswith("entry-parameter:"):
+                        parts = origin_sym.split(":", 2)
+                        if len(parts) >= 2 and parts[1]:
+                            e_file, e_line, e_col = self._entry_node_span(parts[1])
+                            if e_line > 0:
+                                entry_source_span = (e_file, e_line, e_col)
+                    path_steps = self._humanize_witness_path(
+                        path,
+                        source_label=clean_source,
+                        sink_label=sink_name,
+                        entry_source_span=entry_source_span,
+                    )
                     findings.append(
                         TaintFinding(
                             cwe=(
@@ -2521,7 +2560,7 @@ class FormalCPGTaintAnalysis:
                                 else rule.cwe or ""
                             ),
                             severity=self.engine._sink_severity.get(sink_name, rule.severity),
-                            source_label=f"from:{origin.symbol or origin.kind}",
+                            source_label=clean_source,
                             sink_label=sink_name,
                             source_node=source_node,
                             sink_node=sink_node,
@@ -2531,9 +2570,294 @@ class FormalCPGTaintAnalysis:
                             rule_id=rule.rule_id,
                             rule_title=rule.title,
                             suggestion=rule.suggestion or "",
+                            procedure=sink_proc,
+                            path_steps=path_steps,
+                            source_line_override=entry_source_span[1] if entry_source_span else 0,
+                            source_filename_override=(
+                                entry_source_span[0] if entry_source_span else ""
+                            ),
                         )
                     )
         return sorted(findings, key=lambda finding: finding.dedup_key)
+
+    @staticmethod
+    def _format_source_label(origin: TaintOrigin) -> str:
+        raw = (origin.symbol or "").strip()
+        if raw.startswith("cpg:"):
+            # Strip internal "cpg:<node_id>:" prefix so reports show e.g. "input"
+            parts = raw.split(":", 2)
+            raw = parts[2] if len(parts) == 3 and parts[2] else raw
+        if raw.startswith("entry-parameter:"):
+            parts = raw.split(":", 2)
+            if len(parts) == 3 and parts[2]:
+                func_short = parts[1].rsplit(".", 1)[-1]
+                return f"parameter '{parts[2]}' of {func_short}()"
+            if len(parts) >= 2 and parts[1]:
+                return f"entry parameter '{parts[-1]}'"
+            return "entry parameter"
+        if raw.startswith("module-initializer:"):
+            var = raw.split(":", 1)[1].strip()
+            return f"module global '{var}'" if var else "module global"
+        if raw.startswith("parameter:"):
+            param = raw.split(":", 1)[1].strip()
+            return f"parameter '{param}'" if param else "entry parameter"
+        return raw or origin.kind or "untrusted source"
+
+    @staticmethod
+    def _display_func_name(raw_name: str | None) -> str:
+        if not raw_name:
+            return ""
+        if "::" in raw_name:
+            return raw_name.rsplit("::", 1)[-1]
+        return raw_name
+
+    def _entry_node_span(self, raw_func: str) -> tuple[str, int, int | None]:
+        pdg = self.cpg._pdgs.get(raw_func)
+        if pdg is None:
+            return "", 0, None
+        code = getattr(getattr(pdg, "cfg", None), "code", None)
+        span = syntax_source_span(code) if code is not None else None
+        if span is not None and span.start_line:
+            return span.path or "", span.start_line, span.start_column
+        for candidate in pdg.nodes:
+            c_span = syntax_source_span(getattr(candidate, "ast_node", None))
+            if c_span is not None and c_span.start_line:
+                return c_span.path or "", c_span.start_line, c_span.start_column
+        return "", 0, None
+
+    _SYNTHETIC_CFG_LABELS = frozenset(
+        {
+            "Merge",
+            "Suite",
+            "Normal",
+            "Split",
+            "Exit",
+            "ForIter",
+            "Switch",
+            "ExceptionMatch",
+            "InputBlock",
+        }
+    )
+
+    @staticmethod
+    def _is_internal_temp_name(name: str) -> bool:
+        return not name or name.startswith("__pyflow_tmp") or name.startswith("<temporary:")
+
+    def _describe_pdg_statement(self, node: PDGNode, func_display: str) -> tuple[str, str] | None:
+        if node.kind == "block":
+            return None
+        raw_label = (node.label or "").strip()
+        if raw_label in self._SYNTHETIC_CFG_LABELS:
+            return None
+        stmt = getattr(node, "ast_node", None)
+        if isinstance(stmt, py_ast.InputBlock):
+            return None
+        if node.kind == "cond":
+            return "branch", "Checks branch condition"
+        if isinstance(stmt, py_ast.Assign):
+            targets = [
+                name
+                for t in (getattr(stmt, "lcls", ()) or ())
+                if (name := getattr(t, "name", "")) and not self._is_internal_temp_name(name)
+            ]
+            target_str = ", ".join(targets)
+            expr = getattr(stmt, "expr", None)
+            if isinstance(expr, py_ast.Call):
+                callee = self.engine._extract_call_name(expr)
+                if callee and callee.startswith("interpreter_"):
+                    if "format" in callee or "join_str" in callee:
+                        if target_str:
+                            return "assign", f"Formats tainted string into {target_str}"
+                        return "assign", "Formats tainted string"
+                    if target_str:
+                        return "assign", f"Assigns tainted value to {target_str}"
+                    return None
+                if callee and target_str:
+                    return "call", f"Calls {callee}() and assigns to {target_str}"
+                if callee:
+                    return "call", f"Calls {callee}()"
+            if target_str:
+                return "assign", f"Assigns tainted value to {target_str}"
+            # Skip synthetic assignments to internal compiler temporaries.
+            if getattr(stmt, "lcls", None):
+                return None
+            return "assign", f"Assigns value in {func_display}" if func_display else "Assigns value"
+        if isinstance(stmt, py_ast.Discard):
+            expr = getattr(stmt, "expr", None)
+            if isinstance(expr, py_ast.Existing):
+                # Skip module/function docstrings and standalone literal expressions.
+                return None
+            if isinstance(expr, py_ast.Call):
+                callee = self.engine._extract_call_name(expr)
+                if callee and callee.startswith("interpreter_"):
+                    if callee == "interpreter_setitem":
+                        return "assign", "Updates container item"
+                    if callee == "interpreter_setattr":
+                        return "assign", "Sets object attribute"
+                    if "format" in callee or "join_str" in callee:
+                        return "assign", "Formats tainted string"
+                    return None
+                if callee:
+                    return "call", f"Calls {callee}()"
+            return "propagate", (
+                f"Evaluates expression in {func_display}"
+                if func_display
+                else "Evaluates expression"
+            )
+        if isinstance(stmt, py_ast.Return):
+            exprs = getattr(stmt, "exprs", ()) or ()
+            if len(exprs) == 1 and isinstance(exprs[0], py_ast.Call):
+                callee = self.engine._extract_call_name(exprs[0])
+                if callee and not callee.startswith("interpreter_"):
+                    return "return_flow", f"Calls {callee}() and returns result"
+            return "return_flow", (
+                f"Returns tainted value from {func_display}" if func_display else "Returns value"
+            )
+        if isinstance(stmt, (py_ast.SetAttr, py_ast.SetSubscript)):
+            return "assign", (
+                f"Mutates object state in {func_display}"
+                if func_display
+                else "Mutates object state"
+            )
+        fallback = (raw_label or node.kind or "flow").strip()
+        if fallback in {"Assign", "Discard", "Return", "stmt"}:
+            return "propagate", (
+                f"Flows through {func_display}" if func_display else "Flows through statement"
+            )
+        return node.kind or "flow", fallback[:120]
+
+    def _humanize_witness_path(
+        self,
+        path: Sequence[PDGNode],
+        *,
+        source_label: str,
+        sink_label: str,
+        entry_source_span: tuple[str, int, int | None] | None = None,
+    ) -> tuple[dict[str, Any], ...]:
+        if not path:
+            return ()
+        steps: list[dict[str, Any]] = []
+        total = len(path)
+        nesting = 0
+        prev_func: str | None = None
+
+        # Single-node entry-parameter findings: show both the function entry
+        # parameter source and the sink statement as separate, clear steps.
+        if total == 1 and entry_source_span is not None:
+            sink_node = path[0]
+            raw_func = self.cpg.node_func_name(sink_node) or ""
+            func_display = self._display_func_name(raw_func)
+            span = syntax_source_span(getattr(sink_node, "ast_node", None))
+            sink_file = (span.path if span else "") or self._filename(sink_node) or ""
+            sink_line = span.start_line if span and span.start_line else 0
+            sink_col = span.start_column if span else None
+            e_file, e_line, e_col = entry_source_span
+            steps.append(
+                {
+                    "kind": "source",
+                    "line": e_line,
+                    "column": e_col,
+                    "filename": e_file or sink_file,
+                    "procedure": func_display,
+                    "nesting_level": 0,
+                    "label": (
+                        f"Source {source_label} in {func_display}"
+                        if func_display
+                        else f"Source {source_label}"
+                    )[:120],
+                }
+            )
+            steps.append(
+                {
+                    "kind": "sink",
+                    "line": sink_line,
+                    "column": sink_col,
+                    "filename": sink_file,
+                    "procedure": func_display,
+                    "nesting_level": 0,
+                    "label": (
+                        f"Reaches sink {sink_label} in {func_display}"
+                        if func_display
+                        else f"Reaches sink {sink_label}"
+                    )[:120],
+                }
+            )
+            return tuple(steps)
+
+        for idx, node in enumerate(path):
+            raw_func = self.cpg.node_func_name(node) or ""
+            func_display = self._display_func_name(raw_func)
+            span = syntax_source_span(getattr(node, "ast_node", None))
+            filename = (span.path if span else "") or self._filename(node) or ""
+            line = span.start_line if span and span.start_line else 0
+            column = span.start_column if span else None
+
+            if idx == 0:
+                if entry_source_span is not None and entry_source_span[1] > 0:
+                    filename = entry_source_span[0] or filename
+                    line = entry_source_span[1]
+                    column = entry_source_span[2]
+                elif node.kind == "entry" and not line:
+                    e_file, e_line, e_col = self._entry_node_span(raw_func)
+                    filename = filename or e_file
+                    line = e_line
+                    column = column if column is not None else e_col
+                kind = "source"
+                label = (
+                    f"Source {source_label} in {func_display}"
+                    if func_display
+                    else f"Source {source_label}"
+                )
+            elif idx == total - 1:
+                kind = "sink"
+                label = (
+                    f"Reaches sink {sink_label} in {func_display}"
+                    if func_display
+                    else f"Reaches sink {sink_label}"
+                )
+            elif node.kind == "entry":
+                if not line:
+                    e_file, e_line, e_col = self._entry_node_span(raw_func)
+                    filename = filename or e_file
+                    line = e_line
+                    column = column if column is not None else e_col
+                if prev_func is not None and raw_func != prev_func:
+                    nesting += 1
+                kind = "call_flow"
+                label = f"Enters {func_display}()" if func_display else "Enters function"
+            else:
+                described = self._describe_pdg_statement(node, func_display)
+                if described is None or line <= 0:
+                    if raw_func:
+                        prev_func = raw_func
+                    continue
+                kind, label = described
+
+            step = {
+                "kind": kind,
+                "line": line,
+                "column": column,
+                "filename": filename,
+                "procedure": func_display,
+                "nesting_level": nesting,
+                "label": label[:120],
+            }
+            # Collapse consecutive intermediate steps on the exact same line.
+            if (
+                steps
+                and kind not in {"source", "sink", "call_flow"}
+                and steps[-1]["kind"] not in {"source", "sink", "call_flow"}
+                and steps[-1]["filename"] == filename
+                and steps[-1]["line"] == line
+                and steps[-1]["procedure"] == func_display
+            ):
+                if steps[-1]["kind"] in {"propagate", "branch"} and kind in {"assign", "call"}:
+                    steps[-1] = step
+            else:
+                steps.append(step)
+            if raw_func:
+                prev_func = raw_func
+        return tuple(steps)
 
     def _sanitizers_for_origin(self, origin: TaintOrigin, kinds: frozenset[str]) -> frozenset[str]:
         return frozenset(

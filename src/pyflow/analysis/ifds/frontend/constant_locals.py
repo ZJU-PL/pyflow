@@ -13,7 +13,11 @@ from pyflow.language.python.ir_metadata import assigned_locals, actual_argument_
 
 
 def local_key(adapter, procedure, local):
-    return adapter.catalog_by_procedure[procedure].symbol_id(local, procedure.code)
+    catalog = adapter.catalog_by_procedure[procedure]
+    try:
+        return catalog.symbol_id(local, procedure.code)
+    except KeyError:
+        return ("local", id(procedure.code), getattr(local, "name", None) or id(local))
 
 
 def constant_locals_before(adapter):

@@ -80,6 +80,7 @@ import logging
 import sys
 from typing import Dict, Any
 
+from pyflow.util.cwe import cwe_sarif_tags, cwe_url, default_cwe_suggestion, normalize_cwe
 from .utils import wrap_file_object, issue_sort_key
 
 LOG = logging.getLogger(__name__)
@@ -109,10 +110,60 @@ def severity_level(severity: str | None, *, default: str = "warning") -> str:
     return levels.get((severity or "").lower(), default)
 
 
-def physical_location(uri, *, line=None, column=None, end_line=None, end_column=None):
+def step_importance(kind: str | None) -> str:
+    """Map a flow step kind to SARIF 2.1.0 ``threadFlowLocation.importance``."""
+    key = (kind or "").strip().lower()
+    if key in {"source", "seed", "sink", "call_flow"}:
+        return "essential"
+    if key in {
+        "call",
+        "assign",
+        "return_flow",
+        "return_flow(summary_replay)",
+        "call_to_return",
+    }:
+        return "important"
+    return "unimportant"
+
+
+def format_rule_help(
+    suggestion: str,
+    *,
+    title: str = "",
+    cwe: str | None = None,
+    help_uri: str = "",
+) -> Dict[str, str]:
+    """Build SARIF ``rule.help`` with both plain ``text`` and rich ``markdown`` for IDEs."""
+    text = (suggestion or title or "").strip()
+    md_parts: list[str] = []
+    if suggestion:
+        md_parts.append(f"**Remediation:** {suggestion}")
+    elif title:
+        md_parts.append(title)
+    norm_cwe = normalize_cwe(cwe)
+    uri = help_uri or cwe_url(norm_cwe)
+    if norm_cwe and uri:
+        md_parts.append(f"**Reference:** [{norm_cwe}]({uri})")
+    elif norm_cwe:
+        md_parts.append(f"**Reference:** `{norm_cwe}`")
+    elif uri:
+        md_parts.append(f"**Reference:** {uri}")
+    return {"text": text, "markdown": "\n\n".join(md_parts) or text}
+
+
+def physical_location(
+    uri,
+    *,
+    line=None,
+    column=None,
+    end_line=None,
+    end_column=None,
+    snippet: str | None = None,
+    logical_name: str | None = None,
+):
     """Build a SARIF location from zero-based source columns."""
-    physical = {"artifactLocation": {"uri": uri}}
-    region = {}
+    physical: Dict[str, Any] = {"artifactLocation": {"uri": uri}}
+    region: Dict[str, Any] = {}
     if line is not None and line > 0:
         region["startLine"] = line
     if column is not None and column >= 0:
@@ -121,12 +172,17 @@ def physical_location(uri, *, line=None, column=None, end_line=None, end_column=
         region["endLine"] = end_line
     if end_column is not None and end_column >= 0:
         region["endColumn"] = end_column + 1
+    if region and snippet:
+        region["snippet"] = {"text": snippet}
     if region:
         physical["region"] = region
-    return {"physicalLocation": physical}
+    location: Dict[str, Any] = {"physicalLocation": physical}
+    if logical_name:
+        location["logicalLocations"] = [{"name": logical_name, "kind": "function"}]
+    return location
 
 
-def location_from_span(span):
+def location_from_span(span, *, snippet: str | None = None, logical_name: str | None = None):
     if not span:
         return None
     return physical_location(
@@ -135,6 +191,8 @@ def location_from_span(span):
         column=max(int(span["start_column"]), 0) if span.get("start_column") is not None else None,
         end_line=int(span["end_line"]) if span.get("end_line") is not None else None,
         end_column=int(span["end_column"]) if span.get("end_column") is not None else None,
+        snippet=snippet,
+        logical_name=logical_name,
     )
 
 
@@ -174,14 +232,22 @@ def _map_confidence_to_sarif_properties(confidence: str) -> Dict[str, str]:
     return {"confidence": confidence.lower()}
 
 
-def _create_sarif_rule(test_id: str, test_name: str) -> Dict[str, Any]:
+def _create_sarif_rule(test_id: str, test_name: str, *, cwe: str | None = None) -> Dict[str, Any]:
     """Create a SARIF rule object from PyFlow test information."""
-    return {
+    norm_cwe = normalize_cwe(cwe)
+    uri = cwe_url(norm_cwe) or "https://pyflow.readthedocs.io/"
+    rule: Dict[str, Any] = {
         "id": test_id,
         "name": test_name,
         "shortDescription": {"text": f"Security issue detected by {test_id}"},
-        "helpUri": "https://pyflow.readthedocs.io/",  # TODO: Update with actual docs URL
+        "helpUri": uri,
     }
+    suggestion = default_cwe_suggestion(norm_cwe)
+    if suggestion:
+        rule["help"] = format_rule_help(suggestion, cwe=norm_cwe, help_uri=uri)
+    if norm_cwe:
+        rule["properties"] = {"tags": ["security", *cwe_sarif_tags(norm_cwe)]}
+    return rule
 
 
 def _create_sarif_artifact(file_path: str) -> Dict[str, Any]:
@@ -217,6 +283,9 @@ def _create_sarif_result(issue) -> Dict[str, Any]:
         result["properties"]["vulnerabilityFamily"] = issue.vulnerability_family
     if issue.cwe and issue.cwe.id != 0:
         result["properties"]["cwe"] = {"id": issue.cwe.id, "url": issue.cwe.link()}
+        suggestion = default_cwe_suggestion(issue.cwe.id)
+        if suggestion:
+            result["properties"]["suggestion"] = suggestion
 
     return result
 
@@ -232,7 +301,12 @@ def _collect_unique_rules_and_artifacts(
         # Collect rules
         rule_key = issue.test_id
         if rule_key not in rules:
-            rules[rule_key] = _create_sarif_rule(issue.test_id, issue.test)
+            issue_cwe = (
+                normalize_cwe(issue.cwe.id)
+                if getattr(issue, "cwe", None) and getattr(issue.cwe, "id", 0) != 0
+                else None
+            )
+            rules[rule_key] = _create_sarif_rule(issue.test_id, issue.test, cwe=issue_cwe)
 
         # Collect artifacts (files)
         artifact_key = issue.fname

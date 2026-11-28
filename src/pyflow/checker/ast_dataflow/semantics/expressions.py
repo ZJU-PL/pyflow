@@ -563,6 +563,12 @@ class PythonExpressionSemantics:
 
         if sink_kinds:
             positions = self._sink_positions_for_call(name, len(positional))
+            call_col = getattr(call, "col_offset", None)
+            call_end_col = (
+                getattr(call, "end_col_offset", None)
+                if getattr(call, "lineno", None) == getattr(call, "end_lineno", None)
+                else None
+            )
             for index, positional_result in enumerate(positional):
                 if index in positions and positional_result.facts:
                     events.add(
@@ -574,6 +580,8 @@ class PythonExpressionSemantics:
                             index,
                             getattr(call, "lineno", None),
                             positional_result.facts,
+                            column=call_col,
+                            end_column=call_end_col,
                         )
                     )
             for keyword_result in keywords:
@@ -587,6 +595,8 @@ class PythonExpressionSemantics:
                             None,
                             getattr(call, "lineno", None),
                             keyword_result.facts,
+                            column=call_col,
+                            end_column=call_end_col,
                         )
                     )
 
@@ -865,6 +875,12 @@ class PythonExpressionSemantics:
                         sink.argument_index,
                         sink.line,
                         facts,
+                        call_site=(
+                            self.context.procedure,
+                            self.context.filename,
+                            getattr(call, "lineno", None),
+                            name,
+                        ),
                     )
                 )
         actuals: dict[int, ExpressionResult] = {

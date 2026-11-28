@@ -10,6 +10,7 @@ import ast
 from functools import lru_cache
 from pathlib import Path
 from pyflow.checker.common.reporting import code_name, result_status, statistics_to_dict
+from pyflow.util.cwe import default_cwe_for_rule_id, default_cwe_suggestion, normalize_cwe
 
 from pyflow.analysis.ifds.reporting import (
     AnalysisFinding,
@@ -19,21 +20,51 @@ from pyflow.analysis.ifds.reporting import (
     source_span_for_node,
 )
 
+_INTRINSIC_ARG_LABELS = {
+    "interpreter_getitem": "subscript expression",
+    "interpreter_setitem": "subscript expression",
+    "interpreter_getattr": "attribute expression",
+    "interpreter_setattr": "attribute expression",
+    "interpreter_format": "formatted string",
+    "interpreter_join_str": "formatted string",
+    "interpreter_build_string": "formatted string",
+}
+
+
+def _humanize_argument_label(label: str) -> str:
+    cleaned = (label or "").strip()
+    if not cleaned:
+        return "<expression>"
+    base = cleaned.rstrip("()")
+    if base in _INTRINSIC_ARG_LABELS:
+        return _INTRINSIC_ARG_LABELS[base]
+    if base.startswith("interpreter_"):
+        return "tainted expression"
+    if base == "ret0":
+        return "return value"
+    if "/scope" in cleaned or cleaned.startswith(("@/", "<temporary:", "__pyflow_tmp")):
+        return "tainted expression"
+    return cleaned
+
 
 def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
     adapter = result._problem.adapter
     findings: list[AnalysisFinding] = []
     for finding in result.findings:
         rule = finding.rule
-        labels = (
+        raw_labels = (
             tuple(local.name or "<local>" for local in finding.tainted_arguments)
             or finding.tainted_argument_labels
         )
+        labels = tuple(_humanize_argument_label(label) for label in raw_labels)
         traces = ()
         if finding.tainted_arguments:
             fact = result.fact_for_local(finding.sink, finding.tainted_arguments[0])
             if fact is not None:
                 traces = result.explain_path(finding.sink, fact)
+        source_display = finding.source_kind.replace("_", " ").capitalize()
+        sink_kind_display = finding.sink_kind.replace("_", " ")
+        effective_cwe = normalize_cwe(finding.cwe) or default_cwe_for_rule_id(rule.rule_id)
         findings.append(
             AnalysisFinding(
                 rule_id=rule.rule_id,
@@ -41,8 +72,8 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
                 severity=finding.severity,
                 confidence="high" if traces else "medium",
                 message=(
-                    f"{finding.source_kind} data reaches {finding.sink_kind} "
-                    f"sink {finding.sink_name} through "
+                    f"{source_display} data reaches {sink_kind_display} "
+                    f"sink '{finding.sink_name}' via "
                     f"{', '.join(labels) or '<expression>'}"
                 ),
                 primary_location=source_span_for_node(adapter, finding.sink),
@@ -52,9 +83,10 @@ def normalized_taint_findings(result) -> tuple[AnalysisFinding, ...]:
                     adapter,
                     traces,
                     describe_fact=getattr(result._problem, "describe_fact", None),
+                    terminal_kind="sink",
                 ),
-                cwe=finding.cwe,
-                suggestion=finding.suggestion,
+                cwe=effective_cwe,
+                suggestion=finding.suggestion or default_cwe_suggestion(effective_cwe) or None,
                 properties={
                     "tainted_arguments": labels,
                     "source_kind": finding.source_kind,
@@ -143,9 +175,13 @@ def taint_result_to_dict(entry: str, taint_result) -> Dict[str, Any]:
     findings = []
     seen = set()
     for finding in taint_result.findings:
-        tainted_arguments = [local.name or "<local>" for local in finding.tainted_arguments]
+        tainted_arguments = [
+            _humanize_argument_label(local.name or "<local>") for local in finding.tainted_arguments
+        ]
         if not tainted_arguments:
-            tainted_arguments = list(finding.tainted_argument_labels)
+            tainted_arguments = [
+                _humanize_argument_label(label) for label in finding.tainted_argument_labels
+            ]
 
         if enriched:
             node_id = adapter.supergraph.node_id(finding.sink)

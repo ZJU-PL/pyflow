@@ -15,6 +15,7 @@ import ast
 import json
 import logging
 import sys
+import warnings
 from contextlib import redirect_stdout
 from copy import copy
 from pathlib import Path
@@ -342,9 +343,12 @@ def _run_ifds_entries(targets: List[str], args, reports) -> Dict[str, Any]:
             "status": "invalid",
             "termination_reason": str(error),
         }
+    quiet_entry_errors = len(entries) > 1 and not getattr(args, "verbose", False)
     for entry in entries:
         entry_args = copy(args)
         entry_args.entry = entry if Path(targets[0]).is_dir() else None
+        if quiet_entry_errors:
+            entry_args._quiet_entry_errors = True
         reports.append(_run_ifds_entry(targets, entry_args))
     if len(reports) == 1:
         return reports[0]
@@ -385,6 +389,32 @@ def _run_ifds_entries(targets: List[str], args, reports) -> Dict[str, Any]:
     }
 
 
+def _has_executable_module_body(path: Path) -> bool:
+    """Return True if *path* contains at least one non-docstring AST statement."""
+    try:
+        source = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    if not source.strip():
+        return False
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(source, filename=str(path))
+    except SyntaxError:
+        return True
+    if not tree.body:
+        return False
+    if (
+        len(tree.body) == 1
+        and isinstance(tree.body[0], ast.Expr)
+        and isinstance(tree.body[0].value, ast.Constant)
+        and isinstance(tree.body[0].value.value, str)
+    ):
+        return False
+    return True
+
+
 def _resolve_ifds_entry_files(targets, entry, *, recursive=False) -> tuple[Path, ...]:
     if len(targets) != 1:
         raise ValueError("IFDS analysis requires exactly one file or project directory.")
@@ -401,12 +431,14 @@ def _resolve_ifds_entry_files(targets, entry, *, recursive=False) -> tuple[Path,
                 _resolve_ifds_entry_file(targets, candidate.path)
                 for candidate in discover_entry_files(target)
             ]
-            return tuple(
-                dict.fromkeys(
-                    Path(path).resolve()
-                    for path in [*preferred, *discover_python_files(target, recursive=True)]
-                )
-            )
+            discovered = []
+            for path in discover_python_files(target, recursive=True):
+                resolved_p = Path(path).resolve()
+                # Skip empty or comment/docstring-only __init__.py package markers.
+                if resolved_p.name == "__init__.py" and not _has_executable_module_body(resolved_p):
+                    continue
+                discovered.append(resolved_p)
+            return tuple(dict.fromkeys([*preferred, *discovered]))
         candidates = discover_entry_files(target)
         if candidates:
             return tuple(
@@ -421,6 +453,8 @@ def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
     """Run the IFDS-backed interprocedural security analysis."""
     from pyflow.api.ifds import run_nullness_analysis, run_typestate_analysis
     from pyflow.checker.ifds.api import run_taint_analysis
+
+    quiet_errors = bool(getattr(args, "_quiet_entry_errors", False))
 
     solver_options = _ifds_solver_options(args)
 
@@ -473,7 +507,8 @@ def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
                 callgraph_max_iterations=getattr(args, "ifds_callgraph_max_iterations", 256),
             )
         except Exception as e:
-            print(f"IFDS analysis failed: {e}", file=sys.stderr)
+            if not quiet_errors:
+                print(f"IFDS analysis failed: {e}", file=sys.stderr)
             return {
                 "entry": entry_label,
                 "analysis": "class-pollution",
@@ -547,7 +582,8 @@ def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
                 callgraph_max_iterations=getattr(args, "ifds_callgraph_max_iterations", 256),
             )
         except Exception as e:
-            print(f"IFDS analysis failed: {e}", file=sys.stderr)
+            if not quiet_errors:
+                print(f"IFDS analysis failed: {e}", file=sys.stderr)
             return {
                 "entry": entry_label,
                 "analysis": "typestate",
@@ -572,7 +608,8 @@ def _run_ifds_entry(targets: List[str], args) -> Dict[str, Any]:
                 callgraph_max_iterations=getattr(args, "ifds_callgraph_max_iterations", 256),
             )
         except Exception as e:
-            print(f"IFDS analysis failed: {e}", file=sys.stderr)
+            if not quiet_errors:
+                print(f"IFDS analysis failed: {e}", file=sys.stderr)
             return {
                 "entry": entry_label,
                 "analysis": "nullness",
@@ -1084,7 +1121,8 @@ def run_security(args) -> int:
 
     try:
         baseline = load_baseline(getattr(args, "baseline", None))
-        with redirect_stdout(sys.stderr):
+        with redirect_stdout(sys.stderr), warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
             if engine == "ast-scanner":
                 result = _run_ast_scanner(targets, args, exclude=exclude, recursive=recursive)
                 errors = (

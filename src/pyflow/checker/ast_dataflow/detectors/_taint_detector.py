@@ -298,6 +298,15 @@ class ASTDataflowTaintDetector(Detector):
                     matched_source_kinds = frozenset(source_kinds & rule.source_kinds)
                     if not matched_source_kinds:
                         continue
+                    cwe = policy.sink_cwe_for(event.sink_name) or rule.cwe
+                    from pyflow.util.cwe import default_cwe_suggestion
+
+                    suggestion = (
+                        policy.sink_suggestion_for(event.sink_name)
+                        or rule.suggestion
+                        or default_cwe_suggestion(cwe)
+                        or None
+                    )
                     finding = ASTDataflowTaintFinding(
                         function=(event.procedure or name).rsplit("::", 1)[-1],
                         filename=(
@@ -305,12 +314,14 @@ class ASTDataflowTaintDetector(Detector):
                         ),
                         sink_name=event.sink_name,
                         sink_line=event.line,
+                        sink_column=event.column,
+                        sink_end_column=event.end_column,
                         source_kinds=matched_source_kinds,
                         rule_id=rule.rule_id,
                         rule_title=rule.title,
                         severity=policy.sink_severity_for(event.sink_name) or rule.severity,
-                        cwe=(policy.sink_cwe_for(event.sink_name) or rule.cwe),
-                        suggestion=(policy.sink_suggestion_for(event.sink_name) or rule.suggestion),
+                        cwe=cwe,
+                        suggestion=suggestion,
                         precision_reasons=tuple(
                             sorted(
                                 {
@@ -326,6 +337,10 @@ class ASTDataflowTaintDetector(Detector):
                             event.sink_name,
                             event.filename,
                             event.line,
+                            caller_procedure=name,
+                            event=event,
+                            analyses=interprocedural.analyses,
+                            source_by_file=getattr(session, "all_source_code", None),
                         ),
                     )
                     key = (
@@ -411,18 +426,106 @@ class ASTDataflowTaintDetector(Detector):
         return frozenset(edges)
 
     @staticmethod
+    def _is_synthetic_location(location) -> bool:
+        root = getattr(location, "root", None)
+        if isinstance(root, tuple):
+            if not root:
+                return True
+            if len(root) > 2:
+                return True
+            if isinstance(root[-1], int):
+                return True
+            if isinstance(root[0], str) and root[0] in {
+                "call",
+                "dict",
+                "list",
+                "set",
+                "tuple",
+                "expr",
+                "subscript",
+                "attr",
+                "temp",
+                "literal",
+                "comprehension",
+                "fstring",
+            }:
+                return True
+        return False
+
+    @classmethod
+    def _friendly_location_label(cls, location) -> str:
+        """Render a TaintLocation into a readable variable/expression label."""
+        if cls._is_synthetic_location(location):
+            return ""
+        root = getattr(location, "root", None)
+        if isinstance(root, tuple):
+            base = str(root[-1]) if root else ""
+        else:
+            base = str(root or "")
+        if not base or base.isdigit():
+            return ""
+        path = getattr(location, "selectors", None) or getattr(location, "path", ()) or ()
+        suffix = "".join(
+            f".{sel.value}" if getattr(sel, "value", None) is not None else "[*]" for sel in path
+        )
+        return f"{base}{suffix}"
+
+    @classmethod
+    def _humanize_edge_detail(cls, edge: ProvenanceEdge) -> str:
+        target_var = cls._friendly_location_label(edge.target.location)
+        detail = edge.detail or ""
+        op = edge.operation.value
+        if detail == "local-binding" or op == "assign":
+            if target_var and not target_var.startswith("("):
+                return f"Assigns tainted value to '{target_var}'"
+            return "Assigns tainted value"
+        if op == "call":
+            callee = detail.rsplit("::", 1)[-1] if detail else ""
+            if callee and callee != "call" and target_var and not target_var.startswith("("):
+                return f"Calls {callee}() -> '{target_var}'"
+            if callee and callee != "call":
+                return f"Calls {callee}()"
+            return "Passes tainted value to call"
+        if detail:
+            cleaned = detail.rsplit("::", 1)[-1]
+            if cleaned != op:
+                return cleaned
+        return f"Flows to '{target_var}'" if target_var else "Propagates tainted value"
+
+    @staticmethod
+    def _find_def_line(source_text: str | None, func_name: str) -> int | None:
+        if not source_text or not func_name:
+            return None
+        leaf = func_name.rsplit(".", 1)[-1]
+        prefix_sync = f"def {leaf}("
+        prefix_async = f"async def {leaf}("
+        for lineno, line in enumerate(source_text.splitlines(), 1):
+            stripped = line.lstrip()
+            if stripped.startswith(prefix_sync) or stripped.startswith(prefix_async):
+                return lineno
+        return None
+
+    @classmethod
     def _build_trace(
+        cls,
         facts: Iterable[TaintFact],
         provenance: Iterable[ProvenanceEdge],
         sink: str,
         filename: str | None,
         line: int | None,
+        *,
+        caller_procedure: str = "",
+        event: TaintSinkEvent | None = None,
+        analyses: dict | None = None,
+        source_by_file: dict | None = None,
     ) -> tuple[ASTDataflowTraceStep, ...]:
         steps: list[ASTDataflowTraceStep] = []
-        seen_steps = set()
+        seen_line_ops: set[tuple[str | None, int | None, str, str]] = set()
+        caller_short = caller_procedure.rsplit("::", 1)[-1] if caller_procedure else ""
         incoming: dict[ProvenanceNode, list[ProvenanceEdge]] = {}
         for edge in provenance:
             incoming.setdefault(edge.target, []).append(edge)
+
         for fact in sorted(facts, key=repr):
             chain = []
             current = fact.provenance_node
@@ -433,29 +536,169 @@ class ASTDataflowTaintDetector(Detector):
                 chain.append(edge)
                 current = edge.source
             origin = fact.origin
+            origin_label = (origin.symbol or origin.kind).rsplit("::", 1)[-1]
+            if origin_label.startswith("parameter:"):
+                origin_label = f"parameter '{origin_label.split(':', 1)[1]}'"
             source_step = ASTDataflowTraceStep(
                 "source",
-                current.location.render(),
+                cls._friendly_location_label(current.location) or origin_label,
                 origin.filename,
                 origin.line,
-                origin.symbol or origin.kind,
+                f"Source {origin_label}" + (f" in {caller_short}" if caller_short else ""),
+                procedure=caller_short,
+                nesting_level=0,
             )
-            if source_step not in seen_steps:
-                seen_steps.add(source_step)
+            key = (
+                source_step.filename,
+                source_step.line,
+                source_step.operation,
+                source_step.detail or "",
+            )
+            if key not in seen_line_ops:
+                seen_line_ops.add(key)
                 steps.append(source_step)
+
             for edge in reversed(chain):
+                friendly_loc = cls._friendly_location_label(edge.target.location)
+                # Drop synthetic intermediate expression nodes that lack both
+                # a source line and a named Python variable.
+                if edge.line is None and not friendly_loc:
+                    continue
+                edge_detail = cls._humanize_edge_detail(edge)
                 step = ASTDataflowTraceStep(
                     edge.operation.value,
-                    edge.target.location.render(),
+                    friendly_loc or edge.operation.value,
                     edge.filename,
                     edge.line,
-                    edge.detail,
+                    edge_detail,
+                    procedure=caller_short,
+                    nesting_level=0,
                 )
-                if step not in seen_steps:
-                    seen_steps.add(step)
+                step_key = (step.filename, step.line, step.operation, step.detail or "")
+                if step_key not in seen_line_ops:
+                    seen_line_ops.add(step_key)
                     steps.append(step)
-        sink_step = ASTDataflowTraceStep("sink", sink, filename, line, sink)
-        if sink_step not in seen_steps:
+
+        # If the sink was reached through a callee summary, include the call site
+        # and stitch in the callee's internal propagation steps at nesting_level=1.
+        sink_nesting = 0
+        sink_proc_short = (
+            event.procedure.rsplit("::", 1)[-1]
+            if event is not None and event.procedure
+            else caller_short
+        )
+        if (
+            event is not None
+            and event.call_site is not None
+            and event.procedure != caller_procedure
+        ):
+            _caller_proc, call_file, call_line, callee_raw = event.call_site
+            callee_short = callee_raw.rsplit("::", 1)[-1]
+            call_step = ASTDataflowTraceStep(
+                "call",
+                callee_short,
+                call_file,
+                call_line,
+                f"Calls {callee_short}()",
+                procedure=caller_short,
+                nesting_level=0,
+            )
+            if not (
+                steps
+                and steps[-1].filename == call_file
+                and steps[-1].line == call_line
+                and steps[-1].operation == "call"
+            ):
+                steps.append(call_step)
+
+            sink_nesting = 1
+            callee_analysis = (analyses or {}).get(event.procedure)
+            if callee_analysis is not None:
+                callee_prov = cls._analysis_provenance(callee_analysis)
+                callee_incoming: dict[ProvenanceNode, list[ProvenanceEdge]] = {}
+                for edge in callee_prov:
+                    callee_incoming.setdefault(edge.target, []).append(edge)
+                callee_sink_event = next(
+                    (
+                        ev
+                        for ev in callee_analysis.events
+                        if isinstance(ev, TaintSinkEvent)
+                        and ev.sink_name == event.sink_name
+                        and ev.line == event.line
+                    ),
+                    None,
+                )
+                if callee_sink_event is not None:
+                    enter_line = None
+                    if callee_sink_event.facts:
+                        first_origin = sorted(callee_sink_event.facts, key=repr)[0].origin
+                        enter_line = first_origin.line
+                    if enter_line is None and source_by_file and event.filename:
+                        enter_line = cls._find_def_line(
+                            source_by_file.get(event.filename), sink_proc_short
+                        )
+                    steps.append(
+                        ASTDataflowTraceStep(
+                            "call_flow",
+                            sink_proc_short,
+                            event.filename,
+                            enter_line,
+                            f"Enters {sink_proc_short}()",
+                            procedure=sink_proc_short,
+                            nesting_level=1,
+                        )
+                    )
+                    for c_fact in sorted(callee_sink_event.facts, key=repr):
+                        c_chain = []
+                        c_cur = c_fact.provenance_node
+                        c_seen = set()
+                        while c_cur not in c_seen and callee_incoming.get(c_cur):
+                            c_seen.add(c_cur)
+                            c_edge = sorted(callee_incoming[c_cur], key=repr)[0]
+                            c_chain.append(c_edge)
+                            c_cur = c_edge.source
+                        for c_edge in reversed(c_chain):
+                            if c_edge.line == event.line and c_edge.filename == event.filename:
+                                continue
+                            c_loc = cls._friendly_location_label(c_edge.target.location)
+                            if c_edge.line is None and not c_loc:
+                                continue
+                            c_step = ASTDataflowTraceStep(
+                                c_edge.operation.value,
+                                c_loc or c_edge.operation.value,
+                                c_edge.filename,
+                                c_edge.line,
+                                cls._humanize_edge_detail(c_edge),
+                                procedure=sink_proc_short,
+                                nesting_level=1,
+                            )
+                            c_key = (
+                                c_step.filename,
+                                c_step.line,
+                                c_step.operation,
+                                c_step.detail or "",
+                            )
+                            if c_key not in seen_line_ops:
+                                seen_line_ops.add(c_key)
+                                steps.append(c_step)
+
+        sink_detail = (
+            f"Reaches sink {sink} in {sink_proc_short}"
+            if sink_proc_short
+            else f"Reaches sink {sink}"
+        )
+        sink_step = ASTDataflowTraceStep(
+            "sink",
+            sink,
+            filename,
+            line,
+            sink_detail,
+            column=event.column if event is not None else None,
+            procedure=sink_proc_short,
+            nesting_level=sink_nesting,
+        )
+        sink_key = (sink_step.filename, sink_step.line, sink_step.operation, sink_step.detail or "")
+        if sink_key not in seen_line_ops:
             steps.append(sink_step)
         return tuple(steps)
 

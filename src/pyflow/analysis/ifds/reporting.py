@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 import hashlib
+from pathlib import Path
+import re
 from typing import Any, Mapping, Sequence
 
 from pyflow.ir.core import SourceOrigin as IRSourceOrigin
@@ -144,6 +147,67 @@ def source_span_for_node(adapter: CFGSupergraphAdapter, node: CFGNode) -> Source
     return None
 
 
+def _is_zero_fact(fact: object) -> bool:
+    if fact is None:
+        return True
+    if isinstance(fact, str) and (fact == "ZERO" or fact.startswith("ZERO_")):
+        return True
+    if getattr(fact, "is_zero", False):
+        return True
+    return type(fact).__name__.startswith("Zero")
+
+
+def _is_internal_intrinsic(name: str | None) -> bool:
+    if not name:
+        return False
+    base = name.rstrip("()")
+    return base.startswith("interpreter_") or base in {"<expr>", "<unknown>", "ZERO"}
+
+
+_INTERNAL_SYMBOL_RE = re.compile(r"(?:@/|/scope\d+/s\d+|<locals>\.)")
+_INTERNAL_RET_RE = re.compile(r"^ret\d+$")
+
+
+@lru_cache(maxsize=256)
+def _cached_source_lines(path_str: str, mtime_ns: int) -> tuple[str, ...]:
+    del mtime_ns
+    try:
+        return tuple(Path(path_str).read_text(encoding="utf-8", errors="replace").splitlines())
+    except OSError:
+        return ()
+
+
+def _is_def_header_line(location: SourceSpan | None) -> bool:
+    if location is None or not location.uri or location.start_line <= 0:
+        return False
+    try:
+        path = Path(location.uri)
+        if not path.is_file():
+            return False
+        lines = _cached_source_lines(str(path.resolve()), path.stat().st_mtime_ns)
+        if 1 <= location.start_line <= len(lines):
+            stripped = lines[location.start_line - 1].lstrip()
+            return stripped.startswith(("def ", "async def ", "class "))
+    except OSError:
+        return False
+    return False
+
+
+def _clean_fact_label(described: str) -> str:
+    text = described.strip()
+    if not text or text in {"<expr>", "<unknown>", "ZERO"}:
+        return ""
+    if _is_internal_intrinsic(text):
+        if "format" in text or "join_str" in text:
+            return "formatted string"
+        return ""
+    if _INTERNAL_SYMBOL_RE.search(text):
+        return ""
+    if _INTERNAL_RET_RE.match(text):
+        return "return value"
+    return text
+
+
 def _humanize_flow_step(
     adapter: CFGSupergraphAdapter,
     node: CFGNode,
@@ -151,53 +215,74 @@ def _humanize_flow_step(
     fact: object,
     raw_note: object,
     describe_fact,
-) -> str:
+    *,
+    is_origin: bool = False,
+    is_sink: bool = False,
+) -> tuple[str, str, str | None]:
+    """Return ``(message, fact_label, call_name)`` for a single IFDS trace step."""
     proc = _procedure_name(node)
     fact_label = ""
-    if callable(describe_fact) and fact is not None:
-        if not (isinstance(fact, str) and fact.startswith("ZERO_")):
-            try:
-                described = str(describe_fact(fact) or "").strip()
-            except Exception:
-                described = ""
-            if described and described not in {"<expr>", "<unknown>", "ZERO"}:
-                fact_label = described
-    call_name = None
+    if callable(describe_fact) and not _is_zero_fact(fact):
+        try:
+            described = str(describe_fact(fact) or "")
+        except Exception:
+            described = ""
+        fact_label = _clean_fact_label(described)
+
+    raw_call_name = None
     try:
         effect = adapter.effect_of(node)
-        call_name = getattr(effect, "call_name", None)
+        raw_call_name = getattr(effect, "call_name", None)
     except Exception:
-        call_name = None
+        raw_call_name = None
+    call_name = None if _is_internal_intrinsic(raw_call_name) else raw_call_name
 
-    if kind == "seed":
+    if is_sink:
+        if call_name and fact_label:
+            return f"Reaches sink {call_name} in {proc} ({fact_label})", fact_label, call_name
+        if call_name:
+            return f"Reaches sink {call_name} in {proc}", fact_label, call_name
         if fact_label:
-            return f"Originates in {proc} ({fact_label})"
-        return f"Analysis entry in {proc}"
+            return f"Reaches sink in {proc} ({fact_label})", fact_label, call_name
+        return f"Reaches sink in {proc}", fact_label, call_name
+
+    if is_origin or kind in {"seed", "source"}:
+        if call_name and fact_label and fact_label != f"{call_name}()":
+            return f"Originates from {call_name} in {proc} ({fact_label})", fact_label, call_name
+        if fact_label:
+            return f"Originates from {fact_label} in {proc}", fact_label, call_name
+        if call_name:
+            return f"Originates from {call_name} in {proc}", fact_label, call_name
+        return f"Analysis entry in {proc}", fact_label, call_name
     if kind == "call_flow":
         if fact_label:
-            return f"Enters {proc} carrying {fact_label}"
-        return f"Enters {proc}"
+            return f"Enters {proc} carrying {fact_label}", fact_label, call_name
+        return f"Enters {proc}", fact_label, call_name
     if kind in {"return_flow", "return_flow(summary_replay)"}:
         if fact_label:
-            return f"Returns to {proc} carrying {fact_label}"
-        return f"Returns to {proc}"
+            return f"Returns to {proc} carrying {fact_label}", fact_label, call_name
+        return f"Returns to {proc}", fact_label, call_name
     if kind == "call_to_return":
         if call_name and fact_label:
-            return f"Call {call_name} in {proc} propagates {fact_label}"
+            return f"Call {call_name} in {proc} propagates {fact_label}", fact_label, call_name
         if call_name:
-            return f"Call {call_name} in {proc}"
+            return f"Call {call_name} in {proc}", fact_label, call_name
         if fact_label:
-            return f"Propagates {fact_label} across call in {proc}"
-        return f"Propagates across call in {proc}"
+            return f"Propagates {fact_label} across call in {proc}", fact_label, call_name
+        return f"Propagates across call in {proc}", fact_label, call_name
     if kind == "normal_flow":
         if call_name and fact_label:
-            return f"Evaluates {call_name} in {proc} ({fact_label})"
+            return f"Calls {call_name} in {proc} ({fact_label})", fact_label, call_name
+        if raw_call_name and ("format" in raw_call_name or "join_str" in raw_call_name):
+            if fact_label and fact_label != "formatted string":
+                return f"Formats string into {fact_label} in {proc}", fact_label, call_name
+            return f"Formats tainted string in {proc}", fact_label, call_name
         if fact_label:
-            return f"Flows via {fact_label} in {proc}"
-        return f"Flows through {proc}"
+            return f"Flows via {fact_label} in {proc}", fact_label, call_name
+        return f"Flows through {proc}", fact_label, call_name
     if raw_note and not str(raw_note).startswith(("CFGNode(", "<pyflow.")):
-        return str(raw_note)
-    return f"{kind} in {proc}"
+        return str(raw_note), fact_label, call_name
+    return f"{kind} in {proc}", fact_label, call_name
 
 
 def flow_steps_for_traces(
@@ -205,71 +290,138 @@ def flow_steps_for_traces(
     traces: Sequence[object],
     *,
     describe_fact=None,
+    terminal_kind: str | None = None,
 ) -> tuple[FlowStep, ...]:
-    steps: list[FlowStep] = []
-    seen_node_kind: set[tuple[int, str]] = set()
-    last_semantic_key: tuple[Any, ...] | None = None
-    nesting_level = 0
-    total = len(traces)
-
-    for index, trace in enumerate(traces):
+    # Extract valid trace entries with their real call-stack nesting depth.
+    entries: list[tuple[CFGNode, str, object, object, int]] = []
+    raw_depth = 0
+    for trace in traces:
         edge = getattr(trace, "output_edge", None)
         node = getattr(edge, "node", None)
         if not isinstance(node, CFGNode):
             continue
-        node_id = adapter.supergraph.node_id(node)
         kind = str(getattr(trace, "kind", "flow"))
         if kind == "call_flow":
-            nesting_level += 1
+            raw_depth += 1
         elif kind in {"return_flow", "return_flow(summary_replay)"}:
-            nesting_level = max(0, nesting_level - 1)
+            raw_depth = max(0, raw_depth - 1)
+        entries.append(
+            (node, kind, getattr(edge, "fact", None), getattr(trace, "note", None), raw_depth)
+        )
 
+    if not entries:
+        return ()
+
+    # Trim leading module/bootstrap ZERO-fact steps so the witness starts where
+    # the tracked taint/nullness/resource fact is actually introduced.
+    first_real_idx = next(
+        (idx for idx, item in enumerate(entries) if not _is_zero_fact(item[2])),
+        0,
+    )
+    trimmed = entries[first_real_idx:]
+    min_depth = min(item[4] for item in trimmed)
+
+    steps: list[FlowStep] = []
+    seen_node_kind: set[tuple[int, str]] = set()
+    prev_fact: object = object()
+    prev_proc: str | None = None
+    prev_line_key: tuple[str, int, str] | None = None
+    total = len(trimmed)
+
+    for index, (node, kind, fact, raw_note, depth) in enumerate(trimmed):
+        is_first = index == 0
+        is_last = index == total - 1
+        is_interproc = kind in {"call_flow", "return_flow", "return_flow(summary_replay)"}
+        is_boundary = is_first or is_last or is_interproc
+
+        node_id = adapter.supergraph.node_id(node)
         node_key = (node_id, kind)
-        if node_key in seen_node_kind:
+        if not is_boundary and node_key in seen_node_kind:
             continue
         seen_node_kind.add(node_key)
 
-        location = source_span_for_node(adapter, node)
         proc_name = _procedure_name(node)
-        fact = getattr(edge, "fact", None)
-        message = _humanize_flow_step(
+
+        # Drop same-procedure IFDS identity pass-through edges that neither
+        # transform the tracked fact nor mark a call/return/source/sink boundary.
+        if (
+            not is_boundary
+            and proc_name == prev_proc
+            and fact == prev_fact
+            and kind in {"normal_flow", "call_to_return"}
+        ):
+            continue
+
+        location = source_span_for_node(adapter, node)
+        # Skip lowered-IR fallback steps whose source span points back to a
+        # function 'def' header (e.g. return-slot transfers), except at real
+        # call entry/origin/sink boundaries.
+        if not is_boundary and _is_def_header_line(location):
+            prev_fact = fact
+            prev_proc = proc_name
+            continue
+
+        effective_kind = kind
+        if is_first and kind in {"normal_flow", "seed"}:
+            effective_kind = "source"
+        elif is_last and terminal_kind:
+            effective_kind = terminal_kind
+
+        message, fact_label, call_name = _humanize_flow_step(
             adapter,
             node,
-            kind,
+            effective_kind,
             fact,
-            getattr(trace, "note", None),
+            raw_note,
             describe_fact,
+            is_origin=is_first,
+            is_sink=is_last and terminal_kind == "sink",
         )
-        # Collapse consecutive lowered-IR steps on the exact same source line
-        # and message, while always keeping entry, interprocedural transitions,
-        # and the terminal step.
-        is_boundary = (
-            index == 0
-            or index == total - 1
-            or kind in {"seed", "call_flow", "return_flow", "return_flow(summary_replay)"}
-        )
-        semantic_key = (
-            location.uri if location else None,
-            location.start_line if location else None,
-            proc_name,
-            message,
-        )
-        if location is not None and not is_boundary and semantic_key == last_semantic_key:
-            continue
-        last_semantic_key = semantic_key
 
+        # Skip pure internal compiler intrinsic noise on intermediate steps
+        # when the previous step already covered the exact same source line.
+        line_key = (location.uri, location.start_line, proc_name) if location is not None else None
+        nesting_level = max(0, depth - min_depth)
         procedure_id = adapter.supergraph.procedure_id(node.procedure)
-        steps.append(
-            FlowStep(
-                kind=kind,
-                message=message,
-                node_id=node_id,
-                procedure_id=procedure_id,
-                location=location,
-                procedure=proc_name,
-                nesting_level=nesting_level,
-            )
+        step = FlowStep(
+            kind=effective_kind,
+            message=message,
+            node_id=node_id,
+            procedure_id=procedure_id,
+            location=location,
+            procedure=proc_name,
+            nesting_level=nesting_level,
         )
+
+        if (
+            line_key is not None
+            and line_key == prev_line_key
+            and steps
+            and not is_interproc
+            and not is_first
+        ):
+            # Same source line in the same procedure: replace if the new step
+            # is the terminal sink or strictly more informative (e.g. carries a
+            # concrete call or transformed variable rather than generic flow).
+            prev_step = steps[-1]
+            if is_last and terminal_kind:
+                if prev_step.kind in {"source", "seed"}:
+                    steps.append(step)
+                else:
+                    steps[-1] = step
+            elif prev_step.kind not in {"source", "seed", "call_flow", "return_flow"} and (
+                call_name or (fact_label and fact_label not in prev_step.message)
+            ):
+                steps[-1] = step
+            prev_fact = fact
+            prev_proc = proc_name
+            continue
+
+        steps.append(step)
+        prev_fact = fact
+        prev_proc = proc_name
+        prev_line_key = line_key
+
     return tuple(steps)
 
 

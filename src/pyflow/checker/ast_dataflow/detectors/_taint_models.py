@@ -16,6 +16,8 @@ class ASTDataflowTraceStep:
     line: int | None = None
     detail: str | None = None
     column: int | None = None
+    procedure: str = ""
+    nesting_level: int = 0
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class ASTDataflowTaintFinding:
     trace: Tuple[ASTDataflowTraceStep, ...] = ()
     related_rules: Tuple[Tuple[str, str, str], ...] = ()
     sink_column: int | None = None
+    sink_end_column: int | None = None
 
 
 @dataclass(frozen=True)

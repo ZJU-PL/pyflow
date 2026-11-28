@@ -9,9 +9,15 @@ import json
 from pathlib import Path
 
 from pyflow.checker.common import constants
+from pyflow.checker.formatters.report_render import _single_source_line
 from pyflow.checker.formatters.security import security_json
 from pyflow.checker.formatters.utils import issue_report
-from pyflow.util.cwe import normalize_cwe
+from pyflow.util.cwe import (
+    cwe_url,
+    default_cwe_for_rule_id,
+    default_cwe_suggestion,
+    normalize_cwe,
+)
 from pyflow.checker.common.overlaps import fold_overlapping_issues
 
 SEVERITY_RANK = {
@@ -70,34 +76,70 @@ def normalize_finding(finding: dict) -> dict:
         if location.get("start_column") is not None
         else finding.get("sink_column")
     )
-    suggestion = finding.get("suggestion") or (finding.get("rule") or {}).get("help_text") or ""
+    end_column = (
+        location.get("end_column")
+        if location.get("end_column") is not None
+        else finding.get("sink_end_column")
+    )
+    rule_id = finding.get("rule_id") or finding.get("test_id") or "PYFLOW-IFDS"
+    cwe = normalize_cwe(
+        finding.get("cwe") or finding.get("issue_cwe", {}).get("id")
+    ) or default_cwe_for_rule_id(str(rule_id))
+    suggestion = (
+        finding.get("suggestion")
+        or (finding.get("rule") or {}).get("help_text")
+        or default_cwe_suggestion(cwe)
+        or ""
+    )
+    procedure = str(finding.get("procedure") or finding.get("function") or "")
     raw_flow = finding.get("code_flow") or finding.get("trace") or finding.get("path_preview") or ()
     normalized_flow = []
     for step in raw_flow:
         if not isinstance(step, dict):
             continue
         step_loc = step.get("location") if isinstance(step.get("location"), dict) else {}
-        normalized_flow.append(
-            {
-                "kind": step.get("kind") or step.get("operation") or "flow",
-                "message": (
-                    step.get("message")
-                    or step.get("detail")
-                    or step.get("label")
-                    or step.get("kind")
-                    or step.get("operation")
-                    or "flow"
-                ),
-                "filename": step_loc.get("uri") or step.get("filename") or filename,
-                "line": step_loc.get("start_line") or step.get("line") or 0,
-                "nesting_level": int(step.get("nesting_level") or 0),
-            }
+        step_file = step_loc.get("uri") or step.get("filename") or filename
+        step_line = int(step_loc.get("start_line") or step.get("line") or 0)
+        step_col = (
+            step_loc.get("start_column")
+            if step_loc.get("start_column") is not None
+            else step.get("column")
         )
+        step_item = {
+            "kind": step.get("kind") or step.get("operation") or "flow",
+            "message": (
+                step.get("message")
+                or step.get("detail")
+                or step.get("label")
+                or step.get("kind")
+                or step.get("operation")
+                or "flow"
+            ),
+            "filename": step_file,
+            "line": step_line,
+            "nesting_level": int(step.get("nesting_level") or 0),
+        }
+        if step_col is not None:
+            step_item["column"] = step_col
+        if step.get("procedure"):
+            step_item["procedure"] = str(step["procedure"])
+        step_snippet = _single_source_line(str(step_file or ""), step_line)
+        if step_snippet:
+            step_item["code_snippet"] = step_snippet
+        normalized_flow.append(step_item)
     loc_dict = {"filename": filename, "line": line}
     if column is not None:
         loc_dict["column"] = column
+    if end_column is not None:
+        loc_dict["end_column"] = end_column
+    related_rules = [
+        str(r.get("rule_id"))
+        for r in (finding.get("related_rules") or ())
+        if isinstance(r, dict) and r.get("rule_id") and r.get("rule_id") != rule_id
+    ]
+    code_snippet = _single_source_line(str(filename or ""), int(line or 0))
     return {
-        "rule_id": finding.get("rule_id") or finding.get("test_id") or "PYFLOW-IFDS",
+        "rule_id": rule_id,
         "rule_title": finding.get("rule_title")
         or finding.get("rule", {}).get("name")
         or finding.get("test_name")
@@ -111,9 +153,13 @@ def normalize_finding(finding: dict) -> dict:
         or finding.get("sink_name")
         or finding.get("kind")
         or "Security finding",
+        "procedure": procedure,
         "location": loc_dict,
-        "cwe": normalize_cwe(finding.get("cwe") or finding.get("issue_cwe", {}).get("id")),
+        "code_snippet": code_snippet,
+        "cwe": cwe,
+        "cwe_url": cwe_url(cwe) or None,
         "suggestion": suggestion,
+        "related_rules": related_rules,
         "code_flow": normalized_flow,
         "properties": finding,
     }
@@ -234,6 +280,30 @@ class FilteredScannerResult:
         return len(self.get_issue_list(*args, **kwargs))
 
 
+_GENERIC_RULE_PREFIXES = (
+    "PYFLOW-INJECTION-",
+    "PYFLOW-SQL-",
+    "PYFLOW-XML-",
+    "PYFLOW-SERIALIZATION-",
+    "PYFLOW-NETWORK-",
+    "PYFLOW-REQUESTS-",
+    "PYFLOW-NOSQL-",
+)
+
+
+def _rule_pack_priority(rule_id: str, sink_name: str) -> tuple[int, str]:
+    """Rank overlapping rules so sink-matching and stdlib/core packs win over unrelated frameworks."""
+    upper = rule_id.upper()
+    sink_root = (sink_name or "").split(".", 1)[0].upper()
+    if sink_root and upper.startswith(f"PYFLOW-{sink_root}-"):
+        return (0, rule_id)
+    if upper.startswith("PYFLOW-STDLIB-"):
+        return (1, rule_id)
+    if any(upper.startswith(prefix) for prefix in _GENERIC_RULE_PREFIXES):
+        return (2, rule_id)
+    return (3, rule_id)
+
+
 def _fold_taint_findings(findings):
     """Fold equivalent sink reports across packs, retaining rule provenance."""
     grouped = {}
@@ -241,7 +311,16 @@ def _fold_taint_findings(findings):
         findings,
         key=lambda item: (
             -SEVERITY_RANK.get(normalize_finding(item)["severity"], 0),
-            normalize_finding(item)["rule_id"],
+            0 if normalize_finding(item)["cwe"] else 1,
+            _rule_pack_priority(
+                normalize_finding(item)["rule_id"],
+                str(
+                    item.get("sink_name")
+                    or item.get("sink_label")
+                    or (item.get("properties") or {}).get("sink_name")
+                    or ""
+                ),
+            ),
         ),
     ):
         normalized = normalize_finding(finding)
