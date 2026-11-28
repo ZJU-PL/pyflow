@@ -401,20 +401,7 @@ class _SymbolAnalysisMixin:
 
     def _collect_symbols(self) -> None:
         """Collect top-level functions/classes and bootstrap module exports."""
-        multi_module = len(self.modules) > 1
-        truncated_at = False
-        collected_modules: list[str] = []
         for module_name, module_info in self.modules.items():
-            if (
-                multi_module
-                and module_name != self.entry_module_name
-                and self._symbols_time_exhausted()
-            ):
-                self.fixpoint_truncated = True
-                self.fixpoint_stop_reason = "time_limit"
-                truncated_at = True
-                break
-            collected_modules.append(module_name)
             exports: DefaultDict[str, Set[AbstractValue]] = defaultdict(set)
             for node in module_info.tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -498,11 +485,6 @@ class _SymbolAnalysisMixin:
             self.module_bindings[module_name] = {
                 name: set(values) for name, values in exports.items()
             }
-
-        if truncated_at:
-            kept = set(collected_modules)
-            for skipped_module in [m for m in self.modules if m not in kept]:
-                del self.modules[skipped_module]
 
     def _resolve_module_annotated_bindings(self) -> None:
         """Resolve module-level ``AnnAssign`` targets after imports and classes are collected."""
@@ -679,14 +661,9 @@ class _SymbolAnalysisMixin:
                     if source in self.modules:
                         dependents[source].add(module_name)
 
-        multi_module = len(self.modules) > 1
         queue = deque(self.modules)
         pending = set(queue)
         while queue:
-            if multi_module and self._fixpoint_time_exhausted():
-                self.fixpoint_truncated = True
-                self.fixpoint_stop_reason = "time_limit"
-                break
             module_name = queue.popleft()
             pending.remove(module_name)
             env = copy_env(self.module_bindings[module_name])

@@ -226,10 +226,16 @@ class ASTConverter:
                 pending.extend(child)
                 continue
             child_id = id(child)
-            if child_id in seen_ids or child_id in propagated_ids:
+            if child_id in seen_ids:
                 continue
             seen_ids.add(child_id)
             ann = getattr(child, "annotation", None)
+            if (
+                child_id in propagated_ids
+                and ann is not None
+                and getattr(ann, "origin", None) is not None
+            ):
+                continue
             if isinstance(ann, OpAnnotation):
                 existing = ann.origin
                 if existing and _has_source_origin(existing):

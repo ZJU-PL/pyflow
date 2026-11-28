@@ -149,13 +149,6 @@ class _ModuleAnalysisMixin:
                 )
             return package_dirs[directory]
 
-        discovery_deadline: Optional[float] = None
-        if len(sources) > 64 and self.options.fixpoint_max_seconds is not None:
-            discovery_deadline = time.monotonic() + max(
-                0.5, self.options.fixpoint_max_seconds * 0.25
-            )
-        parse_budget_hit = False
-
         for path, source in sources.items():
             if not within_root(path):
                 continue
@@ -172,11 +165,6 @@ class _ModuleAnalysisMixin:
                     roots.add(parent)
                     break
                 parent = os.path.dirname(parent)
-            if parse_budget_hit:
-                continue
-            if discovery_deadline is not None and time.monotonic() >= discovery_deadline:
-                parse_budget_hit = True
-                continue
             try:
                 tree = self._parse_module_source(source, path)
             except SyntaxError:
@@ -259,16 +247,7 @@ class _ModuleAnalysisMixin:
             modules_by_inode[(st.st_dev, st.st_ino)] = entry_name
         except OSError:
             pass
-        load_deadline = getattr(self, "_load_deadline", None)
-        additional_loaded_truncated = False
         for source_path, source in sorted(self.additional_sources.items()):
-            if (
-                load_deadline is not None
-                and len(self.modules) > 1
-                and time.monotonic() >= load_deadline
-            ):
-                additional_loaded_truncated = True
-                break
             normalized_path = os.path.realpath(source_path)
             if normalized_path in modules_by_path:
                 continue
@@ -292,25 +271,19 @@ class _ModuleAnalysisMixin:
             modules_by_path[normalized_path] = module_name
             if file_inode is not None:
                 modules_by_inode[file_inode] = module_name
-        if additional_loaded_truncated:
-            self.diagnostics.append(
-                f"Stopped project source loading at time budget ({len(self.modules)} modules)"
-            )
-            self.fixpoint_truncated = True
-            self.fixpoint_stop_reason = "time_limit"
-            return
 
         if not self.options.follow_imports:
             return
 
         queue: deque[str] = deque(self.modules)
+        initial_modules = set(self.modules)
         visited: Set[str] = set()
+        load_deadline = getattr(self, "_load_deadline", None)
         entry_direct_imports = getattr(self, "_entry_direct_import_modules", None)
         if entry_direct_imports is None:
             entry_direct_imports = set()
             self._entry_direct_import_modules = entry_direct_imports
         stub_path_cache: Dict[tuple[str, Optional[str]], Optional[str]] = {}
-        missing_external_cache: Set[str] = set()
 
         while queue:
             module_name = queue.popleft()
@@ -319,7 +292,7 @@ class _ModuleAnalysisMixin:
             visited.add(module_name)
             if (
                 load_deadline is not None
-                and module_name != entry_name
+                and module_name not in initial_modules
                 and time.monotonic() >= load_deadline
             ):
                 self.diagnostics.append(
@@ -336,7 +309,7 @@ class _ModuleAnalysisMixin:
             for imported in self._iter_imported_modules(module_info):
                 if (
                     load_deadline is not None
-                    and module_name != entry_name
+                    and module_name not in initial_modules
                     and time.monotonic() >= load_deadline
                 ):
                     self.diagnostics.append(
@@ -350,8 +323,6 @@ class _ModuleAnalysisMixin:
                     continue
                 if is_entry_module:
                     entry_direct_imports.add(imported)
-                if imported in missing_external_cache:
-                    continue
                 resolution = self.project_context.find_module(
                     imported,
                     script_path=module_info.path,
@@ -366,18 +337,10 @@ class _ModuleAnalysisMixin:
                 )
                 if self.options.skip_stdlib_modules and not is_project_local:
                     if _is_stdlib_module_name(imported):
-                        missing_external_cache.add(imported)
                         continue
                     if resolved_source_path is not None and _is_stdlib_path(resolved_source_path):
-                        missing_external_cache.add(imported)
                         continue
                 if resolved_source_path is None:
-                    # ProjectContext.find_module already finds project-local .pyi files;
-                    # when external and stdlib modules are skipped, probing external
-                    # stub packages/typeshed only discovers stubs that are immediately
-                    # discarded below.
-                    if self.options.skip_external_modules and self.options.skip_stdlib_modules:
-                        continue
                     stub_key = (imported, script_dir)
                     if stub_key not in stub_path_cache:
                         stub_path_cache[stub_key] = self.stub_resolver.resolve_path(

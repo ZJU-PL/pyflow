@@ -358,6 +358,7 @@ class ProjectTypeInferenceEngine:
         diagnostics: list[InferenceDiagnostic] = []
         discovered_imports: dict[str, list[str]] = {}
         pending = list(dict.fromkeys(entry_modules))
+        pending_set = set(pending)
         time_limited = False
         while pending:
             if deadline is not None and sources and time.monotonic() >= deadline:
@@ -372,6 +373,7 @@ class ProjectTypeInferenceEngine:
                 )
                 break
             module_name = pending.pop(0)
+            pending_set.discard(module_name)
             if module_name in sources:
                 continue
             resolution = self._find_module_cached(module_name)
@@ -408,13 +410,13 @@ class ProjectTypeInferenceEngine:
                                     continue
                                 child = Path(current, filename)
                                 child_name = self.project_context.module_name_from_path(child)
-                                if child_name and child_name not in sources:
+                                if (
+                                    child_name
+                                    and child_name not in sources
+                                    and child_name not in pending_set
+                                ):
                                     pending.append(child_name)
-                                    if (
-                                        self.max_modules is not None
-                                        and len(sources) + len(pending) >= self.max_modules * 2
-                                    ):
-                                        break
+                                    pending_set.add(child_name)
                         if time_limited:
                             break
                     continue
@@ -454,7 +456,10 @@ class ProjectTypeInferenceEngine:
             if discover_imports:
                 deps = self._project_imports(module_name, source, path)
                 discovered_imports[module_name] = deps
-                pending.extend(imported for imported in deps if imported not in sources)
+                for imported in deps:
+                    if imported not in sources and imported not in pending_set:
+                        pending.append(imported)
+                        pending_set.add(imported)
         return sources, paths, diagnostics, discovered_imports, time_limited
 
     def _project_imports(
