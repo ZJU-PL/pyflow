@@ -266,8 +266,8 @@ def apply(value):
 
 
 def test_precise_dictionary_layout_keeps_invalid_key_type_diagnostics():
-    result = infer('''
+    result = infer("""
 values = {1: "a"}
 answer = values["wrong"]
-''')
+""")
     assert any(item.code == "index" for item in result.diagnostics)
