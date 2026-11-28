@@ -622,26 +622,15 @@ class FlowInference(InferenceComponent):
             if class_info is not None:
                 # Decorator expressions are evaluated top-down, then the
                 # class object is passed through them in reverse order.
+                from pyflow.model.library_models import default_library_models
+
+                library_models = default_library_models()
                 decorators = []
                 for decorator in node.decorator_list:
                     head = decorator.func if isinstance(decorator, ast.Call) else decorator
                     name = self.engine._value_rules._qualified_callee_name(head)
-                    if name in {
-                        "dataclasses.dataclass",
-                        "pydantic.dataclasses.dataclass",
-                        "typing.final",
-                        "typing.runtime_checkable",
-                        "typing_extensions.final",
-                        "typing_extensions.runtime_checkable",
-                        "attrs.define",
-                        "attrs.frozen",
-                        "attrs.mutable",
-                        "attrs.s",
-                        "attr.s",
-                        "attr.attrs",
-                    }:
-                        # Their class/constructor transforms are modeled by
-                        # declaration collection. They retain class identity.
+                    if name and library_models.is_passthrough_class_decorator(name):
+                        # Modeled pass-through class decorators retain class identity.
                         continue
                     decorators.append(
                         (

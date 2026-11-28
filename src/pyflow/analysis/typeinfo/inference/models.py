@@ -7,25 +7,12 @@ from dataclasses import dataclass, field
 
 from pyflow.analysis.typeinfo.core.typesystem import CallableType, ProperType
 from pyflow.analysis.typeinfo.inference.domain import AbstractTypeValue
-
-
-@dataclass(frozen=True, order=True)
-class SourceSpan:
-    """A stable source location suitable for expression-level queries."""
-
-    lineno: int
-    col_offset: int
-    end_lineno: int | None = None
-    end_col_offset: int | None = None
+from pyflow.language.diagnostics import Diagnostic, Provenance, SourceSpan
 
 
 @dataclass(frozen=True)
-class InferenceProvenance:
+class InferenceProvenance(Provenance):
     """Why an inferred fact is believed to hold."""
-
-    source: str
-    detail: str = ""
-    span: SourceSpan | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +24,19 @@ class InferenceDiagnostic:
     severity: str = "warning"
     span: SourceSpan | None = None
     affects_completeness: bool = False
+
+    def to_diagnostic(
+        self,
+        *,
+        module_name: str | None = None,
+        filename: str | None = None,
+    ) -> Diagnostic:
+        """Convert to a unified :class:`pyflow.language.diagnostics.Diagnostic`."""
+        return Diagnostic.from_inference_diagnostic(
+            self,
+            module_name=module_name,
+            filename=filename,
+        )
 
 
 @dataclass(frozen=True)

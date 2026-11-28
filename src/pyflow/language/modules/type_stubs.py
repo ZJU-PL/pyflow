@@ -377,6 +377,12 @@ class StubDiagnostic:
     lineno: int | None = None
     col_offset: int | None = None
 
+    def to_diagnostic(self):
+        """Convert to a unified :class:`pyflow.language.diagnostics.Diagnostic`."""
+        from pyflow.language.diagnostics import Diagnostic
+
+        return Diagnostic.from_stub_diagnostic(self)
+
 
 @dataclass(frozen=True)
 class ResolvedStub:

@@ -83,3 +83,16 @@ class CallGraph:
         for caller, callees in self._graph.items():
             for callee in callees:
                 yield caller, callee
+
+    def structured_diagnostics(self) -> list[object]:
+        """Return unified :class:`pyflow.language.diagnostics.Diagnostic` objects."""
+        from pyflow.language.diagnostics import Diagnostic
+
+        raw = getattr(self, "diagnostics", ()) or ()
+        out: list[object] = []
+        for item in raw:
+            if isinstance(item, Diagnostic):
+                out.append(item)
+            else:
+                out.append(Diagnostic.from_callgraph_message(str(item)))
+        return out

@@ -14,9 +14,14 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import fields
+from typing import Any
 
+from pyflow.analysis.cache.summary_cache import SummaryCache, SummaryCacheKey
 from pyflow.analysis.typeinfo.core.typesystem import TypeSystem
 from pyflow.analysis.typeinfo.inference.models import ModuleInferenceResult
+from pyflow.language.environment import AnalysisEnvironment
+
+TYPE_SUMMARY_SCHEMA_VERSION = "type_summary.v1"
 
 
 def options_fingerprint(options: object) -> str:
@@ -25,11 +30,49 @@ def options_fingerprint(options: object) -> str:
     return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
 
 
-class ProjectInferenceCache:
-    """Reusable per-module inference results."""
+def serialize_module_summary(result: ModuleInferenceResult) -> dict[str, Any]:
+    """Serialize a module's public type & diagnostic summary to JSON-safe data."""
+    return {
+        "schema_version": TYPE_SUMMARY_SCHEMA_VERSION,
+        "module_name": result.module_name,
+        "status": result.status,
+        "converged": result.converged,
+        "iterations": result.iterations,
+        "symbols": {
+            name: {
+                "type": str(sym.typ) if sym.typ is not None else None,
+                "complete": sym.is_complete,
+            }
+            for name, sym in sorted(result.symbols.items())
+        },
+        "functions": {
+            name: {
+                "return_type": str(fn.return_type) if fn.return_type is not None else None,
+                "is_async": fn.is_async,
+                "is_generator": fn.is_generator,
+                "method_kind": fn.method_kind,
+            }
+            for name, fn in sorted(result.functions.items())
+        },
+        "diagnostics": [
+            d.to_diagnostic(module_name=result.module_name).to_dict() for d in result.diagnostics
+        ],
+    }
 
-    def __init__(self, *, type_system: TypeSystem | None = None) -> None:
+
+class ProjectInferenceCache:
+    """Reusable per-module inference results with optional persistent SummaryCache."""
+
+    def __init__(
+        self,
+        *,
+        type_system: TypeSystem | None = None,
+        summary_cache: SummaryCache | None = None,
+        environment: AnalysisEnvironment | None = None,
+    ) -> None:
         self.type_system = type_system or TypeSystem()
+        self.summary_cache = summary_cache
+        self.environment = environment or AnalysisEnvironment.current(type_checking=True)
         self._entries: dict[str, tuple[str, ModuleInferenceResult]] = {}
         self.hits = 0
 
@@ -58,6 +101,37 @@ class ProjectInferenceCache:
     ) -> None:
         """Store (or replace) the result for one module."""
         self._entries[module_name] = (f"{fingerprint}:{options_key}", result)
+        if self.summary_cache is not None:
+            env_fp = f"{self.environment.fingerprint()}:{options_key[:16]}"
+            cache_key = SummaryCacheKey(
+                namespace="type_summary",
+                module_name=module_name,
+                file_hash=fingerprint,
+                env_fingerprint=env_fp,
+                dependency_hash=fingerprint,
+                schema_version=TYPE_SUMMARY_SCHEMA_VERSION,
+            )
+            self.summary_cache.put(cache_key, serialize_module_summary(result))
+
+    def get_persisted_summary(
+        self,
+        module_name: str,
+        fingerprint: str,
+        options_key: str,
+    ) -> dict[str, Any] | None:
+        """Return a persisted JSON module type summary from :attr:`summary_cache`."""
+        if self.summary_cache is None:
+            return None
+        env_fp = f"{self.environment.fingerprint()}:{options_key[:16]}"
+        cache_key = SummaryCacheKey(
+            namespace="type_summary",
+            module_name=module_name,
+            file_hash=fingerprint,
+            env_fingerprint=env_fp,
+            dependency_hash=fingerprint,
+            schema_version=TYPE_SUMMARY_SCHEMA_VERSION,
+        )
+        return self.summary_cache.get(cache_key)
 
     def clear(self) -> None:
         """Drop every cached result."""

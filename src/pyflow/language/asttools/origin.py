@@ -79,3 +79,23 @@ class SourceOrigin:
 
     def originString(self):
         return originString(self)
+
+    def to_source_span(self):
+        """Convert this origin into a shared :class:`pyflow.language.diagnostics.SourceSpan`."""
+        from pyflow.language.diagnostics import SourceSpan
+
+        return SourceSpan.from_origin(self)
+
+    @classmethod
+    def from_span(
+        cls, span, *, filename: str | None = None, name: str | None = None
+    ) -> "SourceOrigin":
+        """Build a :class:`SourceOrigin` from a shared :class:`SourceSpan`."""
+        return cls(
+            name=name,
+            filename=filename,
+            lineno=span.lineno,
+            col=span.col_offset,
+            end_lineno=span.end_lineno,
+            end_col=span.end_col_offset,
+        )

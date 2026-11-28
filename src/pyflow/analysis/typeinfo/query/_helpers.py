@@ -32,13 +32,37 @@ def _stdlib_root() -> Path | None:
 
 def _module_statements(tree: ast.Module | list[ast.stmt]) -> list[ast.stmt]:
     """Flatten ``if TYPE_CHECKING:`` blocks, which mypy always analyses."""
+    from pyflow.language.environment import (
+        AnalysisEnvironment,
+        _collect_import_aliases,
+        evaluate_static_condition,
+    )
+
     statements = tree.body if isinstance(tree, ast.Module) else list(tree)
-    result: list[ast.stmt] = []
-    for statement in statements:
-        result.append(statement)
-        if isinstance(statement, ast.If) and _expr_name(statement.test) in _TYPE_CHECKING_NAMES:
-            result.extend(_module_statements(statement.body))
-    return result
+    aliases = _collect_import_aliases(statements)
+    tc_env = AnalysisEnvironment.current(type_checking=True)
+    rt_env = AnalysisEnvironment.current(type_checking=False)
+
+    def _flatten(stmts: list[ast.stmt]) -> list[ast.stmt]:
+        result: list[ast.stmt] = []
+        for statement in stmts:
+            result.append(statement)
+            if isinstance(statement, ast.If):
+                is_tc_true = (
+                    evaluate_static_condition(statement.test, tc_env, aliases=aliases) is True
+                    and evaluate_static_condition(statement.test, rt_env, aliases=aliases) is False
+                )
+                is_tc_false = (
+                    evaluate_static_condition(statement.test, tc_env, aliases=aliases) is False
+                    and evaluate_static_condition(statement.test, rt_env, aliases=aliases) is True
+                )
+                if is_tc_true:
+                    result.extend(_flatten(statement.body))
+                elif is_tc_false and statement.orelse:
+                    result.extend(_flatten(statement.orelse))
+        return result
+
+    return _flatten(statements)
 
 
 def _stub_variance(declaration) -> Variance:

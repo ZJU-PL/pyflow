@@ -12,7 +12,10 @@ from functools import lru_cache
 from typing import Dict, Iterable, Mapping, Optional, Set
 
 from pyflow.language.modules.type_stubs import default_typeshed_roots
-from pyflow.language.source_compat import parse_python_source
+from pyflow.language.modules.workspace import (
+    discover_source_roots as _shared_discover_source_roots,
+    parse_source_cached,
+)
 
 from .model import (
     AbstractValue,
@@ -62,34 +65,6 @@ def _is_stdlib_module_name(module_name: str) -> bool:
     return root in stdlib_names
 
 
-_STMT_CONTAINER_ATTRS = ("body", "orelse", "finalbody")
-
-
-def _iter_all_import_nodes(tree: ast.Module) -> Iterable[ast.Import | ast.ImportFrom]:
-    """Yield every ``Import``/``ImportFrom`` statement without walking expressions."""
-    stack: list[list[ast.stmt]] = [tree.body]
-    while stack:
-        block = stack.pop()
-        for stmt in block:
-            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-                yield stmt
-                continue
-            for attr in _STMT_CONTAINER_ATTRS:
-                nested = getattr(stmt, attr, None)
-                if nested:
-                    stack.append(nested)
-            handlers = getattr(stmt, "handlers", None)
-            if handlers:
-                for handler in handlers:
-                    if handler.body:
-                        stack.append(handler.body)
-            cases = getattr(stmt, "cases", None)
-            if cases:
-                for case in cases:
-                    if case.body:
-                        stack.append(case.body)
-
-
 def _is_within_path(path: str, root: str, *, real_root: Optional[str] = None) -> bool:
     """Return whether *path* is located within *root*."""
     resolved_root = real_root if real_root is not None else os.path.realpath(root)
@@ -108,7 +83,7 @@ class _ModuleAnalysisMixin:
         key = os.path.realpath(path) if path else "<string>"
         if key not in self._source_trees:
             try:
-                self._source_trees[key] = parse_python_source(source, filename=key)
+                self._source_trees[key] = parse_source_cached(source, filename=key)
             except SyntaxError as exc:
                 # Do not retain discovery/loading frames in cached tracebacks.
                 self._source_trees[key] = type(exc)(*exc.args)
@@ -118,82 +93,14 @@ class _ModuleAnalysisMixin:
         return tree
 
     def _discover_source_roots(self, import_root: str) -> tuple[str, ...]:
-        """Infer shared search/identity roots from project-local import evidence.
-
-        Matching ``mypkg.mod`` against ``libs/core/mypkg/mod.py`` establishes
-        ``libs/core`` as a root regardless of the container directory names.
-        Do not cut inside a regular package or guess between duplicate packages.
-        """
-        root = os.path.realpath(import_root)
-        root_prefix = root if root.endswith(os.sep) else root + os.sep
-        sources = {
-            os.path.realpath(path): source for path, source in self.additional_sources.items()
-        }
-        if self.entry_path:
-            sources[os.path.realpath(self.entry_path)] = self.source_code
-        imports = defaultdict(set)
-        module_paths = []
-        roots = set()
-        visited = {root}
-        package_dirs = {}
-
-        def within_root(candidate_path: str) -> bool:
-            return candidate_path == root or candidate_path.startswith(root_prefix)
-
-        def is_package(directory):
-            if directory not in package_dirs:
-                package_dirs[directory] = any(
-                    os.path.join(directory, name) in sources
-                    or os.path.isfile(os.path.join(directory, name))
-                    for name in ("__init__.py", "__init__.pyi")
-                )
-            return package_dirs[directory]
-
-        for path, source in sources.items():
-            if not within_root(path):
-                continue
-            parts = os.path.relpath(path, root).split(os.sep)
-            parts[-1] = os.path.splitext(parts[-1])[0]
-            if parts[-1] == "__init__":
-                parts.pop()
-            module_paths.append(parts)
-            parent = os.path.dirname(path)
-            while parent not in visited and within_root(parent):
-                visited.add(parent)
-                component = os.path.basename(parent)
-                if (not component.isidentifier() or component == "src") and not is_package(parent):
-                    roots.add(parent)
-                    break
-                parent = os.path.dirname(parent)
-            try:
-                tree = self._parse_module_source(source, path)
-            except SyntaxError:
-                continue  # The loader reports syntax diagnostics.
-            for node in _iter_all_import_nodes(tree):
-                if isinstance(node, ast.Import):
-                    names = [alias.name for alias in node.names]
-                elif node.level == 0 and node.module:
-                    names = [node.module]
-                else:
-                    continue
-                for name in names:
-                    imported = tuple(name.split("."))
-                    imports[imported[0]].add(imported)
-
-        candidates = defaultdict(set)
-        for parts in module_paths:
-            for offset, part in enumerate(parts):
-                for imported in imports.get(part, ()):
-                    if tuple(parts[offset : offset + len(imported)]) != imported:
-                        continue
-                    candidate = os.path.join(root, *parts[:offset])
-                    if not is_package(candidate):
-                        candidates[imported].add(candidate)
-        for matches in candidates.values():
-            if len(matches) == 1:
-                roots.update(matches)
-        roots.discard(root)
-        return tuple(sorted(roots))
+        """Infer shared search/identity roots from project-local import evidence."""
+        return _shared_discover_source_roots(
+            import_root,
+            self.additional_sources,
+            entry_path=self.entry_path,
+            entry_source=self.source_code if self.entry_path else None,
+            parse_fn=self._parse_module_source,
+        )
 
     def _distinct_source_module_names(self, import_root: str) -> Dict[str, str]:
         """Keep colliding companion namespaces (e.g. scripts/) project-qualified.
@@ -296,7 +203,8 @@ class _ModuleAnalysisMixin:
                 and time.monotonic() >= load_deadline
             ):
                 self.diagnostics.append(
-                    f"Stopped transitive module loading at time budget ({len(self.modules)} modules)"
+                    "Stopped transitive module loading at time budget "
+                    f"({len(self.modules)} modules)"
                 )
                 break
 
@@ -313,7 +221,8 @@ class _ModuleAnalysisMixin:
                     and time.monotonic() >= load_deadline
                 ):
                     self.diagnostics.append(
-                        f"Stopped transitive module loading at time budget ({len(self.modules)} modules)"
+                        "Stopped transitive module loading at time budget "
+                        f"({len(self.modules)} modules)"
                     )
                     return
                 if imported in self.modules or imported in self.module_aliases:

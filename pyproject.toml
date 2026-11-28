@@ -84,7 +84,7 @@ where = ["src"]
 version = {attr = "pyflow.__version__"}
 
 [tool.setuptools.package-data]
-pyflow = ["lib/**/*", "stubs/**/*", "config/**/*", "analysis/alias/kcfa/_pythonstan/stubs/**/*"]
+pyflow = ["lib/**/*", "stubs/**/*", "config/**/*", "model/*.json", "analysis/alias/kcfa/_pythonstan/stubs/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

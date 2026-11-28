@@ -1,16 +1,19 @@
-"""Recognize declared HTTP request boundaries in source files."""
+"""Recognize declared HTTP and framework entry boundaries in source files."""
+
+from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 import warnings
 
 from pyflow.language.modules.imports import base_name_from_expr
+from pyflow.language.modules.workspace import iter_all_import_nodes
+from pyflow.model.library_models import LibraryModelRegistry, default_library_models
 
-_FRAMEWORK_HINTS = ("Flask", "Blueprint", "Quart", "FastAPI", "APIRouter", "Starlette", "Router")
 
-
-def _import_aliases(tree):
-    aliases = {}
-    for node in ast.walk(tree):
+def _import_aliases(tree: ast.Module) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for node in iter_all_import_nodes(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 aliases[alias.asname or alias.name.split(".")[0]] = alias.name
@@ -28,28 +31,34 @@ def _resolve_factory_name(expr, aliases):
     return aliases.get(head, head) + (sep + tail if sep else "")
 
 
-def http_entry_functions(sources):
-    """Recognize HTTP handlers without treating arbitrary library APIs as inputs."""
-    factories = {
-        "flask.Flask",
-        "flask.Blueprint",
-        "flask.blueprints.Blueprint",
-        "quart.Quart",
-        "quart.Blueprint",
-        "fastapi.FastAPI",
-        "fastapi.APIRouter",
-        "fastapi.routing.APIRouter",
-        "starlette.applications.Starlette",
-        "starlette.routing.Router",
-    }
-    routes = {"route", "get", "post", "put", "delete", "patch", "options", "head", "websocket"}
+def framework_entry_functions(
+    sources,
+    *,
+    entrypoint_kinds: Iterable[str] = ("http",),
+    registry: LibraryModelRegistry | None = None,
+):
+    """Recognize framework entry handlers declared via the shared model registry."""
+    models = registry or default_library_models()
+    factories = models.factory_classes(entrypoint_kinds=entrypoint_kinds)
+    routes = models.decorator_methods(entrypoint_kinds=entrypoint_kinds)
+    hints = models.hint_tokens(entrypoint_kinds=entrypoint_kinds)
+    # Also detect standalone entrypoint decorators (e.g. @click.command, @celery.shared_task).
+    allowed_kinds = frozenset(entrypoint_kinds)
+    standalone_decorators = frozenset(
+        qname
+        for dec in models.all_decorators()
+        if dec.behavior == "entrypoint" and dec.entrypoint_kind in allowed_kinds
+        for qname in dec.qualified_names
+    )
+    standalone_hints = tuple(dict.fromkeys(q.rsplit(".", 1)[-1] for q in standalone_decorators))
+    all_hints = (*hints, *standalone_hints)
+
     entries = set()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SyntaxWarning)
         for filename, source in sources.items():
-            # Any call resolving to one of the known factory classes must mention
-            # the class name either in an import or directly in the call expression.
-            if not any(hint in source for hint in _FRAMEWORK_HINTS):
+            # Any call resolving to a modeled factory/decorator must mention one of its tokens.
+            if all_hints and not any(hint in source for hint in all_hints):
                 continue
             try:
                 tree = ast.parse(source)
@@ -65,6 +74,21 @@ def http_entry_functions(sources):
                     qualified = aliases.get(head, head) + (sep + tail if sep else "")
                     return qualified in factories
                 return _resolve_factory_name(annotation, aliases) in factories
+
+            def is_entry_decorator(decorator, apps):
+                call = decorator.func if isinstance(decorator, ast.Call) else decorator
+                if (
+                    isinstance(call, ast.Attribute)
+                    and call.attr in routes
+                    and isinstance(call.value, ast.Name)
+                    and call.value.id in apps
+                ):
+                    return True
+                if standalone_decorators:
+                    resolved = _resolve_factory_name(call, aliases)
+                    if resolved in standalone_decorators:
+                        return True
+                return False
 
             def update_applications(stmt, apps):
                 if isinstance(stmt, ast.Assign):
@@ -93,15 +117,8 @@ def http_entry_functions(sources):
                     update_applications(stmt, apps)
                     if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         func_parents = (*parents, stmt.name)
-                        for decorator in stmt.decorator_list:
-                            call = decorator.func if isinstance(decorator, ast.Call) else decorator
-                            if (
-                                isinstance(call, ast.Attribute)
-                                and call.attr in routes
-                                and isinstance(call.value, ast.Name)
-                                and call.value.id in apps
-                            ):
-                                entries.add((filename, ".".join(func_parents)))
+                        if any(is_entry_decorator(dec, apps) for dec in stmt.decorator_list):
+                            entries.add((filename, ".".join(func_parents)))
                         func_apps = set(apps)
                         for arg in (
                             *stmt.args.posonlyargs,
@@ -115,15 +132,8 @@ def http_entry_functions(sources):
                         scan_statements(stmt.body, func_apps, func_parents)
                     elif isinstance(stmt, ast.ClassDef):
                         class_parents = (*parents, stmt.name)
-                        for decorator in stmt.decorator_list:
-                            call = decorator.func if isinstance(decorator, ast.Call) else decorator
-                            if (
-                                isinstance(call, ast.Attribute)
-                                and call.attr in routes
-                                and isinstance(call.value, ast.Name)
-                                and call.value.id in apps
-                            ):
-                                entries.add((filename, ".".join(class_parents)))
+                        if any(is_entry_decorator(dec, apps) for dec in stmt.decorator_list):
+                            entries.add((filename, ".".join(class_parents)))
                         scan_statements(stmt.body, apps, class_parents)
                     elif isinstance(
                         stmt, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)
@@ -150,3 +160,8 @@ def http_entry_functions(sources):
 
             scan_statements(tree.body, set(), ())
     return entries
+
+
+def http_entry_functions(sources):
+    """Recognize HTTP handlers without treating arbitrary library APIs as inputs."""
+    return framework_entry_functions(sources, entrypoint_kinds=("http",))

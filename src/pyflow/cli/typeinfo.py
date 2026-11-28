@@ -10,30 +10,16 @@ import sys
 import tokenize
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from pyflow.analysis.typeinfo import TypeInfoService
-from pyflow.analysis.typeinfo.inference.models import ModuleInferenceResult
 from pyflow.language.modules.project_resolution import (
     ProjectContext,
     default_import_root as _default_root,
 )
+from pyflow.language.modules.workspace import DEFAULT_IGNORED_DIRS
 
-_IGNORED_DIRECTORIES = {
-    "__pycache__",
-    ".git",
-    ".hg",
-    ".svn",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".tox",
-    ".venv",
-    "venv",
-    "node_modules",
-    "site-packages",
-    "dist-packages",
-}
+_IGNORED_DIRECTORIES = DEFAULT_IGNORED_DIRS
 
 
 def add_typeinfo_parser(subparsers) -> argparse.ArgumentParser:
@@ -378,7 +364,8 @@ def _print_human(payload: object, *, mode: str) -> None:
     if mode == "symbol":
         raw = f" raw={payload['raw_annotation']!r}" if payload.get("raw_annotation") else ""
         print(
-            f"{payload['symbol']}: {payload['type']} ({payload['status']}, {payload['source']}{raw})"
+            f"{payload['symbol']}: {payload['type']} "
+            f"({payload['status']}, {payload['source']}{raw})"
         )
         return
     if mode == "expression":

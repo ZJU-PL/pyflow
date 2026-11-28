@@ -26,10 +26,7 @@ from pyflow.application.context import CompilerContext
 from pyflow.language.python.program import Object
 from pyflow.language.python.program import ImaginaryObject, AbstractObject
 from pyflow.language.python import ast as pyflow_ast
-from pyflow.language.source_compat import (
-    normalize_legacy_python_syntax,
-    parse_python_source,
-)
+from pyflow.language.source_compat import parse_python_source
 from pyflow.language.modules.imports import (
     base_name_from_expr as _base_name_from_expr,
     build_module_source_map,
@@ -64,6 +61,12 @@ class FileExtractionDiagnostic:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+    def to_diagnostic(self):
+        """Convert to a unified :class:`pyflow.language.diagnostics.Diagnostic`."""
+        from pyflow.language.diagnostics import Diagnostic
+
+        return Diagnostic.from_extraction_diagnostic(self)
 
 
 def _is_synthetic_entry_code(code: Any) -> bool:
@@ -492,24 +495,19 @@ class Extractor:
         is_package: bool = False,
     ) -> str:
         """Resolve ``from ... import ...`` source to a dotted module name."""
-        if level <= 0:
-            return source_module
+        from pyflow.language.modules.module_graph import resolve_relative_module
 
-        parts = [p for p in current_module.split(".") if p]
-        if parts and parts[-1] == "__init__":
-            parts = parts[:-1]
-        elif not is_package:
-            parts = parts[:-1]
-
-        ups = max(level - 1, 0)
-        if ups >= len(parts):
-            base = []
-        else:
-            base = parts[: len(parts) - ups]
-
-        if source_module:
-            base.extend([p for p in source_module.split(".") if p])
-        return ".".join(base)
+        effective_module = current_module
+        effective_pkg = is_package
+        if effective_module.endswith(".__init__"):
+            effective_module = effective_module[: -len(".__init__")]
+            effective_pkg = True
+        return resolve_relative_module(
+            effective_module,
+            source_module or None,
+            level,
+            is_package=effective_pkg,
+        )
 
     def _expand_star_import_names(self, module_name: str) -> List[str]:
         """Expand ``from module import *`` names when source is available."""

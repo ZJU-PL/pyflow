@@ -1,0 +1,421 @@
+{
+  "schema_version": "library_models.v1",
+  "decorators": [
+    {
+      "qualified_names": [
+        "dataclasses.dataclass"
+      ],
+      "target_kind": "class",
+      "behavior": "factory_or_passthrough",
+      "synthesizes_init": true
+    },
+    {
+      "qualified_names": [
+        "attrs.define",
+        "attrs.frozen",
+        "attrs.mutable",
+        "attrs.s",
+        "attr.s",
+        "attr.attrs",
+        "attr.define",
+        "attr.frozen",
+        "pydantic.dataclasses.dataclass"
+      ],
+      "target_kind": "class",
+      "behavior": "factory_or_passthrough",
+      "synthesizes_init": true
+    },
+    {
+      "qualified_names": [
+        "functools.total_ordering",
+        "typing.final",
+        "typing_extensions.final",
+        "typing.runtime_checkable",
+        "typing_extensions.runtime_checkable",
+        "typing.dataclass_transform",
+        "typing_extensions.dataclass_transform",
+        "enum.unique",
+        "enum.verify",
+        "enum.global_enum",
+        "rich.repr.auto"
+      ],
+      "target_kind": "class",
+      "behavior": "factory_or_passthrough"
+    },
+    {
+      "qualified_names": [
+        "functools.lru_cache",
+        "functools.cache",
+        "functools.wraps",
+        "warnings.deprecated",
+        "typing_extensions.deprecated",
+        "typing.override",
+        "typing_extensions.override",
+        "typing.no_type_check",
+        "abc.abstractmethod",
+        "numba.jit",
+        "numba.njit",
+        "torch.jit.script",
+        "torch.no_grad",
+        "torch.inference_mode"
+      ],
+      "target_kind": "function",
+      "behavior": "factory_or_passthrough"
+    },
+    {
+      "qualified_names": [
+        "contextlib.contextmanager",
+        "contextlib.asynccontextmanager"
+      ],
+      "target_kind": "function",
+      "behavior": "passthrough",
+      "returns_context_manager": true
+    },
+    {
+      "qualified_names": [
+        "builtins.property",
+        "functools.cached_property",
+        "builtins.classmethod",
+        "builtins.staticmethod"
+      ],
+      "target_kind": "function",
+      "behavior": "descriptor"
+    },
+    {
+      "qualified_names": [
+        "typing.overload",
+        "typing_extensions.overload"
+      ],
+      "target_kind": "function",
+      "behavior": "overload"
+    },
+    {
+      "qualified_names": [
+        "functools.singledispatch",
+        "functools.singledispatchmethod"
+      ],
+      "target_kind": "function",
+      "behavior": "singledispatch"
+    },
+    {
+      "qualified_names": [
+        "click.command",
+        "click.group",
+        "click.decorators.command",
+        "click.decorators.group",
+        "typer.command"
+      ],
+      "target_kind": "function",
+      "behavior": "entrypoint",
+      "entrypoint_kind": "cli"
+    },
+    {
+      "qualified_names": [
+        "celery.shared_task",
+        "celery.task"
+      ],
+      "target_kind": "function",
+      "behavior": "entrypoint",
+      "entrypoint_kind": "task"
+    },
+    {
+      "qualified_names": [
+        "pytest.fixture",
+        "pytest.mark.parametrize"
+      ],
+      "target_kind": "function",
+      "behavior": "entrypoint",
+      "entrypoint_kind": "test"
+    }
+  ],
+  "framework_routes": [
+    {
+      "name": "flask",
+      "entrypoint_kind": "http",
+      "factory_classes": [
+        "flask.Flask",
+        "flask.Blueprint",
+        "flask.blueprints.Blueprint",
+        "flask.app.Flask"
+      ],
+      "decorator_methods": [
+        "route",
+        "get",
+        "post",
+        "put",
+        "delete",
+        "patch",
+        "options",
+        "head",
+        "websocket"
+      ],
+      "hint_tokens": [
+        "Flask",
+        "Blueprint"
+      ]
+    },
+    {
+      "name": "quart",
+      "entrypoint_kind": "http",
+      "factory_classes": [
+        "quart.Quart",
+        "quart.Blueprint"
+      ],
+      "decorator_methods": [
+        "route",
+        "get",
+        "post",
+        "put",
+        "delete",
+        "patch",
+        "options",
+        "head",
+        "websocket"
+      ],
+      "hint_tokens": [
+        "Quart",
+        "Blueprint"
+      ]
+    },
+    {
+      "name": "fastapi",
+      "entrypoint_kind": "http",
+      "factory_classes": [
+        "fastapi.FastAPI",
+        "fastapi.APIRouter",
+        "fastapi.routing.APIRouter",
+        "fastapi.applications.FastAPI"
+      ],
+      "decorator_methods": [
+        "route",
+        "get",
+        "post",
+        "put",
+        "delete",
+        "patch",
+        "options",
+        "head",
+        "websocket",
+        "api_route"
+      ],
+      "hint_tokens": [
+        "FastAPI",
+        "APIRouter"
+      ]
+    },
+    {
+      "name": "starlette",
+      "entrypoint_kind": "http",
+      "factory_classes": [
+        "starlette.applications.Starlette",
+        "starlette.routing.Router"
+      ],
+      "decorator_methods": [
+        "route",
+        "websocket_route",
+        "websocket",
+        "get",
+        "post",
+        "put",
+        "delete",
+        "patch",
+        "options",
+        "head"
+      ],
+      "hint_tokens": [
+        "Starlette",
+        "Router"
+      ]
+    },
+    {
+      "name": "click_typer",
+      "entrypoint_kind": "cli",
+      "factory_classes": [
+        "typer.Typer",
+        "typer.main.Typer",
+        "click.Group",
+        "click.core.Group"
+      ],
+      "decorator_methods": [
+        "command",
+        "callback",
+        "group"
+      ],
+      "hint_tokens": [
+        "Typer",
+        "Group"
+      ]
+    },
+    {
+      "name": "celery",
+      "entrypoint_kind": "task",
+      "factory_classes": [
+        "celery.Celery",
+        "celery.app.base.Celery"
+      ],
+      "decorator_methods": [
+        "task"
+      ],
+      "hint_tokens": [
+        "Celery"
+      ]
+    }
+  ],
+  "callables": [
+    {
+      "qualified_name": "builtins.map",
+      "callback_arg_positions": [0],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "builtins.filter",
+      "callback_arg_positions": [0],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "builtins.sorted",
+      "callback_kwarg_names": ["key"],
+      "container_effect": "returns_copy"
+    },
+    {
+      "qualified_name": "builtins.min",
+      "callback_kwarg_names": ["key"],
+      "container_effect": "returns_element"
+    },
+    {
+      "qualified_name": "builtins.max",
+      "callback_kwarg_names": ["key"],
+      "container_effect": "returns_element"
+    },
+    {
+      "qualified_name": "builtins.list.sort",
+      "callback_kwarg_names": ["key"],
+      "container_effect": "mutates_self"
+    },
+    {
+      "qualified_name": "functools.reduce",
+      "callback_arg_positions": [0],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "atexit.register",
+      "callback_arg_positions": [0],
+      "container_effect": "registers_callback"
+    },
+    {
+      "qualified_name": "threading.Thread",
+      "callback_kwarg_names": ["target"],
+      "container_effect": "spawns_callback"
+    },
+    {
+      "qualified_name": "multiprocessing.Process",
+      "callback_kwarg_names": ["target"],
+      "container_effect": "spawns_callback"
+    },
+    {
+      "qualified_name": "concurrent.futures.Executor.submit",
+      "callback_arg_positions": [0],
+      "container_effect": "spawns_callback"
+    },
+    {
+      "qualified_name": "concurrent.futures.ThreadPoolExecutor.submit",
+      "callback_arg_positions": [0],
+      "container_effect": "spawns_callback"
+    },
+    {
+      "qualified_name": "concurrent.futures.ProcessPoolExecutor.submit",
+      "callback_arg_positions": [0],
+      "container_effect": "spawns_callback"
+    },
+    {
+      "qualified_name": "asyncio.loop.call_soon",
+      "callback_arg_positions": [0],
+      "container_effect": "spawns_callback"
+    },
+    {
+      "qualified_name": "asyncio.loop.call_later",
+      "callback_arg_positions": [1],
+      "container_effect": "spawns_callback"
+    },
+    {
+      "qualified_name": "signal.signal",
+      "callback_arg_positions": [1],
+      "container_effect": "registers_callback"
+    },
+    {
+      "qualified_name": "weakref.finalize",
+      "callback_arg_positions": [1],
+      "container_effect": "registers_callback"
+    },
+    {
+      "qualified_name": "itertools.groupby",
+      "callback_arg_positions": [1],
+      "callback_kwarg_names": ["key"],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "itertools.takewhile",
+      "callback_arg_positions": [0],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "itertools.dropwhile",
+      "callback_arg_positions": [0],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "itertools.filterfalse",
+      "callback_arg_positions": [0],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "itertools.starmap",
+      "callback_arg_positions": [0],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "itertools.accumulate",
+      "callback_arg_positions": [1],
+      "callback_kwarg_names": ["func"],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "heapq.nlargest",
+      "callback_kwarg_names": ["key"],
+      "container_effect": "returns_copy"
+    },
+    {
+      "qualified_name": "heapq.nsmallest",
+      "callback_kwarg_names": ["key"],
+      "container_effect": "returns_copy"
+    },
+    {
+      "qualified_name": "sched.scheduler.enter",
+      "callback_arg_positions": [2],
+      "callback_kwarg_names": ["action"],
+      "container_effect": "registers_callback"
+    },
+    {
+      "qualified_name": "sched.scheduler.enterabs",
+      "callback_arg_positions": [2],
+      "callback_kwarg_names": ["action"],
+      "container_effect": "registers_callback"
+    },
+    {
+      "qualified_name": "sys.addaudithook",
+      "callback_arg_positions": [0],
+      "container_effect": "registers_callback"
+    },
+    {
+      "qualified_name": "inspect.getmembers",
+      "callback_arg_positions": [1],
+      "callback_kwarg_names": ["predicate"],
+      "container_effect": "pure"
+    },
+    {
+      "qualified_name": "functools.cmp_to_key",
+      "callback_arg_positions": [0],
+      "container_effect": "pure"
+    }
+  ]
+}

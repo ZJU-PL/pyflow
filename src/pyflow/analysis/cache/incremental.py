@@ -44,6 +44,17 @@ class IncrementalCache:
     def __init__(self, db_path: str) -> None:
         self._db_path = Path(db_path)
         self._conn: Optional[sqlite3.Connection] = None
+        self._summary_cache = None
+
+    @property
+    def summary_cache(self):
+        """Return a :class:`SummaryCache` sharing this cache's SQLite database."""
+        from .summary_cache import SummaryCache
+
+        if self._summary_cache is None:
+            self._summary_cache = SummaryCache(self._db_path)
+            self._summary_cache.open()
+        return self._summary_cache
 
     # ── Context manager ──────────────────────────────────────────────────
 
@@ -86,6 +97,9 @@ class IncrementalCache:
         self._conn.commit()
 
     def close(self) -> None:
+        if self._summary_cache is not None:
+            self._summary_cache.close()
+            self._summary_cache = None
         if self._conn is not None:
             self._conn.close()
             self._conn = None

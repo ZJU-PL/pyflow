@@ -1,18 +1,44 @@
 """Module handling and utilities for PyFlow.
 
 This package provides utilities for working with Python modules, including:
-- Module definitions: Tracking module imports and definitions
-- AST transformations: Normalizing and simplifying Python AST
-- Project handling: Discovering and processing Python modules in projects
-- AST helpers: Utilities for working with Python AST
-- Scope graphs: Building scope graphs for name resolution
-- Utilities: Helper functions for module discovery and AST manipulation
-
-Key components:
-- ModuleDefinition: Represents module definitions and imports
-- Transform: AST transformers for code normalization
-- ProjectHandler: Discovers Python modules in directories
-- ASTHelper: Utilities for AST generation and manipulation
-- ScopeGraph: Builds scope graphs for name resolution
-- Util: Helper functions for module discovery and AST iteration
+- Workspace & SourceStore: Shared file discovery, encoding-aware source loading,
+  bounded read-only AST caching, and monorepo import-root discovery
+- ModuleGraph & ModuleExportTable: IR-independent static import graph, Tarjan
+  SCC ordering, relative import / re-export resolution, and Merkle dependency hashes
+- ProjectContext & StubResolver: Module and ``.pyi`` stub resolution
+- Module definitions, AST transformations, scope graphs, and helpers
 """
+
+from .module_graph import (
+    ExportBinding,
+    ImportEdge,
+    ModuleExportTable,
+    ModuleGraph,
+    extract_module_export_table,
+    resolve_relative_module,
+)
+from .workspace import (
+    DEFAULT_IGNORED_DIRS,
+    SourceRecord,
+    SourceStore,
+    Workspace,
+    discover_source_roots,
+    parse_source_cached,
+    read_python_source,
+)
+
+__all__ = [
+    "DEFAULT_IGNORED_DIRS",
+    "ExportBinding",
+    "ImportEdge",
+    "ModuleExportTable",
+    "ModuleGraph",
+    "SourceRecord",
+    "SourceStore",
+    "Workspace",
+    "discover_source_roots",
+    "extract_module_export_table",
+    "parse_source_cached",
+    "read_python_source",
+    "resolve_relative_module",
+]

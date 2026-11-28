@@ -927,6 +927,37 @@ class _CallTargetMixin:
                     elif not popped_values and not default_values:
                         out.add(UNKNOWN_VALUE)
                 else:
+                    from pyflow.model.library_models import default_library_models
+
+                    lib_model = default_library_models().lookup_callable(callee_name)
+                    if lib_model is not None and (
+                        lib_model.callback_arg_positions or lib_model.callback_kwarg_names
+                    ):
+                        modeled_callbacks: Set[AbstractValue] = set()
+                        for pos in lib_model.callback_arg_positions:
+                            if 0 <= pos < len(arg_values):
+                                modeled_callbacks.update(
+                                    v
+                                    for v in arg_values[pos]
+                                    if v.kind != UNKNOWN_KIND and self._is_callable_value(v)
+                                )
+                        for kw_name in lib_model.callback_kwarg_names:
+                            if kw_name in kwarg_values:
+                                modeled_callbacks.update(
+                                    v
+                                    for v in kwarg_values[kw_name]
+                                    if v.kind != UNKNOWN_KIND and self._is_callable_value(v)
+                                )
+                        if modeled_callbacks:
+                            self._invoke_callback_values(
+                                caller_scope=caller_scope,
+                                caller_context=caller_context,
+                                call_node=call_node,
+                                env=env,
+                                callees=callees,
+                                input_changed_scope_contexts=input_changed_scope_contexts,
+                                callback_values=modeled_callbacks,
+                            )
                     last_segment = callee_name.rsplit(".", 1)[-1]
                     if last_segment and last_segment[0].isupper():
                         out.add(make_instance(callee_name))

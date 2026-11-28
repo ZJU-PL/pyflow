@@ -14,8 +14,6 @@ uncertainty and provenance instead of reporting every typing-language error.
 from __future__ import annotations
 
 import ast
-from collections import OrderedDict
-import hashlib
 import time
 import tokenize
 from dataclasses import dataclass, field, replace
@@ -67,32 +65,16 @@ from pyflow.analysis.typeinfo.inference.models import (
     SourceSpan,
 )
 from pyflow.language.modules.project_resolution import ProjectContext
-from pyflow.language.source_compat import parse_python_source
+from pyflow.language.modules.workspace import parse_source_cached
 
 ExternalSymbolResolver = Callable[[str], ProperType | None]
 MethodKindResolver = Callable[[str], str | None]
 DeclaredReturnResolver = Callable[[str], bool | None]
 
 
-_MAX_PARSED_AST_CACHE = 32
-_PARSED_AST_CACHE: OrderedDict[tuple[bytes, int, str], ast.Module] = OrderedDict()
-
-
 def _cached_parse(source: str, filename: str) -> ast.Module:
-    """Parse a module with a small digest-keyed LRU so source strings and ASTs stay bounded."""
-    digest = hashlib.blake2b(
-        source.encode("utf-8", errors="surrogatepass"), digest_size=16
-    ).digest()
-    key = (digest, len(source), filename)
-    cached = _PARSED_AST_CACHE.get(key)
-    if cached is not None:
-        _PARSED_AST_CACHE.move_to_end(key)
-        return cached
-    tree = parse_python_source(source, filename=filename)
-    _PARSED_AST_CACHE[key] = tree
-    if len(_PARSED_AST_CACHE) > _MAX_PARSED_AST_CACHE:
-        _PARSED_AST_CACHE.popitem(last=False)
-    return tree
+    """Parse a module via PyFlow's shared bounded digest-keyed AST cache."""
+    return parse_source_cached(source, filename=filename)
 
 
 @dataclass(frozen=True)

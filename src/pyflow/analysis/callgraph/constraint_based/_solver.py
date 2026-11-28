@@ -45,13 +45,9 @@ class _FixpointSolverMixin:
         return True
 
     def _return_annotation_is_type_object(self, annotation: ast.expr | None) -> bool:
-        if not isinstance(annotation, ast.Subscript):
-            return False
-        return self._expr_qualname(annotation.value) in {
-            "Type",
-            "typing.Type",
-            "type",
-        }
+        from pyflow.language.annotations import is_type_object_annotation, parse_annotation_ast
+
+        return is_type_object_annotation(parse_annotation_ast(annotation))
 
     def _stub_return_values_from_annotation(
         self,

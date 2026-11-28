@@ -43,6 +43,7 @@ from pyflow.analysis.typeinfo.resolution.typeshed_resolver import (
     resolve_typeshed_symbol,
 )
 from pyflow.language.modules.project_resolution import ProjectContext
+from pyflow.language.modules.workspace import DEFAULT_IGNORED_DIRS
 
 _MISSING = object()
 
@@ -330,19 +331,7 @@ class ProjectTypeInferenceEngine:
             converged=converged and all(r.converged for r in results.values()),
         )
 
-    _IGNORED_NAMESPACE_DIRS = frozenset(
-        {
-            "__pycache__",
-            ".git",
-            ".hg",
-            ".svn",
-            ".venv",
-            "venv",
-            "node_modules",
-            "site-packages",
-            "dist-packages",
-        }
-    )
+    _IGNORED_NAMESPACE_DIRS = DEFAULT_IGNORED_DIRS
 
     def _load_modules(
         self,
@@ -368,7 +357,10 @@ class ProjectTypeInferenceEngine:
                 diagnostics.append(
                     InferenceDiagnostic(
                         code="project-module-limit-reached",
-                        message=f"Stopped discovering project imports after {self.max_modules} modules",
+                        message=(
+                            "Stopped discovering project imports after "
+                            f"{self.max_modules} modules"
+                        ),
                     )
                 )
                 break

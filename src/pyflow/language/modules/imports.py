@@ -60,54 +60,23 @@ def base_name_from_expr(node: ast.AST) -> Optional[str]:
     return None
 
 
-def iter_import_nodes_in_scope(nodes: Iterable[ast.AST]) -> Iterator[ast.AST]:
-    """Yield imports executed in a scope without entering nested definitions."""
+def iter_import_nodes_in_scope(
+    nodes: Iterable[ast.AST],
+    *,
+    environment=None,
+) -> Iterator[ast.AST]:
+    """Yield imports executed in a scope without entering nested definitions.
 
-    def type_checking_guard(node: ast.AST) -> Optional[bool]:
-        """Return the guard's runtime truth value when it is TYPE_CHECKING."""
-        negated = isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
-        target = node.operand if negated else node
-        is_guard = (isinstance(target, ast.Name) and target.id == "TYPE_CHECKING") or (
-            isinstance(target, ast.Attribute)
-            and target.attr == "TYPE_CHECKING"
-            and isinstance(target.value, ast.Name)
-            and target.value.id == "typing"
-        )
-        if not is_guard:
-            return None
-        # typing.TYPE_CHECKING is always False at runtime.
-        return bool(negated)
+    Uses :class:`AnalysisEnvironment` with ``type_checking=False`` by default
+    so runtime-only imports (and ``if not TYPE_CHECKING:`` branches) are
+    followed while ``if TYPE_CHECKING:`` blocks are excluded.
+    """
+    from pyflow.language.environment import AnalysisEnvironment, iter_active_imports
 
-    for node in nodes:
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            yield node
-            continue
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        if isinstance(node, ast.If):
-            guard_value = type_checking_guard(node.test)
-            if guard_value is True:
-                yield from iter_import_nodes_in_scope(node.body)
-            elif guard_value is False:
-                yield from iter_import_nodes_in_scope(node.orelse)
-            else:
-                yield from iter_import_nodes_in_scope(node.body)
-                yield from iter_import_nodes_in_scope(node.orelse)
-            continue
-        if isinstance(node, (ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)):
-            yield from iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            yield from iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            continue
-        if isinstance(node, (ast.Try, getattr(ast, "TryStar", ast.Try))):
-            yield from iter_import_nodes_in_scope(getattr(node, "body", ()) or ())
-            for handler in getattr(node, "handlers", ()) or ():
-                yield from iter_import_nodes_in_scope(getattr(handler, "body", ()) or ())
-            yield from iter_import_nodes_in_scope(getattr(node, "orelse", ()) or ())
-            yield from iter_import_nodes_in_scope(getattr(node, "finalbody", ()) or ())
-            continue
-        if hasattr(ast, "Match") and isinstance(node, ast.Match):
-            for case in getattr(node, "cases", ()) or ():
-                yield from iter_import_nodes_in_scope(getattr(case, "body", ()) or ())
+    env = (
+        environment if environment is not None else AnalysisEnvironment.current(type_checking=False)
+    )
+    yield from iter_active_imports(nodes, env, include_nested=False)
 
 
 def literal_string_list(node: ast.AST) -> Optional[list[str]]:
@@ -123,45 +92,20 @@ def literal_string_list(node: ast.AST) -> Optional[list[str]]:
     return values
 
 
-def discover_module_exports(source: str) -> list[str]:
+def discover_module_exports(source: str, *, module_name: str = "") -> list[str]:
     """Approximate the names exported by ``from module import *``."""
+    from pyflow.language.modules.module_graph import extract_module_export_table
+    from pyflow.language.modules.workspace import parse_source_cached
 
     try:
-        tree = ast.parse(source)
+        tree = parse_source_cached(source, filename=f"<{module_name or 'module'}>")
     except SyntaxError:
         return []
 
-    explicit_all: Optional[list[str]] = None
-    discovered: set[str] = set()
-    for node in getattr(tree, "body", ()) or ():
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if not node.name.startswith("_"):
-                discovered.add(node.name)
-            continue
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if not isinstance(target, ast.Name):
-                    continue
-                if target.id == "__all__":
-                    explicit_all = literal_string_list(node.value)
-                elif not target.id.startswith("_"):
-                    discovered.add(target.id)
-            continue
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                local = alias.asname or alias.name.split(".", 1)[0]
-                if not local.startswith("_"):
-                    discovered.add(local)
-            continue
-        if isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                if alias.name == "*":
-                    continue
-                local = alias.asname or alias.name
-                if not local.startswith("_"):
-                    discovered.add(local)
-
-    return explicit_all if explicit_all is not None else sorted(discovered)
+    table = extract_module_export_table(module_name, tree)
+    if table.explicit_all is not None:
+        return list(table.explicit_all)
+    return sorted(table.public_names())
 
 
 def build_module_source_map(

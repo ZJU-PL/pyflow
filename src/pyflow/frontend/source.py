@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-import tokenize
+from pyflow.language.modules.workspace import read_python_source
 
-
-def read_python_source(path: str | Path) -> str:
-    with tokenize.open(path) as stream:
-        return stream.read()
+__all__ = ["read_python_source"]

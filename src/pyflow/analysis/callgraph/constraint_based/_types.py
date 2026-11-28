@@ -88,6 +88,46 @@ class _TypeAnalysisMixin:
             return list(expr.elts)
         return [expr]
 
+    def _annotation_aliases(self, module_name: str) -> Dict[str, str]:
+        """Extract simple module-import aliases (e.g. ``t -> typing``) for annotation parsing."""
+        bindings = self.module_bindings.get(module_name)
+        if not bindings:
+            return {}
+        aliases: Dict[str, str] = {}
+        for name, values in bindings.items():
+            if len(values) == 1:
+                val = next(iter(values))
+                if val.kind == "module" and val.name in {
+                    "typing",
+                    "typing_extensions",
+                    "collections.abc",
+                    "builtins",
+                }:
+                    aliases[name] = val.name
+        return aliases
+
+    def _resolve_annotation_via_bridge(
+        self,
+        module_name: str,
+        annotation_text: str,
+    ) -> Set[AbstractValue]:
+        bridge = self._get_typeinfo_bridge() if module_name in self.modules else None
+        if bridge is None or not annotation_text:
+            return set()
+        fact = bridge.resolve_type_expression(module_name, annotation_text)
+        if fact is None:
+            return set()
+        matched_classes = self._resolve_typeinfo_class_names(
+            fact.type_names,
+            module_name=module_name,
+        )
+        if not matched_classes:
+            return set()
+        out = {make_class(cls_name) for cls_name in matched_classes}
+        if fact.is_optional:
+            out.add(NONE_VALUE)
+        return out
+
     def _annotation_element_values(
         self,
         annotation: Optional[ast.AST],
@@ -98,12 +138,99 @@ class _TypeAnalysisMixin:
         `list[C]` / `dict[str, C]` 的类型实参描述元素可能具有的类型；当容器还没有
         任何元素（值集合为空）时，这些类型就是该容器元素的值来源。
         """
-        if not isinstance(annotation, ast.Subscript):
+        from pyflow.language.annotations import (
+            extract_element_annotations,
+            parse_annotation_ast,
+        )
+
+        aliases = self._annotation_aliases(module_name)
+        parsed = parse_annotation_ast(annotation, aliases=aliases or None)
+        elem_anns = extract_element_annotations(parsed)
+        if not elem_anns:
             return set()
         out: Set[AbstractValue] = set()
-        for item in self._annotation_union_items(annotation.slice):
-            out.update(self._resolve_type_expression_values(item, module_name))
+        for elem in elem_anns:
+            out.update(self._resolve_parsed_annotation(elem, module_name))
         return out
+
+    def _resolve_parsed_annotation(
+        self,
+        ann,
+        module_name: str,
+        env: Optional[Mapping[str, Set[AbstractValue]]] = None,
+    ) -> Set[AbstractValue]:
+        from pyflow.language.annotations import (
+            GenericAnnotation,
+            LiteralAnnotation,
+            NameAnnotation,
+            NoneAnnotation,
+            TypeObjectAnnotation,
+            UnionAnnotation,
+            UnknownAnnotation,
+            unwrap_annotation_wrappers,
+        )
+
+        if ann is None:
+            return set()
+        current = unwrap_annotation_wrappers(ann)
+        if isinstance(current, NoneAnnotation):
+            return {NONE_VALUE}
+        if isinstance(current, UnionAnnotation):
+            out: Set[AbstractValue] = set()
+            for item in current.items:
+                out.update(self._resolve_parsed_annotation(item, module_name, env=env))
+            return out
+        if isinstance(current, TypeObjectAnnotation):
+            if current.inner is None:
+                return set()
+            return self._resolve_parsed_annotation(current.inner, module_name, env=env)
+        if isinstance(current, LiteralAnnotation):
+            out = set()
+            for val in current.values:
+                if val is None:
+                    out.add(NONE_VALUE)
+                elif isinstance(val, str):
+                    out.add(make_string(val))
+                elif isinstance(val, int) and not isinstance(val, bool):
+                    out.add(make_string(f"#{val}"))
+            return out
+        if isinstance(current, NameAnnotation):
+            try:
+                expr = ast.parse(current.name, mode="eval").body
+            except SyntaxError:
+                expr = None
+            if expr is not None:
+                lookup_env = env or self.module_bindings.get(module_name, {})
+                resolved = self._eval_expr_static(expr, lookup_env)
+                if resolved:
+                    return resolved
+                if lookup_env is not self.module_bindings.get(module_name, {}):
+                    resolved = self._eval_expr_static(
+                        expr, self.module_bindings.get(module_name, {})
+                    )
+                    if resolved:
+                        return resolved
+            return self._resolve_annotation_via_bridge(module_name, current.name)
+        if isinstance(current, GenericAnnotation):
+            try:
+                base_expr = ast.parse(current.base, mode="eval").body
+            except SyntaxError:
+                base_expr = None
+            if base_expr is not None:
+                lookup_env = env or self.module_bindings.get(module_name, {})
+                resolved = self._eval_expr_static(base_expr, lookup_env)
+                if resolved:
+                    return resolved
+                if lookup_env is not self.module_bindings.get(module_name, {}):
+                    resolved = self._eval_expr_static(
+                        base_expr, self.module_bindings.get(module_name, {})
+                    )
+                    if resolved:
+                        return resolved
+            return self._resolve_annotation_via_bridge(module_name, current.base)
+        if isinstance(current, UnknownAnnotation) and current.raw:
+            return self._resolve_annotation_via_bridge(module_name, current.raw)
+        return set()
 
     def _resolve_type_expression_values(
         self,
@@ -113,62 +240,50 @@ class _TypeAnalysisMixin:
     ) -> Set[AbstractValue]:
         if expr is None:
             return set()
-        if isinstance(expr, ast.Constant):
-            if expr.value is None:
-                return {NONE_VALUE}
-            if isinstance(expr.value, str):
-                try:
-                    parsed = ast.parse(expr.value, mode="eval")
-                except SyntaxError:
-                    return set()
-                return self._resolve_type_expression_values(parsed.body, module_name, env=env)
+        from pyflow.language.annotations import (
+            GenericAnnotation,
+            LiteralAnnotation,
+            NameAnnotation,
+            NoneAnnotation,
+            TypeObjectAnnotation,
+            UnionAnnotation,
+            WrappedAnnotation,
+            parse_annotation_ast,
+        )
 
-        if isinstance(expr, ast.Name) and expr.id == "None":
-            return {NONE_VALUE}
+        aliases = self._annotation_aliases(module_name)
+        parsed = parse_annotation_ast(expr, aliases=aliases or None)
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            resolved_str = self._resolve_parsed_annotation(parsed, module_name, env=env)
+            if resolved_str:
+                return resolved_str
+            return self._resolve_annotation_via_bridge(module_name, expr.value)
 
-        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.BitOr):
-            out: Set[AbstractValue] = set()
-            out.update(self._resolve_type_expression_values(expr.left, module_name, env))
-            out.update(self._resolve_type_expression_values(expr.right, module_name, env))
-            return out
-
-        if isinstance(expr, ast.Tuple):
-            out: Set[AbstractValue] = set()
-            for item in expr.elts:
-                out.update(self._resolve_type_expression_values(item, module_name, env))
-            return out
-
-        if isinstance(expr, ast.Subscript):
-            base_name = self._expr_qualname(expr.value)
-            if base_name in {"Optional", "typing.Optional"}:
-                out = {NONE_VALUE}
-                for item in self._annotation_union_items(expr.slice):
-                    out.update(self._resolve_type_expression_values(item, module_name, env))
-                return out
-            if base_name in {
-                "Union",
-                "typing.Union",
-                "Annotated",
-                "typing.Annotated",
-                "Type",
-                "typing.Type",
-                "type",
-            }:
-                out: Set[AbstractValue] = set()
-                for item in self._annotation_union_items(expr.slice):
-                    out.update(self._resolve_type_expression_values(item, module_name, env))
-                return out
-            if base_name in {"Literal", "typing.Literal"}:
-                out: Set[AbstractValue] = set()
-                for item in self._annotation_union_items(expr.slice):
-                    if isinstance(item, ast.Constant):
-                        if item.value is None:
-                            out.add(NONE_VALUE)
-                        elif isinstance(item.value, str):
-                            out.add(make_string(item.value))
-                        elif isinstance(item.value, int):
-                            out.add(make_string(f"#{item.value}"))
-                return out
+        if isinstance(
+            parsed,
+            (
+                NoneAnnotation,
+                UnionAnnotation,
+                TypeObjectAnnotation,
+                LiteralAnnotation,
+                WrappedAnnotation,
+            ),
+        ):
+            resolved_ann = self._resolve_parsed_annotation(parsed, module_name, env=env)
+            if resolved_ann and (
+                not isinstance(parsed, UnionAnnotation) or resolved_ann != {NONE_VALUE}
+            ):
+                return resolved_ann
+            if isinstance(parsed, LiteralAnnotation):
+                return resolved_ann
+            try:
+                annotation_text = ast.unparse(expr)
+            except Exception:
+                annotation_text = ""
+            bridge_vals = self._resolve_annotation_via_bridge(module_name, annotation_text)
+            if bridge_vals:
+                return resolved_ann | bridge_vals
+            return resolved_ann
 
         lookup_env = env or self.module_bindings.get(module_name, {})
         resolved = self._eval_expr_static(expr, lookup_env)
@@ -178,25 +293,15 @@ class _TypeAnalysisMixin:
             resolved = self._eval_expr_static(expr, self.module_bindings.get(module_name, {}))
             if resolved:
                 return resolved
-        bridge = self._get_typeinfo_bridge() if module_name in self.modules else None
-        if bridge is not None:
-            try:
-                annotation_text = ast.unparse(expr)
-            except Exception:
-                annotation_text = ""
-            if annotation_text:
-                fact = bridge.resolve_type_expression(module_name, annotation_text)
-                if fact is not None:
-                    matched_classes = self._resolve_typeinfo_class_names(
-                        fact.type_names,
-                        module_name=module_name,
-                    )
-                    if matched_classes:
-                        out = {make_class(cls_name) for cls_name in matched_classes}
-                        if fact.is_optional:
-                            out.add(NONE_VALUE)
-                        return out
-        return set()
+        if isinstance(parsed, (GenericAnnotation, NameAnnotation)):
+            resolved_ann = self._resolve_parsed_annotation(parsed, module_name, env=env)
+            if resolved_ann:
+                return resolved_ann
+        try:
+            annotation_text = ast.unparse(expr)
+        except Exception:
+            annotation_text = ""
+        return self._resolve_annotation_via_bridge(module_name, annotation_text)
 
     def _type_guard_refinement(
         self,
