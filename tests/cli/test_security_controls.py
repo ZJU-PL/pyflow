@@ -19,23 +19,23 @@ def _args(*argv):
 def test_every_engine_has_clean_stdout_and_common_unified_finding_fields(engine, tmp_path, capsys):
     path = tmp_path / "app.py"
     path.write_text("def run():\n    value = input()\n    eval(value)\nrun()\n")
-    code = run_security(
-        _args(path, "--engine", engine, "--format", "json", "--json-schema", "unified")
-    )
+    code = run_security(_args(path, "--engine", engine, "--format", "json"))
     captured = capsys.readouterr()
     report = json.loads(captured.out)
     assert code == 0
     assert report["engine"] == engine
-    assert report["schema_version"] == 1
-    assert set(report) == {
+    assert report["schema_version"] == 2
+    assert {
         "schema_version",
         "engine",
         "status",
+        "entry",
+        "termination_reason",
         "findings",
         "errors",
         "diagnostics",
         "statistics",
-    }
+    } <= set(report)
     assert report["findings"]
     for item in report["findings"]:
         assert item["rule_id"]
@@ -63,8 +63,6 @@ def test_ifds_class_pollution_findings_have_source_locations(tmp_path, capsys):
             "class-pollution",
             "--format",
             "json",
-            "--json-schema",
-            "unified",
         )
     )
 
@@ -106,16 +104,15 @@ def test_ifds_custom_format_honours_the_template(tmp_path, capsys):
     assert "PYFLOW-CLASS-POLLUTION|critical|3|setattr mutates a pollutable object" in output
 
 
-def test_ifds_rejects_formats_it_cannot_render(tmp_path, capsys):
+def test_ifds_supports_csv_xml_yaml_formats_uniformly(tmp_path, capsys):
     sample = tmp_path / "sample.py"
-    sample.write_text("def f():\n    pass\n", encoding="utf-8")
+    sample.write_text("def f():\n    eval(input())\nf()\n", encoding="utf-8")
 
-    code = run_security(_args(sample, "--engine", "ifds", "--format", "csv"))
-
-    captured = capsys.readouterr()
-    assert code == 2
-    assert "not supported for the ifds engine" in captured.err
-    assert captured.out == ""
+    for fmt, needle in (("csv", "rule_id"), ("xml", "<testsuite"), ("yaml", "schema_version:")):
+        code = run_security(_args(sample, "--engine", "ifds", "--format", fmt))
+        captured = capsys.readouterr()
+        assert code == 0, captured.err
+        assert needle in captured.out
 
 
 def test_cpg_reports_syntax_errors_instead_of_no_functions(tmp_path, capsys):
@@ -136,9 +133,7 @@ def test_cpg_directory_reports_syntax_errors_instead_of_silently_skipping(tmp_pa
     (tmp_path / "good.py").write_text("def run():\n    value = input()\n    eval(value)\nrun()\n")
     (tmp_path / "bad.py").write_text("def broken(:\n    pass\n", encoding="utf-8")
 
-    code = run_security(
-        _args(tmp_path, "--engine", "cpg", "--format", "json", "--json-schema", "unified")
-    )
+    code = run_security(_args(tmp_path, "--engine", "cpg", "--format", "json"))
 
     report = json.loads(capsys.readouterr().out)
     assert code == 0
@@ -155,17 +150,7 @@ def test_ast_scanner_unified_diagnostics_have_common_fields(tmp_path, capsys):
     (tmp_path / "good.py").write_text("import os\n", encoding="utf-8")
     (tmp_path / "bad.py").write_text("def broken(:\n    pass\n", encoding="utf-8")
 
-    code = run_security(
-        _args(
-            tmp_path,
-            "--engine",
-            "ast-scanner",
-            "--format",
-            "json",
-            "--json-schema",
-            "unified",
-        )
-    )
+    code = run_security(_args(tmp_path, "--engine", "ast-scanner", "--format", "json"))
 
     report = json.loads(capsys.readouterr().out)
     assert code == 0
@@ -188,8 +173,6 @@ def test_baseline_suppression_precedes_findings_gate(engine, tmp_path, capsys):
         engine,
         "--format",
         "json",
-        "--json-schema",
-        "unified",
         "--fail-on",
         "low",
         "-o",
@@ -207,12 +190,12 @@ def test_severity_confidence_skip_and_gate_controls(tmp_path, capsys):
     path = tmp_path / "app.py"
     path.write_text("assert True\n")
     assert run_security(_args(path, "--format", "json", "--fail-on", "high")) == 0
-    assert json.loads(capsys.readouterr().out)["results"]
+    assert json.loads(capsys.readouterr().out)["findings"]
     assert run_security(_args(path, "--format", "json", "--fail-on", "low")) == 1
     capsys.readouterr()
     for options in (("--severity", "high"), ("--severity", "critical"), ("--skip-rule", "B101")):
         assert run_security(_args(path, "--format", "json", "--fail-on", "low", *options)) == 0
-        assert json.loads(capsys.readouterr().out)["results"] == []
+        assert json.loads(capsys.readouterr().out)["findings"] == []
 
 
 @pytest.mark.parametrize("engine", ["ast-scanner", "ast-dataflow", "cpg"])
@@ -222,11 +205,11 @@ def test_default_exclusions_can_be_overridden(engine, tmp_path, capsys):
         path = tmp_path / folder / "sample.py"
         path.parent.mkdir(parents=True)
         path.write_text(source)
-    args = _args(tmp_path, "-r", "--engine", engine, "--format", "json", "--json-schema", "unified")
+    args = _args(tmp_path, "-r", "--engine", engine, "--format", "json")
     assert run_security(args) == 0
     report = json.loads(capsys.readouterr().out)
     assert {item["location"]["filename"] for item in report["findings"]} == {
-        str(tmp_path / "src/sample.py")
+        str((tmp_path / "src/sample.py").resolve())
     }
     args.no_default_excludes = True
     assert run_security(args) == 0
@@ -245,9 +228,9 @@ def test_exclusion_spellings_are_consistent(excluded, tmp_path, capsys):
     args = _args(tmp_path, "-r", "--no-default-excludes", "--exclude", excluded, "--format", "json")
     assert run_security(args) == 0
     report = json.loads(capsys.readouterr().out)
-    assert all("tests/app.py" not in item["filename"] for item in report["results"])
+    assert all("tests/app.py" not in item["location"]["filename"] for item in report["findings"])
     if excluded != "tests/,src":
-        assert report["results"]
+        assert report["findings"]
 
 
 def test_ast_entry_parameters_keep_user_input_kind_without_fabricating_file_or_environment_sources(
@@ -267,7 +250,7 @@ def test_ast_entry_parameters_keep_user_input_kind_without_fabricating_file_or_e
     assert run_security(args) == 0
     findings = json.loads(capsys.readouterr().out)["findings"]
     assert findings
-    assert all(item["source_kinds"] == ["user_input"] for item in findings)
+    assert all(item["debug"]["source_kinds"] == ["user_input"] for item in findings)
 
 
 def test_unknown_ast_calls_preserve_real_input_kinds_and_disclose_assumptions(tmp_path, capsys):
@@ -276,7 +259,7 @@ def test_unknown_ast_calls_preserve_real_input_kinds_and_disclose_assumptions(tm
     assert run_security(_args(path, "--engine", "ast-dataflow", "--format", "json")) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "partial"
-    assert all(item["source_kinds"] == ["user_input"] for item in report["findings"])
+    assert all(item["debug"]["source_kinds"] == ["user_input"] for item in report["findings"])
     assert any(item["code"] == "unknown-call-effect" for item in report["diagnostics"])
 
 
@@ -321,8 +304,6 @@ def test_critical_custom_taint_rule_survives_filtering_and_gates_successful_scan
         "critical",
         "--format",
         "json",
-        "--json-schema",
-        "unified",
     )
     assert run_security(args) == 1
     findings = json.loads(capsys.readouterr().out)["findings"]
@@ -340,7 +321,7 @@ def test_ifds_loads_relative_entry_once(tmp_path, monkeypatch, capsys, directory
     report = json.loads(capsys.readouterr().out)
     findings = report["findings"]
     assert len(findings) == 1
-    assert findings[0]["primary_location"]["start_line"] == 2
+    assert findings[0]["location"]["line"] == 2
 
 
 def test_ifds_default_time_budget_and_config_override(tmp_path):
@@ -367,13 +348,19 @@ def test_cpg_total_budget_stops_before_remaining_targets(tmp_path, monkeypatch):
     assert report["diagnostics"][0]["code"] == "cpg-total-time-budget"
 
 
-def test_ast_dataflow_text_groups_repeated_unknown_call_diagnostics(tmp_path, capsys):
+def test_ast_dataflow_text_hides_precision_diagnostics_by_default_and_groups_in_verbose(
+    tmp_path, capsys
+):
     sample = tmp_path / "app.py"
     sample.write_text("def f():\n    unknown()\n    unknown()\n")
     assert run_security(_args(sample, "--engine", "ast-dataflow")) == 0
-    output = capsys.readouterr().out
-    assert output.count("[unknown-call-effect]") == 1
-    assert "(2 occurrences)" in output
+    default_out = capsys.readouterr().out
+    assert "[unknown-call-effect]" not in default_out
+
+    assert run_security(_args(sample, "--engine", "ast-dataflow", "--verbose")) == 0
+    verbose_out = capsys.readouterr().out
+    assert verbose_out.count("[unknown-call-effect]") == 1
+    assert "(2 occurrences)" in verbose_out
 
 
 def test_ast_time_budget_reports_partial_in_json(tmp_path, monkeypatch, capsys):

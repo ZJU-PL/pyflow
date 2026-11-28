@@ -20,8 +20,6 @@ def scan(target, capsys, engine, *options):
             engine,
             "--format",
             "json",
-            "--json-schema",
-            "unified",
             *options,
         ]
     )
@@ -54,7 +52,7 @@ def test_ifds_resolves_sql_cursor_from_local_factory_wrapper(tmp_path, capsys, f
     path.write_text(prefix + "    c.execute(f\"SELECT '{query}'\")\n")
     code, report = scan(path, capsys, "ifds")
     assert code == 0
-    assert {(item["properties"]["function"], item["cwe"]) for item in report["findings"]} == {
+    assert {(item["procedure"], item["cwe"]) for item in report["findings"]} == {
         ("handler", "CWE-89")
     }
 
@@ -225,7 +223,7 @@ def test_ifds_import_aliases_and_unrelated_leaf_names(tmp_path, capsys):
         (10, "CWE-502"),
     }
     assert all(f["rule_title"] for f in report["findings"])
-    assert all(f["properties"]["function"] == "handler" for f in report["findings"])
+    assert all(f["procedure"] == "handler" for f in report["findings"])
 
 
 @pytest.mark.parametrize("engine", ["ast-dataflow", "ifds"])

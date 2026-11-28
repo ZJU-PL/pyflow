@@ -122,12 +122,13 @@ def main():
         payload = json.loads(out)
         assert payload["entry"] == str(target)
         assert payload["diagnostics"] == []
-        assert payload["findings"][0]["tainted_arguments"] == ["b"]
+        assert payload["findings"][0]["debug"]["tainted_arguments"] == ["b"]
     else:
-        assert f"Entry: {target}" in out
+        assert "Entry: sample.py" in out
         assert "Diagnostics:" not in out
         assert "Function: sinkproc" in out
-        assert "Sink: sink  Tainted args: b" in out
+        assert "Sink: sink" in out
+        assert "Tainted args:" not in out
 
 
 def test_security_cli_falls_back_to_tainted_argument_labels(monkeypatch, tmp_path, capsys):
@@ -169,7 +170,7 @@ def main():
 
     assert exit_code == 0
     assert payload["diagnostics"] == []
-    assert payload["findings"][0]["tainted_arguments"] == ["source()"]
+    assert payload["findings"][0]["debug"]["tainted_arguments"] == ["source()"]
 
 
 def test_security_cli_forwards_dynamic_model_options(monkeypatch, tmp_path, capsys):
@@ -312,8 +313,8 @@ def test_security_cli_forwards_typestate_protocol_options(monkeypatch, tmp_path,
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert payload["analysis"] == "typestate"
-    assert payload["findings"][0]["protocol"] == "lock"
+    assert payload["debug"]["analysis"] == "typestate"
+    assert payload["findings"][0]["debug"]["protocol"] == "lock"
     assert captured["enabled_protocols"] == ["python-builtins", "lock"]
     assert captured["registry_frameworks"] == ["network"]
     assert captured["collection_mutator_names"] == ["append_safe"]
@@ -349,7 +350,9 @@ def test_security_cli_emits_session_diagnostics(monkeypatch, tmp_path, capsys, o
     assert exit_code == 0
     if output_format == "json":
         payload = json.loads(out)
-        assert payload["diagnostics"] == ["IFDS session fell back to best-effort mode"]
+        assert [d["message"] for d in payload["diagnostics"]] == [
+            "IFDS session fell back to best-effort mode"
+        ]
     else:
         assert "Diagnostics:" in out
         assert "IFDS session fell back to best-effort mode" in out

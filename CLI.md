@@ -366,8 +366,7 @@ Unified security analysis frontend. Dispatches to one of four engines depending 
 - ``--sources NAME [NAME ...]`` — taint source function names
 - ``--sinks NAME [NAME ...]`` — taint sink function names
 - ``--sanitizers NAME [NAME ...]`` — taint sanitizer function names
-- ``--format``: ``text``, ``json``, ``sarif``, ``csv``, ``custom``, ``html``, ``screen``, ``xml``, or ``yaml`` (IFDS/CPG support text, JSON, and SARIF)
-- ``--json-schema {legacy,unified}``: Keep existing engine-specific JSON by default, or use a common versioned envelope with ``findings``, lowercase severity/confidence, location, errors, diagnostics, and statistics
+- ``--format``: ``text``, ``screen``, ``markdown``, ``html``, ``json``, ``sarif``, ``custom``, ``csv``, ``xml``, or ``yaml`` — every format works uniformly across all four engines. ``--format json`` always emits the canonical schema-v2 envelope with ``findings``, lowercase severity/confidence, ``location``, ``code_snippet``, ``cwe``/``cwe_url``, ``suggestion``, ``code_flow``, ``errors``, ``diagnostics``, and ``statistics`` (engine/debug details live under ``finding.debug`` and are hidden in text/markdown/HTML unless ``--verbose``).
 - ``--output``, ``-o FILE``
 - ``--recursive``, ``-r``: Directory targets are scanned recursively automatically by every scanning engine; IFDS continues to discover/select entry files
 - ``--exclude PATH1,PATH2,...``: Repeatable, supports multiple paths and globs; ``tests``, ``./tests``, ``tests/``, and absolute paths work
@@ -442,9 +441,9 @@ Example project configuration (CLI arguments override configured values):
 
 ```bash
 pyflow security project/ -r --severity medium --skip-rule A105 --fail-on high
-pyflow security project/ -r --format json --json-schema unified > report.json
-pyflow security project/ -r --baseline report.json --format json --json-schema unified
-pyflow callgraph library/ -r
+pyflow security project/ -r --format json > report.json
+pyflow security project/ -r --baseline report.json --format json
+pyflow callgraph library/ -r --format json --json-schema unified
 pyflow capabilities library/ -r --format json
 ```
 

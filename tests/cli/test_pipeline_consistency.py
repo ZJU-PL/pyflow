@@ -27,7 +27,7 @@ def test_directory_targets_discover_nested_sources_without_recursive_flag(engine
     path = tmp_path / "src" / "app.py"
     path.parent.mkdir()
     path.write_text("def run():\n    value = input()\n    eval(value)\nrun()\n")
-    values = [tmp_path, "--engine", engine, "--format", "json", "--json-schema", "unified"]
+    values = [tmp_path, "--engine", engine, "--format", "json"]
     if engine == "ifds":
         values += ["--entry", "src/app.py"]
     args = _security(*values)
@@ -112,20 +112,19 @@ def test_pycg_json_uses_public_graph_renderer(monkeypatch, tmp_path, capsys):
     assert "PyCG progress" in captured.err
 
 
-@pytest.mark.parametrize("schema", ["legacy", "unified"])
-def test_debug_mode_overlap_is_folded_with_all_rule_evidence(schema, tmp_path, capsys):
+def test_debug_mode_overlap_is_folded_with_all_rule_evidence(tmp_path, capsys):
     source = tmp_path / "app.py"
     source.write_text("app.run(debug=True)\n")
-    args = _security(source, "--format", "json", "--json-schema", schema, "--fail-on", "high")
+    args = _security(source, "--format", "json", "--fail-on", "high")
     assert run_security(args) == 1
     report = json.loads(capsys.readouterr().out)
-    findings = report.get("findings", report.get("results"))
+    findings = report["findings"]
     assert len(findings) == 1
-    finding = findings[0].get("properties", findings[0])
-    assert finding["test_id"] == "F101"
-    assert finding["issue_severity"] == "HIGH"
-    assert {item["rule_id"] for item in finding["related_rules"]} == {"B202", "F101", "F109"}
-    totals = report.get("statistics", report.get("metrics", {}).get("_totals"))
+    finding = findings[0]
+    assert finding["rule_id"] == "F101"
+    assert finding["severity"] == "high"
+    assert set(finding["debug"]["related_rules"]) == {"B202", "F109"}
+    totals = report["statistics"]
     assert totals["SEVERITY.HIGH"] == 1
     assert totals["SEVERITY.MEDIUM"] == 0
     assert totals["raw_findings"] == 3
@@ -135,7 +134,7 @@ def test_debug_mode_overlap_is_folded_with_all_rule_evidence(schema, tmp_path, c
     args.baseline = baseline
     assert run_security(args) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report.get("findings", report.get("results")) == []
+    assert report["findings"] == []
 
 
 def test_raw_rule_output_and_single_rule_suppression_are_preserved(tmp_path, capsys):
@@ -143,7 +142,7 @@ def test_raw_rule_output_and_single_rule_suppression_are_preserved(tmp_path, cap
     source.write_text("app.run(debug=True)\n")
     args = _security(source, "--format", "json", "--no-deduplicate")
     assert run_security(args) == 0
-    assert {item["test_id"] for item in json.loads(capsys.readouterr().out)["results"]} == {
+    assert {item["rule_id"] for item in json.loads(capsys.readouterr().out)["findings"]} == {
         "B202",
         "F101",
         "F109",
@@ -151,36 +150,37 @@ def test_raw_rule_output_and_single_rule_suppression_are_preserved(tmp_path, cap
     args.no_deduplicate = False
     args.skip_rule = [["F101"]]
     assert run_security(args) == 0
-    result = json.loads(capsys.readouterr().out)["results"]
-    assert len(result) == 1 and result[0]["test_id"] == "F109"
-    assert {item["rule_id"] for item in result[0]["related_rules"]} == {"B202", "F109"}
+    result = json.loads(capsys.readouterr().out)["findings"]
+    assert len(result) == 1 and result[0]["rule_id"] == "F109"
+    assert set(result[0]["debug"]["related_rules"]) == {"B202"}
 
 
 def test_different_nodes_and_unrelated_vulnerabilities_on_one_line_are_kept(tmp_path, capsys):
     source = tmp_path / "app.py"
     source.write_text("app.run(debug=True); app.run(debug=True); eval(value)\n")
     assert run_security(_security(source, "--format", "json")) == 0
-    results = json.loads(capsys.readouterr().out)["results"]
-    debug = [item for item in results if item.get("vulnerability_family") == "flask-debug-mode"]
+    results = json.loads(capsys.readouterr().out)["findings"]
+    debug = [
+        item
+        for item in results
+        if item.get("debug", {}).get("vulnerability_family") == "flask-debug-mode"
+    ]
     assert len(debug) == 2
-    assert debug[0]["col_offset"] != debug[1]["col_offset"]
-    assert any(item["test_id"] not in {"B202", "F101", "F109"} for item in results)
+    assert debug[0]["location"]["column"] != debug[1]["location"]["column"]
+    assert any(item["rule_id"] not in {"B202", "F101", "F109"} for item in results)
 
 
 @pytest.mark.parametrize("format", ["text", "sarif"])
-def test_folded_rules_are_visible_in_text_and_sarif(format, tmp_path, capsys):
+def test_folded_rules_are_visible_in_verbose_text_and_sarif_debug(format, tmp_path, capsys):
     source = tmp_path / "app.py"
     source.write_text("app.run(debug=True)\n")
-    assert run_security(_security(source, "--format", format)) == 0
+    extra = ["--verbose"] if format == "text" else []
+    assert run_security(_security(source, "--format", format, *extra)) == 0
     text = capsys.readouterr().out
     if format == "text":
         assert "Related rules: B202, F109" in text
-        assert text.count(">> Issue:") == 1
+        assert text.count("[1] [F101]") == 1
     else:
         results = json.loads(text)["runs"][0]["results"]
         assert len(results) == 1
-        assert {item["rule_id"] for item in results[0]["properties"]["relatedRules"]} == {
-            "B202",
-            "F101",
-            "F109",
-        }
+        assert set(results[0]["properties"]["debug"]["related_rules"]) == {"B202", "F109"}

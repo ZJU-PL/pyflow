@@ -1,203 +1,68 @@
-"""CLI output stream selection for the shared checker formatters."""
+"""CLI output dispatch over the canonical :class:`SecurityReport`."""
+
+from __future__ import annotations
 
 import json
-import os
-import string
+from pathlib import Path
 import sys
 
-from pyflow.checker.formatters.security import (
-    security_html,
-    security_json,
-    security_markdown,
-    security_sarif,
-    security_text,
+from pyflow.checker.formatters.report_model import SecurityReport, build_security_report
+from pyflow.checker.formatters.report_render import (
+    render_bug_report_csv,
+    render_bug_report_custom,
+    render_bug_report_html,
+    render_bug_report_markdown,
+    render_bug_report_text,
+    render_bug_report_xml,
+    render_bug_report_yaml,
 )
+from pyflow.checker.formatters.sarif import render_sarif
 
 
-def _custom_report(engine: str, result, args, output) -> None:
-    """Render dict-based engine findings through the user's custom template."""
-    from pyflow.checker.formatters.custom import SafeMapper
-    from .filters import unified_report
-
-    template = getattr(args, "custom_template", None) or (
-        "{abspath}:{line}: {test_id} [{severity}] {msg}"
-    )
-    try:
-        parsed = list(string.Formatter().parse(template))
-        string.Formatter().vformat(template, (), SafeMapper(line=0))
-    except ValueError as error:
-        raise ValueError(f"Template is not in valid format: {error}") from error
-    if not any(field_name is not None for _, field_name, _, _ in parsed):
-        raise ValueError("No tags were found in the template. Are you missing '{}'?")
-
-    document = unified_report(engine, result)
-    for finding in document.get("findings", ()):
-        location = finding.get("location") or {}
-        filename = location.get("filename") or ""
-        line = location.get("line") or 0
-        values = SafeMapper(
-            abspath=os.path.abspath(filename) if filename else "",
-            relpath=os.path.relpath(filename) if filename else "",
-            line=line,
-            col=0,
-            end_col=0,
-            test_id=finding.get("rule_id") or "",
-            severity=finding.get("severity") or "",
-            msg=finding.get("message") or "",
-            confidence=finding.get("confidence") or "",
-            range=line,
-            cwe=finding.get("cwe") or "",
-        )
-        output.write(template.format_map(values) + "\n")
+def _resolve_cli_base_dir(args) -> Path | None:
+    targets = getattr(args, "targets", None) or ()
+    if len(targets) != 1:
+        return None
+    target_path = Path(targets[0])
+    return target_path if target_path.is_dir() else target_path.parent
 
 
 def _output_results(engine: str, result, args) -> None:
-    """Write analysis results in the requested format."""
+    """Write a canonical :class:`SecurityReport` in any supported CLI format."""
+    report = result if isinstance(result, SecurityReport) else build_security_report(engine, result)
     fmt = getattr(args, "format", "text")
-    if fmt == "json" and getattr(args, "json_schema", "legacy") == "unified":
-        from .filters import unified_report
+    verbose = bool(getattr(args, "verbose", False))
+    base_dir = _resolve_cli_base_dir(args)
+    artifact_uri = str(args.targets[0]) if getattr(args, "targets", None) else ""
 
-        document = unified_report(engine, result)
-        if getattr(args, "output", None):
-            args.output.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-        else:
-            json.dump(document, sys.stdout, indent=2)
-            sys.stdout.write("\n")
-        return
-
-    # Pattern scanning and AST-only legacy formats use checker formatters,
-    # which need a manager object. Rich bug-report formats (text, screen,
-    # markdown, html, json, sarif, custom) work uniformly across ast-dataflow,
-    # ifds, and cpg (and markdown works for ast-scanner as well).
-    if (
-        (engine == "ast-scanner" and fmt != "markdown")
-        or (
-            engine == "ast-dataflow"
-            and fmt not in ("text", "screen", "markdown", "html", "json", "sarif")
+    if fmt == "text":
+        rendered = render_bug_report_text(report, color=False, verbose=verbose, base_dir=base_dir)
+    elif fmt == "screen":
+        rendered = render_bug_report_text(report, color=True, verbose=verbose, base_dir=base_dir)
+    elif fmt == "markdown":
+        rendered = render_bug_report_markdown(report, base_dir=base_dir, verbose=verbose)
+    elif fmt == "html":
+        rendered = render_bug_report_html(report, base_dir=base_dir, verbose=verbose)
+    elif fmt == "json":
+        rendered = json.dumps(report.to_dict(), indent=2)
+    elif fmt == "sarif":
+        rendered = json.dumps(render_sarif(report, artifact_uri=artifact_uri), indent=2)
+    elif fmt == "custom":
+        rendered = render_bug_report_custom(report, template=getattr(args, "custom_template", None))
+    elif fmt == "csv":
+        rendered = render_bug_report_csv(report)
+    elif fmt == "xml":
+        rendered = render_bug_report_xml(report)
+    elif fmt == "yaml":
+        rendered = render_bug_report_yaml(report)
+    else:
+        raise ValueError(
+            f"Format '{fmt}' is not supported; "
+            "use one of: text, screen, markdown, html, json, sarif, custom, csv, xml, yaml"
         )
-    ) and fmt in (
-        "csv",
-        "html",
-        "screen",
-        "text",
-        "xml",
-        "yaml",
-        "json",
-        "sarif",
-        "custom",
-    ):
-        _output_via_formatter(engine, result, args, fmt)
-        return
 
-    # Unified report rendering for ast-dataflow / ifds / cpg (and ast-scanner markdown)
-    out_file = None
-    try:
-        if getattr(args, "output", None):
-            out_file = open(args.output, "w", encoding="utf-8")
-        output = out_file or sys.stdout
-        verbose = bool(getattr(args, "verbose", False))
-        base_dir = None
-        targets = getattr(args, "targets", None) or ()
-        if len(targets) == 1:
-            from pathlib import Path
-
-            target_path = Path(targets[0])
-            base_dir = target_path if target_path.is_dir() else target_path.parent
-
-        if fmt == "text":
-            output.write(
-                security_text(engine, result, color=False, verbose=verbose, base_dir=base_dir)
-            )
-            output.write("\n")
-        elif fmt == "screen":
-            output.write(
-                security_text(engine, result, color=True, verbose=verbose, base_dir=base_dir)
-            )
-            output.write("\n")
-        elif fmt == "markdown":
-            output.write(security_markdown(engine, result, base_dir=base_dir))
-            output.write("\n")
-        elif fmt == "html":
-            output.write(security_html(engine, result, base_dir=base_dir))
-            output.write("\n")
-        elif fmt == "json":
-            json.dump(security_json(engine, result), output, indent=2)
-            output.write("\n")
-        elif fmt == "sarif":
-            sarif_doc = security_sarif(
-                engine,
-                result,
-                artifact_uri=str(args.targets[0]) if getattr(args, "targets", None) else "",
-            )
-            json.dump(sarif_doc, output, indent=2)
-            output.write("\n")
-        elif fmt == "custom":
-            _custom_report(engine, result, args, output)
-        else:
-            raise ValueError(
-                f"Format '{fmt}' is not supported for the {engine} engine; "
-                "use one of: text, screen, markdown, html, json, sarif, custom"
-            )
-    finally:
-        if out_file:
-            out_file.close()
-
-
-def _output_via_formatter(engine: str, result, args, fmt: str) -> None:
-    """Route scanner-based results through the appropriate checker formatter."""
-    from pyflow.checker.common import constants as b_constants
-
-    sev_level = b_constants.LOW
-    conf_level = b_constants.LOW
-    lines = -1
-
-    out_file = None
-    try:
-        if getattr(args, "output", None):
-            out_file = open(
-                args.output,
-                "wb" if fmt in ("xml",) else "w",
-                encoding="utf-8" if fmt != "xml" else None,
-            )
-        fileobj = out_file or sys.stdout
-
-        if fmt == "json":
-            from pyflow.checker.formatters import json as json_fmt
-
-            json_fmt.report(result, fileobj, sev_level, conf_level, lines)
-        elif fmt == "sarif":
-            from pyflow.checker.formatters import sarif as sarif_fmt
-
-            sarif_fmt.report(result, fileobj, sev_level, conf_level, lines)
-        elif fmt == "text":
-            from pyflow.checker.formatters import text as text_fmt
-
-            text_fmt.report(result, fileobj, sev_level, conf_level, lines)
-        elif fmt == "csv":
-            from pyflow.checker.formatters import csv as csv_fmt
-
-            csv_fmt.report(result, fileobj, sev_level, conf_level, lines)
-        elif fmt == "html":
-            from pyflow.checker.formatters import html as html_fmt
-
-            html_fmt.report(result, fileobj, sev_level, conf_level, lines)
-        elif fmt == "screen":
-            from pyflow.checker.formatters import screen as screen_fmt
-
-            screen_fmt.report(result, fileobj, sev_level, conf_level, lines)
-        elif fmt == "xml":
-            from pyflow.checker.formatters import xml as xml_fmt
-
-            xml_fmt.report(result, fileobj, sev_level, conf_level, lines)
-        elif fmt == "yaml":
-            from pyflow.checker.formatters import yaml as yaml_fmt
-
-            yaml_fmt.report(result, fileobj, sev_level, conf_level, lines)
-        elif fmt == "custom":
-            from pyflow.checker.formatters import custom as custom_fmt
-
-            template = getattr(args, "custom_template", None)
-            custom_fmt.report(result, fileobj, sev_level, conf_level, template=template)
-    finally:
-        if out_file:
-            out_file.close()
+    out_path = getattr(args, "output", None)
+    if out_path:
+        Path(out_path).write_text(rendered + "\n", encoding="utf-8")
+    else:
+        sys.stdout.write(rendered + "\n")

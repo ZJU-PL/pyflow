@@ -285,12 +285,6 @@ def add_security_parser(subparsers):
         help="Treat AST-dataflow/IFDS library entry parameters as these source kinds (repeatable; disabled by default; declared HTTP handlers remain sources)",
     )
     p.add_argument(
-        "--json-schema",
-        choices=("legacy", "unified"),
-        default="legacy",
-        help="JSON report schema (default: legacy for compatibility; unified has common finding fields)",
-    )
-    p.add_argument(
         "--format",
         choices=[
             "text",
@@ -306,8 +300,8 @@ def add_security_parser(subparsers):
         ],
         default="text",
         help=(
-            "Output format (text, screen, markdown, html, json, sarif, and custom "
-            "work with every engine; csv, xml, and yaml are AST-engine only)"
+            "Output format (text, screen, markdown, html, json, sarif, custom, "
+            "csv, xml, and yaml work uniformly across every engine)"
         ),
     )
     p.add_argument(

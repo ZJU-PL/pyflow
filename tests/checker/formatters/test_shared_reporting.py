@@ -18,7 +18,7 @@ from pyflow.checker.formatters import json as json_formatter
 from pyflow.checker.formatters import sarif as sarif_formatter
 from pyflow.checker.formatters import yaml as yaml_formatter
 from pyflow.checker.formatters.cpg import finding_to_sarif
-from pyflow.checker.formatters.security import ast_dataflow_report, security_sarif
+from pyflow.checker.formatters.security import security_json, security_sarif
 
 
 @pytest.mark.parametrize(
@@ -54,7 +54,7 @@ def test_shared_diagnostics_preserve_source_and_precision_information():
         "Incomplete graph", "graph-partial", True, "f", "graph", "sample.py", 3, "call"
     )
     result = ASTDataflowTaintResult((), status="partial", diagnostics=(diagnostic,))
-    report = ast_dataflow_report(SimpleNamespace(analysis_result=result))
+    report = security_json("ast-dataflow", SimpleNamespace(analysis_result=result))
     serialized = report["diagnostics"][0]
     assert serialized["filename"] == "sample.py"
     assert serialized["line"] == 3
@@ -64,7 +64,7 @@ def test_shared_diagnostics_preserve_source_and_precision_information():
 
 
 def test_missing_analysis_result_is_a_failed_report():
-    report = ast_dataflow_report(SimpleNamespace())
+    report = security_json("ast-dataflow", SimpleNamespace())
     assert report["status"] == "failed"
     assert report["findings"] == []
     assert report["diagnostics"][0]["code"] == "ast-dataflow-missing-result"

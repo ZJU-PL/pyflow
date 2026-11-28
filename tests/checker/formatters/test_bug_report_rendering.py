@@ -305,20 +305,10 @@ def main():
         encoding="utf-8",
     )
 
-    code = run_security(
-        _security_args(
-            app,
-            "--engine",
-            "ast-dataflow",
-            "--format",
-            "json",
-            "--json-schema",
-            "unified",
-        )
-    )
+    code = run_security(_security_args(app, "--engine", "ast-dataflow", "--format", "json"))
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["findings"]
     first = payload["findings"][0]
     assert "suggestion" in first
@@ -340,7 +330,7 @@ def test_html_report_escapes_untrusted_text_against_xss():
             }
         ],
     }
-    rendered = render_bug_report_html("ifds", malicious)
+    rendered = render_bug_report_html(malicious, engine="ifds")
     assert "<script>evil()" not in rendered
     assert "<script>steal()" not in rendered
     assert 'onerror="alert(1)"' not in rendered
@@ -427,7 +417,10 @@ if __name__ == "__main__":
         assert "sqlite3.connect" not in out
     if engine == "cpg":
         # Unrelated conn.cursor() unknown-call-effect in run_sql must not downgrade run_cmd
-        assert "90%" in out and "(HIGH)" in out
+        assert "Confidence: high" in out
+        # Engine-internal Notes / precision diagnostics are hidden by default
+        assert "Notes:" not in out
+        assert "[cpg-unknown-call-effect]" not in out
         # Caret highlights cur.execute(query) rather than 'return'
         assert (
             "       > 10 |     return cur.execute(query)\n            |            ^~~~~~~" in out
@@ -437,6 +430,8 @@ if __name__ == "__main__":
         assert "Calls run_cmd()" in out
         assert "Enters run_cmd()" in out
         assert "Assigns tainted value to 'cmd'" in out
+        assert "Related rules:" not in out
+        assert "Notes:" not in out
 
 
 def test_taint_rule_titles_do_not_duplicate_sink_suffix():
@@ -453,7 +448,8 @@ def test_taint_rule_titles_do_not_duplicate_sink_suffix():
 
 
 def test_rule_pack_folding_merges_cwe_less_duplicates_and_ranks_stdlib_and_sink_packs():
-    from pyflow.cli.security.filters import _fold_taint_findings
+    from pyflow.checker.formatters.report_model import build_security_report
+    from pyflow.cli.security.filters import _fold_findings
     from pyflow.util.cwe import default_cwe_for_rule_id
 
     assert default_cwe_for_rule_id("PYFLOW-NETWORK-XSS") == "CWE-79"
@@ -462,75 +458,93 @@ def test_rule_pack_folding_merges_cwe_less_duplicates_and_ranks_stdlib_and_sink_
     assert default_cwe_for_rule_id("PYFLOW-CLI-DANGEROUS") is None
 
     # Same sink line reported by both PYFLOW-FLASK-XSS (CWE-79) and PYFLOW-NETWORK-XSS (no cwe)
-    folded_xss = _fold_taint_findings(
-        [
-            {
-                "rule_id": "PYFLOW-NETWORK-XSS",
-                "rule_title": "Untrusted data reaches xss sink",
-                "severity": "high",
-                "sink_name": "flask.make_response",
-                "primary_location": {"uri": "app/main.py", "start_line": 50},
-            },
-            {
-                "rule_id": "PYFLOW-FLASK-XSS",
-                "rule_title": "Untrusted data reaches xss sink",
-                "severity": "high",
-                "cwe": "CWE-79",
-                "sink_name": "flask.make_response",
-                "primary_location": {"uri": "app/main.py", "start_line": 50},
-            },
-        ]
+    xss_doc = build_security_report(
+        "ifds",
+        {
+            "status": "complete",
+            "findings": [
+                {
+                    "rule_id": "PYFLOW-NETWORK-XSS",
+                    "rule_title": "Untrusted data reaches xss sink",
+                    "severity": "high",
+                    "sink_name": "flask.make_response",
+                    "primary_location": {"uri": "app/main.py", "start_line": 50},
+                },
+                {
+                    "rule_id": "PYFLOW-FLASK-XSS",
+                    "rule_title": "Untrusted data reaches xss sink",
+                    "severity": "high",
+                    "cwe": "CWE-79",
+                    "sink_name": "flask.make_response",
+                    "primary_location": {"uri": "app/main.py", "start_line": 50},
+                },
+            ],
+        },
     )
+    folded_xss = _fold_findings(xss_doc.findings)
     assert len(folded_xss) == 1
-    assert folded_xss[0]["rule_id"] == "PYFLOW-FLASK-XSS"
+    assert folded_xss[0].rule_id == "PYFLOW-FLASK-XSS"
+    assert folded_xss[0].related_rules == ("PYFLOW-NETWORK-XSS",)
 
     # Generic PYFLOW-NETWORK-SSRF (no cwe) folds with PYFLOW-FASTAPI-SSRF (CWE-918) and wins
-    folded_ssrf = _fold_taint_findings(
-        [
-            {
-                "rule_id": "PYFLOW-FASTAPI-SSRF",
-                "rule_title": "Untrusted data reaches ssrf sink",
-                "severity": "high",
-                "cwe": "CWE-918",
-                "sink_name": "urllib.request.urlopen",
-                "primary_location": {"uri": "net.py", "start_line": 12},
-            },
-            {
-                "rule_id": "PYFLOW-NETWORK-SSRF",
-                "rule_title": "Untrusted data reaches ssrf sink",
-                "severity": "high",
-                "sink_name": "urllib.request.urlopen",
-                "primary_location": {"uri": "net.py", "start_line": 12},
-            },
-        ]
+    ssrf_doc = build_security_report(
+        "ifds",
+        {
+            "status": "complete",
+            "findings": [
+                {
+                    "rule_id": "PYFLOW-FASTAPI-SSRF",
+                    "rule_title": "Untrusted data reaches ssrf sink",
+                    "severity": "high",
+                    "cwe": "CWE-918",
+                    "sink_name": "urllib.request.urlopen",
+                    "primary_location": {"uri": "net.py", "start_line": 12},
+                },
+                {
+                    "rule_id": "PYFLOW-NETWORK-SSRF",
+                    "rule_title": "Untrusted data reaches ssrf sink",
+                    "severity": "high",
+                    "sink_name": "urllib.request.urlopen",
+                    "primary_location": {"uri": "net.py", "start_line": 12},
+                },
+            ],
+        },
     )
+    folded_ssrf = _fold_findings(ssrf_doc.findings)
     assert len(folded_ssrf) == 1
-    assert folded_ssrf[0]["rule_id"] == "PYFLOW-NETWORK-SSRF"
-    rendered = security_text("ifds", {"status": "complete", "findings": folded_ssrf})
+    assert folded_ssrf[0].rule_id == "PYFLOW-NETWORK-SSRF"
+    rendered = security_text(
+        "ifds", build_security_report("ifds", {"findings": [f.to_dict() for f in folded_ssrf]})
+    )
     assert "(CWE-918)" in rendered
     assert "Suggestion:" in rendered
 
     # PYFLOW-STDLIB-DANGEROUS beats PYFLOW-NETWORK-DANGEROUS on generic sinks
-    folded_generic = _fold_taint_findings(
-        [
-            {
-                "rule_id": "PYFLOW-NETWORK-DANGEROUS",
-                "rule_title": "Untrusted data reaches dangerous sink",
-                "severity": "high",
-                "sink_name": "logger.info",
-                "primary_location": {"uri": "app.py", "start_line": 8},
-            },
-            {
-                "rule_id": "PYFLOW-STDLIB-DANGEROUS",
-                "rule_title": "Untrusted data reaches dangerous sink",
-                "severity": "high",
-                "sink_name": "logger.info",
-                "primary_location": {"uri": "app.py", "start_line": 8},
-            },
-        ]
+    generic_doc = build_security_report(
+        "ifds",
+        {
+            "status": "complete",
+            "findings": [
+                {
+                    "rule_id": "PYFLOW-NETWORK-DANGEROUS",
+                    "rule_title": "Untrusted data reaches dangerous sink",
+                    "severity": "high",
+                    "sink_name": "logger.info",
+                    "primary_location": {"uri": "app.py", "start_line": 8},
+                },
+                {
+                    "rule_id": "PYFLOW-STDLIB-DANGEROUS",
+                    "rule_title": "Untrusted data reaches dangerous sink",
+                    "severity": "high",
+                    "sink_name": "logger.info",
+                    "primary_location": {"uri": "app.py", "start_line": 8},
+                },
+            ],
+        },
     )
+    folded_generic = _fold_findings(generic_doc.findings)
     assert len(folded_generic) == 1
-    assert folded_generic[0]["rule_id"] == "PYFLOW-STDLIB-DANGEROUS"
+    assert folded_generic[0].rule_id == "PYFLOW-STDLIB-DANGEROUS"
 
 
 def test_cpg_trace_filters_synthetic_blocks_temps_intrinsics_and_preserves_terminal_sink(
@@ -661,9 +675,9 @@ def test_diagnostics_summarization_relativization_and_comment_only_init_skip(tmp
         {"status": "partial", "findings": [], "diagnostics": diags},
         base_dir=tmp_path,
     )
-    assert "8 unmodeled calls" in compact
-    assert "1 loops exceeded convergence-reporting threshold" in compact
-    assert "Re-run with --verbose" in compact
+    # Engine-internal precision diagnostics are hidden by default; real errors remain visible
+    assert "cpg-unknown-call-effect" not in compact
+    assert "cpg-loop-convergence-threshold" not in compact
     assert str(tmp_path) not in compact
     assert "empty.py" in compact
 
@@ -674,7 +688,7 @@ def test_diagnostics_summarization_relativization_and_comment_only_init_skip(tmp
         base_dir=tmp_path,
     )
     assert "helper_7" in verbose
-    assert "Re-run with --verbose" not in verbose
+    assert "cpg-loop-convergence-threshold" in verbose
 
     from pyflow.checker.formatters.report_render import _caret_span
     from pyflow.checker.ifds.reporting import _humanize_argument_label
@@ -739,13 +753,12 @@ main()
         for loc in tf_locs
     )
 
-    # 2. Unified JSON export for custom bug dashboards / IDE plugins
-    code = run_security(
-        _security_args(app, "--engine", engine, "--format", "json", "--json-schema", "unified")
-    )
+    # 2. Canonical JSON export carries user-facing tips + engine metadata under debug
+    code = run_security(_security_args(app, "--engine", engine, "--format", "json"))
     assert code == 0
-    unified = json.loads(capsys.readouterr().out)
-    item = unified["findings"][0]
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == 2
+    item = payload["findings"][0]
     assert item["cwe"] == "CWE-78"
     assert item["cwe_url"] == "https://cwe.mitre.org/data/definitions/78.html"
     assert item["suggestion"]
@@ -753,11 +766,4 @@ main()
     assert "os.system(cmd)" in item["code_snippet"]
     assert item["code_flow"]
     assert any(step.get("code_snippet") for step in item["code_flow"])
-
-    # 3. Legacy JSON export also carries suggestion and CWE metadata
-    code = run_security(_security_args(app, "--engine", engine, "--format", "json"))
-    assert code == 0
-    legacy = json.loads(capsys.readouterr().out)
-    legacy_finding = legacy["findings"][0]
-    assert legacy_finding["suggestion"]
-    assert legacy_finding["cwe"] == "CWE-78"
+    assert "debug" in item

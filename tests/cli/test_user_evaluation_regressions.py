@@ -158,7 +158,7 @@ def unrelated(worker):
         "--framework",
     )
     findings = report["findings"]
-    assert {f["sink_line"] for f in findings} == {7, 8, 9}
+    assert {f["location"]["line"] for f in findings} == {7, 8, 9}
     assert all(f["cwe"] == "CWE-89" for f in findings)
 
 
@@ -176,7 +176,7 @@ def handler():
     report = scan(tmp_path, capsys, source, "cpg")
     assert len(report["findings"]) == 1
     assert report["findings"][0]["cwe"] == "CWE-22"
-    assert report["findings"][0]["sink_line"] == 6
+    assert report["findings"][0]["location"]["line"] == 6
     raw = scan(tmp_path, capsys, source, "cpg", "--no-deduplicate")
     assert len(raw["findings"]) > 1
 
@@ -213,13 +213,13 @@ def test_cross_pack_folding_preserves_severity_and_rule_provenance(engine):
         for rule, severity in [("PACK-A", "medium"), ("PACK-B", "high")]
     ]
     result = filter_report(engine, {"findings": findings}, SimpleNamespace(), frozenset())
-    assert len(result["findings"]) == 1
-    assert result["findings"][0]["severity"] == "high"
-    assert {r["rule_id"] for r in result["findings"][0]["related_rules"]} == {"PACK-A", "PACK-B"}
+    assert len(result.findings) == 1
+    assert result.findings[0].severity == "high"
+    assert set(result.findings[0].related_rules) == {"PACK-A"}
     raw = filter_report(
         engine, {"findings": findings}, SimpleNamespace(no_deduplicate=True), frozenset()
     )
-    assert len(raw["findings"]) == 2
+    assert len(raw.findings) == 2
 
 
 @pytest.mark.parametrize("engine", ["ast-dataflow", "cpg", "ifds"])
@@ -307,12 +307,12 @@ hashlib.md5(b'data')
 """,
         "ast-scanner",
     )
-    findings = report["results"]
-    assert any(f["test_id"] == "B605" and f["issue_severity"] == "LOW" for f in findings)
-    assert not any(f["test_id"] in {"B604", "B612"} for f in findings)
-    assert any(f["test_id"] == "B608" for f in findings)
-    assert any(f["test_id"] == "B9022" and f["issue_severity"] == "MEDIUM" for f in findings)
-    assert any(f["test_id"] == "B324" and f["issue_severity"] == "HIGH" for f in findings)
+    findings = report["findings"]
+    assert any(f["rule_id"] == "B605" and f["severity"] == "low" for f in findings)
+    assert not any(f["rule_id"] in {"B604", "B612"} for f in findings)
+    assert any(f["rule_id"] == "B608" for f in findings)
+    assert any(f["rule_id"] == "B9022" and f["severity"] == "medium" for f in findings)
+    assert any(f["rule_id"] == "B324" and f["severity"] == "high" for f in findings)
 
 
 def test_declared_http_handler_parameters_remain_sources(tmp_path, capsys):
@@ -330,7 +330,7 @@ def helper(value):
 """,
         "ast-dataflow",
     )
-    assert {finding["function"] for finding in report["findings"]} == {"handler"}
+    assert {finding["procedure"] for finding in report["findings"]} == {"handler"}
 
 
 def test_quart_sql_format_source_and_receiver(tmp_path, capsys):
@@ -349,7 +349,7 @@ async def search():
 """,
         "ast-dataflow",
     )
-    assert any(f["cwe"] == "CWE-89" and f["sink_line"] == 9 for f in report["findings"])
+    assert any(f["cwe"] == "CWE-89" and f["location"]["line"] == 9 for f in report["findings"])
 
 
 @pytest.mark.parametrize("engine", ["cpg", "ifds"])
@@ -369,9 +369,7 @@ load_config()
     findings = report["findings"]
     assert findings
     for finding in findings:
+        assert finding["location"]["line"] == 4
+        assert finding["location"]["filename"].endswith("sample.py")
         if engine == "ifds":
             assert finding["procedure"] == "load_config"
-            assert finding["primary_location"]["start_line"] == 4
-        else:
-            assert finding["sink_line"] == 4
-            assert finding["sink_filename"].endswith("sample.py")

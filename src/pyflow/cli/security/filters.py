@@ -1,24 +1,19 @@
-"""Engine-independent filtering, baselines, and JSON report projection."""
+"""Engine-independent filtering, folding, and baselining over :class:`SecurityReport`."""
 
 from __future__ import annotations
 
 from dataclasses import replace
-from copy import copy, deepcopy
-from functools import cached_property
 import json
-from pathlib import Path
+from typing import Any, Sequence
 
 from pyflow.checker.common import constants
-from pyflow.checker.formatters.report_render import _single_source_line
-from pyflow.checker.formatters.security import security_json
-from pyflow.checker.formatters.utils import issue_report
-from pyflow.util.cwe import (
-    cwe_url,
-    default_cwe_for_rule_id,
-    default_cwe_suggestion,
-    normalize_cwe,
-)
 from pyflow.checker.common.overlaps import fold_overlapping_issues
+from pyflow.checker.formatters.report_model import (
+    SecurityFinding,
+    SecurityReport,
+    build_security_report,
+    resolve_uri,
+)
 
 SEVERITY_RANK = {
     "undefined": 0,
@@ -33,6 +28,16 @@ SEVERITY_RANK = {
 }
 CONFIDENCE_RANK = {"undefined": 0, "low": 1, "medium": 2, "high": 3}
 
+_GENERIC_RULE_PREFIXES = (
+    "PYFLOW-INJECTION-",
+    "PYFLOW-SQL-",
+    "PYFLOW-XML-",
+    "PYFLOW-SERIALIZATION-",
+    "PYFLOW-NETWORK-",
+    "PYFLOW-REQUESTS-",
+    "PYFLOW-NOSQL-",
+)
+
 
 def rule_ids(values) -> frozenset[str]:
     from pyflow.frontend.file_selection import exclusion_patterns
@@ -45,250 +50,51 @@ def rule_ids(values) -> frozenset[str]:
     return frozenset(exclusion_patterns(flattened))
 
 
-def normalize_finding(finding: dict) -> dict:
-    location = finding.get("primary_location") or finding.get("location") or {}
-    filename = (
-        location.get("uri")
-        or location.get("filename")
-        or finding.get("filename")
-        or finding.get("sink_filename")
-        or ""
+def _finding_identity(finding: SecurityFinding) -> tuple[str, str, int]:
+    return (
+        finding.rule_id,
+        resolve_uri(finding.uri) if finding.uri else "",
+        int(finding.line or 0),
     )
-    line = (
-        location.get("start_line")
-        or location.get("line")
-        or finding.get("line_number")
-        or finding.get("sink_line")
-        or finding.get("line")
-    )
-    severity = str(finding.get("severity") or finding.get("issue_severity") or "medium").lower()
-    severity = {"warning": "medium", "error": "high", "note": "low"}.get(severity, severity)
-    confidence = (
-        finding.get("confidence_level")
-        or finding.get("confidence")
-        or finding.get("issue_confidence")
-        or "medium"
-    )
-    if isinstance(confidence, (int, float)):
-        confidence = "high" if confidence >= 0.85 else "medium" if confidence >= 0.6 else "low"
-    column = (
-        location.get("start_column")
-        if location.get("start_column") is not None
-        else finding.get("sink_column")
-    )
-    end_column = (
-        location.get("end_column")
-        if location.get("end_column") is not None
-        else finding.get("sink_end_column")
-    )
-    rule_id = finding.get("rule_id") or finding.get("test_id") or "PYFLOW-IFDS"
-    cwe = normalize_cwe(
-        finding.get("cwe") or finding.get("issue_cwe", {}).get("id")
-    ) or default_cwe_for_rule_id(str(rule_id))
-    suggestion = (
-        finding.get("suggestion")
-        or (finding.get("rule") or {}).get("help_text")
-        or default_cwe_suggestion(cwe)
-        or ""
-    )
-    procedure = str(finding.get("procedure") or finding.get("function") or "")
-    raw_flow = finding.get("code_flow") or finding.get("trace") or finding.get("path_preview") or ()
-    normalized_flow = []
-    for step in raw_flow:
-        if not isinstance(step, dict):
-            continue
-        step_loc = step.get("location") if isinstance(step.get("location"), dict) else {}
-        step_file = step_loc.get("uri") or step.get("filename") or filename
-        step_line = int(step_loc.get("start_line") or step.get("line") or 0)
-        step_col = (
-            step_loc.get("start_column")
-            if step_loc.get("start_column") is not None
-            else step.get("column")
-        )
-        step_item = {
-            "kind": step.get("kind") or step.get("operation") or "flow",
-            "message": (
-                step.get("message")
-                or step.get("detail")
-                or step.get("label")
-                or step.get("kind")
-                or step.get("operation")
-                or "flow"
-            ),
-            "filename": step_file,
-            "line": step_line,
-            "nesting_level": int(step.get("nesting_level") or 0),
-        }
-        if step_col is not None:
-            step_item["column"] = step_col
-        if step.get("procedure"):
-            step_item["procedure"] = str(step["procedure"])
-        step_snippet = _single_source_line(str(step_file or ""), step_line)
-        if step_snippet:
-            step_item["code_snippet"] = step_snippet
-        normalized_flow.append(step_item)
-    loc_dict = {"filename": filename, "line": line}
-    if column is not None:
-        loc_dict["column"] = column
-    if end_column is not None:
-        loc_dict["end_column"] = end_column
-    related_rules = [
-        str(r.get("rule_id"))
-        for r in (finding.get("related_rules") or ())
-        if isinstance(r, dict) and r.get("rule_id") and r.get("rule_id") != rule_id
-    ]
-    code_snippet = _single_source_line(str(filename or ""), int(line or 0))
-    return {
-        "rule_id": rule_id,
-        "rule_title": finding.get("rule_title")
-        or finding.get("rule", {}).get("name")
-        or finding.get("test_name")
-        or "",
-        "severity": severity,
-        "confidence": str(confidence).lower(),
-        "message": finding.get("message")
-        or finding.get("issue_text")
-        or finding.get("text")
-        or finding.get("sink_label")
-        or finding.get("sink_name")
-        or finding.get("kind")
-        or "Security finding",
-        "procedure": procedure,
-        "location": loc_dict,
-        "code_snippet": code_snippet,
-        "cwe": cwe,
-        "cwe_url": cwe_url(cwe) or None,
-        "suggestion": suggestion,
-        "related_rules": related_rules,
-        "code_flow": normalized_flow,
-        "properties": finding,
-    }
 
 
-def _identity(finding):
-    normalized = normalize_finding(finding)
-    location = normalized["location"]
-    return normalized["rule_id"], location["filename"], location["line"]
-
-
-def load_baseline(path):
+def load_baseline(path) -> frozenset[tuple[str, str, int]]:
+    """Load suppressed finding identities from a canonical JSON report."""
     if path is None:
         return frozenset()
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("baseline must be a JSON report object")
-    findings = data.get("findings", data.get("results"))
+    findings = data.get("findings")
     if not isinstance(findings, list) or not all(isinstance(item, dict) for item in findings):
-        raise ValueError("baseline must contain a findings or results array")
-    identities = {_identity(item) for item in findings}
+        raise ValueError("baseline must contain a findings array")
+    identities: set[tuple[str, str, int]] = set()
     for item in findings:
-        rule, filename, line = _identity(item)
-        properties = item.get("properties") or item
-        identities.update(
-            (related["rule_id"], filename, line) for related in properties.get("related_rules", ())
-        )
+        loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+        filename = resolve_uri(str(loc.get("filename") or "")) if loc.get("filename") else ""
+        line = int(loc.get("line") or 0)
+        rule_id = str(item.get("rule_id") or "")
+        if rule_id:
+            identities.add((rule_id, filename, line))
+        debug = item.get("debug") if isinstance(item.get("debug"), dict) else {}
+        for related in item.get("related_rules") or debug.get("related_rules") or ():
+            rel_id = related.get("rule_id") if isinstance(related, dict) else str(related or "")
+            if rel_id:
+                identities.add((rel_id, filename, line))
     return frozenset(identities)
 
 
-def _accept(finding, args, baseline):
-    item = normalize_finding(finding)
+def _accept(finding: SecurityFinding, args, baseline: frozenset[tuple[str, str, int]]) -> bool:
     excluded = rule_ids(getattr(args, "skip_rule", ()))
-    if item["rule_id"] in excluded or item["rule_title"] in excluded:
+    if finding.rule_id in excluded or finding.rule_title in excluded:
         return False
-    if (
-        SEVERITY_RANK.get(item["severity"], 0)
-        < SEVERITY_RANK[getattr(args, "severity", "low").lower()]
-    ):
+    min_sev = SEVERITY_RANK[getattr(args, "severity", "low").lower()]
+    if SEVERITY_RANK.get(finding.severity, 0) < min_sev:
         return False
-    if (
-        CONFIDENCE_RANK.get(item["confidence"], 0)
-        < CONFIDENCE_RANK[getattr(args, "confidence", "low").lower()]
-    ):
+    min_conf = CONFIDENCE_RANK[getattr(args, "confidence", "low").lower()]
+    if CONFIDENCE_RANK.get(finding.confidence, 0) < min_conf:
         return False
-    return _identity(finding) not in baseline
-
-
-class FilteredScannerResult:
-    def __init__(self, manager, args, baseline):
-        self.manager, self.args, self.baseline = manager, args, baseline
-
-    def __getattr__(self, name):
-        return getattr(self.manager, name)
-
-    def _filtered_raw(self, sev_level=constants.LOW, conf_level=constants.LOW):
-        return [
-            issue
-            for issue in self.manager.get_issue_list(sev_level, conf_level)
-            if _accept(
-                {
-                    "test_id": issue.test_id,
-                    "test_name": issue.test,
-                    "issue_severity": issue.severity,
-                    "issue_confidence": issue.confidence,
-                    "filename": issue.fname,
-                    "line_number": issue.lineno,
-                },
-                self.args,
-                self.baseline,
-            )
-        ]
-
-    def get_issue_list(self, sev_level=constants.LOW, conf_level=constants.LOW):
-        issues = self._filtered_raw(sev_level, conf_level)
-        return (
-            issues
-            if getattr(self.args, "no_deduplicate", False)
-            else fold_overlapping_issues(issues)
-        )
-
-    @cached_property
-    def metrics(self):
-        metrics = deepcopy(self.manager.metrics)
-        totals = metrics.data["_totals"]
-        for key in totals:
-            if key.startswith(("SEVERITY.", "CONFIDENCE.")):
-                totals[key] = 0
-        reported = self.get_issue_list()
-        for issue in reported:
-            for criterion, level in (
-                ("SEVERITY", issue.severity),
-                ("CONFIDENCE", issue.confidence),
-            ):
-                key = f"{criterion}.{level}"
-                totals[key] = totals.get(key, 0) + 1
-        totals["raw_findings"] = len(self.manager.get_issue_list())
-        totals["folded_findings"] = len(self._filtered_raw()) - len(reported)
-        if hasattr(metrics, "issues"):
-            metrics.issues = len(reported)
-        for attribute, criterion in (
-            ("issues_by_severity", "SEVERITY"),
-            ("issues_by_confidence", "CONFIDENCE"),
-        ):
-            if hasattr(metrics, attribute):
-                setattr(
-                    metrics,
-                    attribute,
-                    {
-                        key.split(".", 1)[1]: value
-                        for key, value in totals.items()
-                        if key.startswith(criterion + ".")
-                    },
-                )
-        return metrics
-
-    def results_count(self, *args, **kwargs):
-        return len(self.get_issue_list(*args, **kwargs))
-
-
-_GENERIC_RULE_PREFIXES = (
-    "PYFLOW-INJECTION-",
-    "PYFLOW-SQL-",
-    "PYFLOW-XML-",
-    "PYFLOW-SERIALIZATION-",
-    "PYFLOW-NETWORK-",
-    "PYFLOW-REQUESTS-",
-    "PYFLOW-NOSQL-",
-)
+    return _finding_identity(finding) not in baseline
 
 
 def _rule_pack_priority(rule_id: str, sink_name: str) -> tuple[int, str]:
@@ -304,196 +110,156 @@ def _rule_pack_priority(rule_id: str, sink_name: str) -> tuple[int, str]:
     return (3, rule_id)
 
 
-def _fold_taint_findings(findings):
-    """Fold equivalent sink reports across packs, retaining rule provenance."""
-    grouped = {}
-    for finding in sorted(
+def _fold_findings(findings: Sequence[SecurityFinding]) -> list[SecurityFinding]:
+    """Fold equivalent sink reports across rule packs while preserving related rule provenance."""
+    grouped: dict[tuple[Any, ...], SecurityFinding] = {}
+    ordered = sorted(
         findings,
         key=lambda item: (
-            -SEVERITY_RANK.get(normalize_finding(item)["severity"], 0),
-            0 if normalize_finding(item)["cwe"] else 1,
-            _rule_pack_priority(
-                normalize_finding(item)["rule_id"],
-                str(
-                    item.get("sink_name")
-                    or item.get("sink_label")
-                    or (item.get("properties") or {}).get("sink_name")
-                    or ""
-                ),
-            ),
+            -SEVERITY_RANK.get(item.severity, 0),
+            0 if item.cwe else 1,
+            _rule_pack_priority(item.rule_id, item.sink_name or item.sink_label),
         ),
-    ):
-        normalized = normalize_finding(finding)
-        location = normalized["location"]
-        sink = finding.get("sink_name") or finding.get("sink_label")
-        if not sink:
-            sink = (finding.get("properties") or {}).get("sink_name")
-        key = (
-            location["filename"],
-            location["line"],
-            sink,
-            normalized["cwe"],
-        )
-        # Missing identities must not collapse unrelated findings.
-        if not all((location["filename"], location["line"], sink)):
-            key += (id(finding),)
-        representative = grouped.setdefault(key, {**finding, "related_rules": []})
-        related = {
-            "rule_id": normalized["rule_id"],
-            "rule_title": normalized["rule_title"],
-            "severity": normalized["severity"],
-        }
-        if related not in representative["related_rules"]:
-            representative["related_rules"].append(related)
+    )
+    for finding in ordered:
+        sink = finding.sink_name or finding.sink_label
+        resolved_uri = resolve_uri(finding.uri) if finding.uri else ""
+        if resolved_uri and finding.line > 0 and sink:
+            key: tuple[Any, ...] = (resolved_uri, finding.line, sink, finding.cwe)
+        else:
+            key = (id(finding),)
+        existing = grouped.get(key)
+        if existing is None:
+            grouped[key] = finding
+        else:
+            related = list(existing.related_rules)
+            for candidate in (finding.rule_id, *finding.related_rules):
+                if candidate and candidate != existing.rule_id and candidate not in related:
+                    related.append(candidate)
+            grouped[key] = replace(existing, related_rules=tuple(related))
     return list(grouped.values())
 
 
-def filter_report(engine, result, args, baseline):
-    if engine == "ast-scanner":
-        return FilteredScannerResult(result, args, baseline)
-    if engine == "ast-dataflow":
-        report = security_json(engine, result)
-        accepted = [item for item in report["findings"] if _accept(item, args, baseline)]
-        if not getattr(args, "no_deduplicate", False):
-            accepted = _fold_taint_findings(accepted)
-        result = copy(result)
-        if getattr(result, "analysis_result", None) is not None:
-            originals = {
-                (
-                    item.rule_id,
-                    item.filename,
-                    item.sink_line,
-                    item.sink_name,
-                    item.cwe,
-                    tuple(sorted(item.source_kinds)),
-                ): item
-                for item in result.analysis_result.findings
-            }
-            result.analysis_result = replace(
-                result.analysis_result,
-                findings=tuple(
-                    replace(
-                        originals[
-                            (
-                                item["rule_id"],
-                                item["filename"],
-                                item["sink_line"],
-                                item["sink_name"],
-                                item["cwe"],
-                                tuple(sorted(item["source_kinds"])),
-                            )
-                        ],
-                        related_rules=tuple(
-                            (rule["rule_id"], rule["rule_title"], rule["severity"])
-                            for rule in item.get("related_rules", ())
-                        ),
-                    )
-                    for item in accepted
-                ),
-                statistics={
-                    **result.analysis_result.statistics,
-                    "raw_findings": len(report["findings"]),
-                    "reported_findings": len(accepted),
-                },
-            )
-            from pyflow.checker.ast_dataflow.detectors.taint import ASTDataflowTaintDetector
-
-            result.results = ASTDataflowTaintDetector().issues_from_result(result.analysis_result)
-        return FilteredScannerResult(result, args, baseline)
-    result = dict(result)
-    result["findings"] = [
-        item for item in result.get("findings", ()) if _accept(item, args, baseline)
-    ]
-    if not getattr(args, "no_deduplicate", False):
-        result["findings"] = _fold_taint_findings(result["findings"])
-    result["statistics"] = {
-        **result.get("statistics", {}),
-        "reported_findings": len(result["findings"]),
-    }
-    if "entry_results" in result:
-        result["entry_results"] = [
-            filter_report(engine, item, args, baseline) for item in result["entry_results"]
-        ]
-    return result
+def _severity_confidence_totals(
+    base_stats: dict[str, Any],
+    findings: Sequence[SecurityFinding],
+    *,
+    raw_count: int,
+    filtered_count: int,
+) -> dict[str, Any]:
+    stats = dict(base_stats)
+    for key in list(stats):
+        if key.startswith(("SEVERITY.", "CONFIDENCE.")):
+            stats[key] = 0
+    for finding in findings:
+        sev_key = f"SEVERITY.{finding.severity.upper()}"
+        conf_key = f"CONFIDENCE.{finding.confidence.upper()}"
+        stats[sev_key] = stats.get(sev_key, 0) + 1
+        stats[conf_key] = stats.get(conf_key, 0) + 1
+    stats["raw_findings"] = raw_count
+    stats["folded_findings"] = filtered_count - len(findings)
+    stats["reported_findings"] = len(findings)
+    return stats
 
 
-def unified_report(engine, result):
-    if engine == "ast-scanner":
-        report = issue_report(result, constants.LOW, constants.LOW)
-        findings = report["results"]
-        status = "partial" if report["errors"] else "complete"
-        diagnostics = []
-        for item in report["errors"]:
-            if isinstance(item, dict):
-                diagnostic = dict(item)
-                diagnostic.setdefault("code", "ast-scanner-error")
-                diagnostic.setdefault(
-                    "message",
-                    item.get("reason") or item.get("message") or "AST scan failed",
-                )
-                diagnostic.setdefault("affects_completeness", True)
-                diagnostics.append(diagnostic)
-            else:
-                diagnostics.append(
-                    {
-                        "code": "ast-scanner-error",
-                        "message": str(item),
-                        "affects_completeness": True,
-                    }
-                )
-        errors = [item for item in diagnostics if item.get("affects_completeness")]
-        statistics = report["metrics"].get("_totals", {})
-    else:
-        report = security_json(engine, result)
-        findings = report.get("findings", ())
-        status = report.get("status", "complete")
-        diagnostics = [
-            (
-                {
-                    "code": item.get("code", "analysis-diagnostic"),
-                    "message": item.get("message") or item.get("reason", ""),
-                    **item,
-                }
-                if isinstance(item, dict)
-                else {
-                    "code": "analysis-diagnostic",
-                    "message": str(item),
-                    "affects_completeness": status != "complete",
-                }
-            )
-            for item in report.get("diagnostics", [])
-        ]
-        errors = [
-            item
-            for item in diagnostics
-            if isinstance(item, dict) and item.get("affects_completeness")
-        ]
-        statistics = report.get("statistics", {})
-    normalized_findings = [normalize_finding(item) for item in findings]
-    for finding in normalized_findings:
-        filename = finding["location"]["filename"]
-        if filename and not filename.startswith("<") and "://" not in filename:
-            finding["location"]["filename"] = str(Path(filename).resolve())
-    return {
-        "schema_version": 1,
-        "engine": engine,
-        "status": status,
-        "findings": normalized_findings,
-        "errors": errors,
-        "diagnostics": diagnostics,
-        "statistics": statistics,
-    }
+def _filter_ast_scanner_manager(manager, args, baseline) -> SecurityReport:
+    """Filter AST-scanner issues before overlap folding so AST node-level spans are preserved."""
+    raw_issues = list(manager.get_issue_list(constants.LOW, constants.LOW))
+    excluded = rule_ids(getattr(args, "skip_rule", ()))
+    min_sev = SEVERITY_RANK[getattr(args, "severity", "low").lower()]
+    min_conf = CONFIDENCE_RANK[getattr(args, "confidence", "low").lower()]
+
+    filtered_issues = []
+    for issue in raw_issues:
+        rid = str(getattr(issue, "test_id", "") or "")
+        title = str(getattr(issue, "test", "") or "")
+        if rid in excluded or title in excluded:
+            continue
+        sev = str(getattr(issue, "severity", "medium") or "medium").lower()
+        conf = str(getattr(issue, "confidence", "medium") or "medium").lower()
+        if SEVERITY_RANK.get(sev, 0) < min_sev or CONFIDENCE_RANK.get(conf, 0) < min_conf:
+            continue
+        uri = resolve_uri(str(getattr(issue, "fname", "") or ""))
+        line = int(getattr(issue, "lineno", 0) or 0)
+        if (rid, uri, line) in baseline:
+            continue
+        filtered_issues.append(issue)
+
+    folded_issues = (
+        filtered_issues
+        if getattr(args, "no_deduplicate", False)
+        else fold_overlapping_issues(filtered_issues)
+    )
+    # Build canonical report from folded issues while preserving scanner errors & metrics.
+    base_report = build_security_report("ast-scanner", manager)
+    folded_report = build_security_report(
+        "ast-scanner",
+        _IssueListView(folded_issues, manager),
+    )
+    stats = _severity_confidence_totals(
+        dict(base_report.statistics),
+        folded_report.findings,
+        raw_count=len(raw_issues),
+        filtered_count=len(filtered_issues),
+    )
+    return replace(
+        folded_report,
+        diagnostics=base_report.diagnostics,
+        status=base_report.status,
+        statistics=stats,
+    )
 
 
-def has_failing_findings(engine, result, args):
+class _IssueListView:
+    """Tiny adapter letting ``build_security_report`` read a pre-filtered scanner issue list."""
+
+    def __init__(self, issues, manager):
+        self._issues = issues
+        self._manager = manager
+
+    def get_issue_list(self, *_args, **_kwargs):
+        return self._issues
+
+    def get_errors(self):
+        return (
+            self._manager.get_errors()
+            if hasattr(self._manager, "get_errors")
+            else [
+                {"filename": fn, "reason": reason}
+                for fn, reason in getattr(self._manager, "get_skipped", lambda: ())()
+            ]
+        )
+
+    @property
+    def metrics(self):
+        return getattr(self._manager, "metrics", None)
+
+
+def filter_report(engine: str, result: Any, args, baseline) -> SecurityReport:
+    """Normalize, filter, fold, and baseline any engine result into a :class:`SecurityReport`."""
+    if (
+        engine == "ast-scanner"
+        and not isinstance(result, SecurityReport)
+        and hasattr(result, "get_issue_list")
+    ):
+        return _filter_ast_scanner_manager(result, args, baseline)
+
+    doc = build_security_report(engine, result)
+    raw_count = len(doc.findings)
+    accepted = [finding for finding in doc.findings if _accept(finding, args, baseline)]
+    folded = accepted if getattr(args, "no_deduplicate", False) else _fold_findings(accepted)
+    stats = _severity_confidence_totals(
+        dict(doc.statistics),
+        folded,
+        raw_count=raw_count,
+        filtered_count=len(accepted),
+    )
+    return replace(doc, findings=tuple(folded), statistics=stats)
+
+
+def has_failing_findings(report: SecurityReport, args) -> bool:
     threshold = getattr(args, "fail_on", None)
     if threshold == "none":
         return False
-    if engine in {"ast-scanner", "ast-dataflow"}:
-        severities = (item.severity for item in result.get_issue_list())
-    else:
-        severities = (item.get("severity", "medium") for item in result.get("findings", ()))
-    return any(
-        SEVERITY_RANK.get(str(severity).lower(), 0) >= SEVERITY_RANK[threshold or "low"]
-        for severity in severities
-    )
+    min_rank = SEVERITY_RANK[threshold or "low"]
+    return any(SEVERITY_RANK.get(finding.severity, 0) >= min_rank for finding in report.findings)

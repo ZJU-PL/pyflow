@@ -19,7 +19,6 @@ from pyflow.checker.formatters import text as text_formatter
 from pyflow.checker.common import constants as b_constants
 from pyflow.checker.common.issue import Issue
 from pyflow.checker.formatters.security import (
-    ast_dataflow_report,
     security_json,
     security_sarif,
     security_text,
@@ -45,12 +44,12 @@ def test_ast_scanner_json_includes_primary_and_ancestor_cwes():
     issue.lineno = 7
     manager = SimpleNamespace(get_issue_list=lambda *_args: [issue])
 
-    finding = security_json("ast-scanner", manager)["results"][0]
+    finding = security_json("ast-scanner", manager)["findings"][0]
 
     assert finding["cwe"] == "CWE-78"
     assert finding["cwes"] == ["CWE-78", "CWE-77"]
-    assert finding["cwe_ancestors"] == ["CWE-77"]
-    assert finding["issue_cwe"]["id"] == 78
+    assert finding["debug"]["cwe_ancestors"] == ["CWE-77"]
+    assert finding["cwe_url"] == "https://cwe.mitre.org/data/definitions/78.html"
 
 
 class _FormatterManager:
@@ -216,6 +215,7 @@ def test_security_cli_threads_ast_dataflow_excludes_into_config(monkeypatch):
 
         def analyze(self, targets):
             captured["targets"] = list(targets)
+            self.analysis_result = ASTDataflowTaintResult(())
 
         def get_issue_list(self, *_args, **_kwargs):
             return []
@@ -351,12 +351,12 @@ def test_ast_dataflow_json_and_sarif_preserve_trace_and_diagnostics():
         )
     )
 
-    payload = ast_dataflow_report(manager)
+    payload = security_json("ast-dataflow", manager)
     sarif = security_sarif("ast-dataflow", manager)
 
-    assert payload["findings"][0]["trace"][0]["operation"] == "source"
+    assert payload["findings"][0]["code_flow"][0]["kind"] == "source"
     assert payload["findings"][0]["cwes"] == ["CWE-95", "CWE-94"]
-    assert payload["findings"][0]["cwe_ancestors"] == ["CWE-94"]
+    assert payload["findings"][0]["debug"]["cwe_ancestors"] == ["CWE-94"]
     assert payload["diagnostics"][0]["operation"] == "library.call"
     thread_locations = sarif["runs"][0]["results"][0]["codeFlows"][0]["threadFlows"][0]["locations"]
     assert [
@@ -514,7 +514,7 @@ def test_ifds_text_explicitly_reports_unavailable_source():
 
 def test_cpg_text_does_not_display_unknown_locations_as_line_zero():
     text = security_text("cpg", {"findings": [{"source_line": 0, "sink_line": 0}]})
-    assert text.count("<source location unavailable>") == 2
+    assert "<source location unavailable>" in text
     assert "line 0" not in text
 
 

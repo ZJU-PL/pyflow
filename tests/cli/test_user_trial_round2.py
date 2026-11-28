@@ -95,7 +95,7 @@ def test_a110_requires_fastapi_and_real_database_calls(tmp_path, source):
     path = tmp_path / "sample.py"
     path.write_text(source)
     report = json.loads(successful("security", path, "--format", "json").stdout)
-    assert not any(item["test_id"] == "A110" for item in report["results"])
+    assert not any(item["rule_id"] == "A110" for item in report["findings"])
 
 
 @pytest.mark.parametrize("commit,expected", [(False, True), (True, False)])
@@ -106,7 +106,7 @@ def test_a110_checks_the_actual_calls(tmp_path, commit, expected):
         + ("    db.commit()\n" if commit else "")
     )
     report = json.loads(successful("security", path, "--format", "json").stdout)
-    assert any(item["test_id"] == "A110" for item in report["results"]) is expected
+    assert any(item["rule_id"] == "A110" for item in report["findings"]) is expected
 
 
 @pytest.mark.parametrize(

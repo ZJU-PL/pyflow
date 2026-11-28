@@ -39,7 +39,7 @@ def test_scanner_does_not_infer_unrelated_security_roles(tmp_path, source, rule)
     path.write_text(source)
     result = cli("security", path, "--format", "json")
     assert result.returncode == 0, result.stderr
-    assert all(finding["test_id"] != rule for finding in json.loads(result.stdout)["results"])
+    assert all(finding["rule_id"] != rule for finding in json.loads(result.stdout)["findings"])
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ def test_scanner_keeps_supported_positive_matches(tmp_path, source, rule):
     path.write_text(source)
     result = cli("security", path, "--format", "json")
     assert result.returncode == 0, result.stderr
-    assert any(finding["test_id"] == rule for finding in json.loads(result.stdout)["results"])
+    assert any(finding["rule_id"] == rule for finding in json.loads(result.stdout)["findings"])
 
 
 @pytest.mark.parametrize("engine", ["ast-dataflow", "ifds"])
@@ -156,8 +156,8 @@ def test_unimported_framework_rules_do_not_produce_false_positives(tmp_path, sou
     path.write_text(source)
     result = cli("security", path, "--format", "json")
     assert result.returncode == 0, result.stderr
-    findings = json.loads(result.stdout)["results"]
-    assert all(finding["test_id"] != rule for finding in findings)
+    findings = json.loads(result.stdout)["findings"]
+    assert all(finding["rule_id"] != rule for finding in findings)
 
 
 def test_ir_cli_without_dump_target_exits_with_error(tmp_path):

@@ -18,6 +18,7 @@ import sys
 import warnings
 from contextlib import redirect_stdout
 from copy import copy
+from dataclasses import replace
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
@@ -1125,28 +1126,27 @@ def run_security(args) -> int:
             warnings.simplefilter("ignore", SyntaxWarning)
             if engine == "ast-scanner":
                 result = _run_ast_scanner(targets, args, exclude=exclude, recursive=recursive)
-                errors = (
-                    result.get_errors() if hasattr(result, "get_errors") else result.get_skipped()
+                missing_target = any(
+                    target != "-" and not Path(target).exists() for target in targets
                 )
-                status = "partial" if errors else "complete"
-                if any(target != "-" and not Path(target).exists() for target in targets):
-                    status = "invalid"
             elif engine == "ast-dataflow":
                 result = _run_ast_dataflow(targets, args, exclude=exclude, recursive=recursive)
-                status = getattr(getattr(result, "analysis_result", None), "status", "complete")
+                missing_target = False
             elif engine == "ifds":
                 result = _run_ifds(targets, args)
-                status = result.get("status", "complete")
+                missing_target = False
             elif engine == "cpg":
                 result = _run_cpg(targets, args)
-                status = result.get("status", "complete")
+                missing_target = False
             else:
                 print(f"Unknown engine: {engine}", file=sys.stderr)
                 return 2
-        result = filter_report(engine, result, args, baseline)
-        _output_results(engine, result, args)
+        report = filter_report(engine, result, args, baseline)
+        if missing_target:
+            report = replace(report, status="invalid")
+        _output_results(engine, report, args)
         return _security_exit_code(
-            args, status=status, has_findings=has_failing_findings(engine, result, args)
+            args, status=report.status, has_findings=has_failing_findings(report, args)
         )
     except BrokenPipeError:
         raise
